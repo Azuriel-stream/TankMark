@@ -1,11 +1,17 @@
 -- TankMark: v0.1-dev
 -- Module: Database Initialization & Utility Functions
+-- File: TankMark_Data.lua
 
 -- 1. Addon Initialization
--- Create the hidden frame to handle events
-local TankMark = CreateFrame("Frame", "TankMarkFrame")
+-- GLOBAL object so other files can see it (Removed 'local')
+if not TankMark then
+    TankMark = CreateFrame("Frame", "TankMarkFrame")
+end
+
 TankMark:RegisterEvent("ADDON_LOADED")
 TankMark:RegisterEvent("PLAYER_LOGIN")
+TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+TankMark:RegisterEvent("UNIT_HEALTH")
 
 -- Internal Runtime Tables (Not saved to DB)
 TankMark.sessionAssignments = {} -- Structure: { [iconID] = "PlayerName" }
@@ -59,7 +65,9 @@ function TankMark:InitializeDB()
                  ["Molten Giant"] = { ["prio"] = 1, ["mark"] = 8, ["type"] = "KILL" },
                  ["Lava Surger"] =  { ["prio"] = 3, ["mark"] = 3, ["type"] = "CC", ["class"] = "WARLOCK" },
             },
-            -- Add generic defaults here if needed
+            ["Winterspring"] = {
+                ["Cobalt Broodling"] = { ["prio"] = 1, ["mark"] = 8, ["type"] = "KILL" },
+            },
         }
     end
     
@@ -77,13 +85,10 @@ function TankMark:Debug(msg)
 end
 
 -- 5. Utility: The "Blind" Scanner (Checks if a Mark is still alive)
--- Returns: boolean (true = alive or unknown, false = confirmed dead)
 function TankMark:IsMarkAlive(iconID)
-    -- Iterate through all possible group members
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
     
-    -- Function to check a specific unit target
     local function checkTarget(unitID)
         if UnitExists(unitID) and GetRaidTargetIndex(unitID) == iconID then
             return unitID
@@ -99,38 +104,32 @@ function TankMark:IsMarkAlive(iconID)
             if foundUnitID then break end
         end
     elseif numParty > 0 then
-        for i = 1, 4 then
+        for i = 1, 4 do -- FIXED: "do" instead of "then"
             foundUnitID = checkTarget("party"..i.."target")
             if foundUnitID then break end
         end
-        if not foundUnitID then foundUnitID = checkTarget("target") end -- Check player target too
+        if not foundUnitID then foundUnitID = checkTarget("target") end 
     else
-        -- Solo play: Check player target
         foundUnitID = checkTarget("target")
     end
 
     if foundUnitID then
-        -- We found someone targeting the mark. Is it dead?
         if UnitIsDeadOrGhost(foundUnitID) then
-            return false -- Confirmed Dead
+            return false 
         else
-            return true -- Confirmed Alive
+            return true 
         end
     end
-
-    -- Fallback: If nobody is targeting it, we must assume it is ALIVE
-    -- to prevent accidental reassignment of a loose CC mob.
     return true 
 end
 
--- 6. Utility: Roster Scanner (Builds the list of available classes)
--- Can be called on RAID_ROSTER_UPDATE or on demand
+-- 6. Utility: Roster Scanner
 function TankMark:UpdateRoster()
     TankMark.runtimeCache.classRoster = {} 
     
     local function addPlayer(unitID)
         if UnitExists(unitID) and UnitIsConnected(unitID) then
-            local _, classEng = UnitClass(unitID) -- Returns "Warlock", "WARLOCK"
+            local _, classEng = UnitClass(unitID) 
             local name = UnitName(unitID)
             
             if classEng and name then
@@ -147,23 +146,20 @@ function TankMark:UpdateRoster()
         for i=1, 40 do addPlayer("raid"..i) end
     else
         for i=1, 4 do addPlayer("party"..i) end
-        addPlayer("player") -- Add self in 5-man/solo
+        addPlayer("player") 
     end
 end
 
 -- 7. Utility: Get First Available Backup
--- Returns: string (PlayerName) or nil
 function TankMark:GetFirstAvailableBackup(requiredClass)
     if not requiredClass then return nil end
     
-    -- Ensure roster is fresh
     TankMark:UpdateRoster() 
     
     local candidates = TankMark.runtimeCache.classRoster[requiredClass]
     if not candidates then return nil end
 
     for _, playerName in ipairs(candidates) do
-        -- Check 1: Is this player already assigned to something in this session?
         local isAssigned = false
         for _, assignedName in pairs(TankMark.sessionAssignments) do
             if assignedName == playerName then 
@@ -171,30 +167,14 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
                 break 
             end
         end
-
-        -- Check 2: Is this player actually alive? (Don't assign a dead backup)
-        local isAlive = false
-        -- We need to find their unitID to check health. 
-        -- Since we stored names, we have to efficiently find them again or assume alive.
-        -- For v0.1, we will trust UnitHealth if we can find the UnitID, 
-        -- otherwise we assume alive to be safe.
-        -- (Complex UnitID lookup omitted for brevity, assuming alive for now)
-        isAlive = true 
+        
+        -- Assuming alive for v0.1 simplification
+        local isAlive = true 
 
         if not isAssigned and isAlive then
-            return playerName -- Found a free, valid player
+            return playerName 
         end
     end
 
-    return nil -- No backups found
+    return nil 
 end
-
--- Event Handler Skeleton (To be expanded in Module 2)
-TankMark:SetScript("OnEvent", function()
-    if event == "ADDON_LOADED" and arg1 == "TankMark" then
-        TankMark:InitializeDB()
-    elseif event == "PLAYER_LOGIN" then
-         -- Perform initial roster scan
-        TankMark:UpdateRoster()
-    end
-end)
