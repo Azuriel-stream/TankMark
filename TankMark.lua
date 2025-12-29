@@ -12,12 +12,17 @@ end
 -- ==========================================================
 
 -- Runtime state for "Used Icons"
-TankMark.usedIcons = {} 
+TankMark.usedIcons = {}
+TankMark.activeMobNames = {}
 
 function TankMark:ResetSession()
     TankMark.usedIcons = {}
     TankMark.sessionAssignments = {}
+    TankMark.activeMobNames = {} -- (Keep this here too to clear it on reset)
+    
     TankMark:Print("Targeting session reset. Ready for new pack.")
+    
+    if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
 function TankMark:HandleMouseover()
@@ -82,6 +87,10 @@ function TankMark:ProcessKnownMob(mobData)
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
         TankMark.usedIcons[iconToApply] = true
+
+        -- NEW: Save Name & Update HUD
+        TankMark.activeMobNames[iconToApply] = UnitName("mouseover")
+        if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
 end
 
@@ -93,6 +102,10 @@ function TankMark:ProcessUnknownMob()
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
         TankMark.usedIcons[iconToApply] = true
+
+        -- NEW: Save Name & Update HUD
+        TankMark.activeMobNames[iconToApply] = UnitName("mouseover")
+        if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
 end
 
@@ -109,6 +122,8 @@ end
 function TankMark:AssignCC(iconID, playerName, taskType)
     TankMark.sessionAssignments[iconID] = playerName
     TankMark.usedIcons[iconID] = true
+
+    if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
 -- ==========================================================
@@ -210,11 +225,20 @@ function TankMark:SlashHandler(msg)
                 TankMark.usedIcons[iconID] = true 
                 
                 TankMark:Print("Manually assigned {rt"..iconID.."} to " .. targetPlayer)
+
+                if TankMark.UpdateHUD then TankMark:UpdateHUD() end
             else
                 TankMark:Print("Invalid mark. Use numbers (1-8) or names (skull, moon, etc).")
             end
         else
             TankMark:Print("Usage: /tm assign [mark] [player]")
+        end
+
+    elseif cmd == "config" or cmd == "c" then
+        if TankMark.ShowOptions then
+            TankMark:ShowOptions()
+        else
+            TankMark:Print("Options module not loaded.")
         end
 
     else
