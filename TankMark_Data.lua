@@ -12,6 +12,7 @@ TankMark:RegisterEvent("ADDON_LOADED")
 TankMark:RegisterEvent("PLAYER_LOGIN")
 TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
+TankMark:RegisterEvent("CHAT_MSG_ADDON")
 
 -- Internal Runtime Tables (Not saved to DB)
 TankMark.sessionAssignments = {} -- Structure: { [iconID] = "PlayerName" }

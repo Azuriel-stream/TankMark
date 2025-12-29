@@ -241,6 +241,13 @@ function TankMark:SlashHandler(msg)
             TankMark:Print("Options module not loaded.")
         end
 
+    elseif cmd == "sync" or cmd == "share" then
+        if TankMark.BroadcastZone then
+            TankMark:BroadcastZone()
+        else
+            TankMark:Print("Sync module not loaded.")
+        end
+
     else
         TankMark:Print("Commands: /tm reset, /tm announce, /tm assign [mark] [player]")
     end
@@ -286,6 +293,13 @@ TankMark:SetScript("OnEvent", function()
 
     elseif (event == "UNIT_HEALTH") then
         TankMark:HandleDeath(arg1)
+    
+    elseif (event == "CHAT_MSG_ADDON") then
+        -- arg1=prefix, arg2=message, arg3=channel, arg4=sender
+        if TankMark.HandleSync then
+            TankMark:HandleSync(arg1, arg2, arg4)
+        end
+        
     end
 end)
 
