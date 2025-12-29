@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="TANKMARK_ANNOUNCE" header="TANKMARK">
+		TankMark:AnnounceAssignments()
+	</Binding>
+	<Binding name="TANKMARK_RESET">
+		TankMark:ResetSession()
+	</Binding>
+</Bindings>
