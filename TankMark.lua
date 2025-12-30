@@ -87,9 +87,18 @@ function TankMark:ProcessKnownMob(mobData)
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
         TankMark.usedIcons[iconToApply] = true
-
-        -- NEW: Save Name & Update HUD
         TankMark.activeMobNames[iconToApply] = UnitName("mouseover")
+        
+        -- v0.4: AUTO-ASSIGN PLAYER
+        -- Only assign if we haven't manually assigned this icon this session
+        if not TankMark.sessionAssignments[iconToApply] then
+            local assignee = TankMark:GetAssigneeForMark(iconToApply)
+            if assignee then
+                TankMark.sessionAssignments[iconToApply] = assignee
+                -- Optional: Announce to chat? (Maybe too spammy, stick to HUD for now)
+            end
+        end
+        
         if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
 end
@@ -102,9 +111,18 @@ function TankMark:ProcessUnknownMob()
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
         TankMark.usedIcons[iconToApply] = true
-
-        -- NEW: Save Name & Update HUD
         TankMark.activeMobNames[iconToApply] = UnitName("mouseover")
+        
+        -- v0.4: AUTO-ASSIGN PLAYER
+        -- Only assign if we haven't manually assigned this icon this session
+        if not TankMark.sessionAssignments[iconToApply] then
+            local assignee = TankMark:GetAssigneeForMark(iconToApply)
+            if assignee then
+                TankMark.sessionAssignments[iconToApply] = assignee
+                -- Optional: Announce to chat? (Maybe too spammy, stick to HUD for now)
+            end
+        end
+        
         if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
 end
@@ -201,7 +219,9 @@ function TankMark:SlashHandler(msg)
         TankMark:ResetSession()
         
     elseif cmd == "announce" or cmd == "a" then
-        TankMark:AnnounceAssignments()
+        if TankMark.AnnounceAssignments then
+            TankMark:AnnounceAssignments()
+        end
 
     elseif cmd == "zone" or cmd == "debug" then
         local currentZone = GetRealZoneText()
@@ -274,6 +294,161 @@ function TankMark:AnnounceAssignments()
              local msg = iconString .. " assigned to " .. player
              SendChatMessage(msg, channel)
         end
+    end
+end
+
+-- ==========================================================
+-- MODULE 4: AUTO-ASSIGNMENT LOGIC
+-- ==========================================================
+
+function TankMark:GetAssigneeForMark(markID)
+    local zone = GetRealZoneText()
+    
+    -- 1. CHECK PROFILE ASSIGNMENT (Priority)
+    -- If a player is explicitly named in the profile, they get the job 
+    -- even if they are already assigned elsewhere (Manual Override).
+    if TankMarkDB.Profiles[zone] and TankMarkDB.Profiles[zone][markID] then
+        local assignedName = TankMarkDB.Profiles[zone][markID]
+        
+        -- Validate Player Presence
+        if UnitInRaid("player") then
+            for i = 1, GetNumRaidMembers() do
+                if UnitName("raid"..i) == assignedName then return assignedName end
+            end
+        else
+            if UnitName("player") == assignedName then return assignedName end
+            for i = 1, GetNumPartyMembers() do
+                if UnitName("party"..i) == assignedName then return assignedName end
+            end
+        end
+    end
+    
+    -- 2. FALLBACK: RANDOM CLASS PICK (With "Busy" Check)
+    local requiredClass = TankMark.MarkClassDefaults[markID]
+    if not requiredClass then return nil end 
+    
+    local candidates = {}
+    
+    -- Helper function to check if player is already working
+    local function IsPlayerBusy(name)
+        for otherMark, assignee in pairs(TankMark.sessionAssignments) do
+            -- If this player is assigned to another mark (not the current one), they are busy
+            if assignee == name and otherMark ~= markID then
+                return true
+            end
+        end
+        return false
+    end
+    
+    -- Build Candidate List
+    if UnitInRaid("player") then
+        for i = 1, GetNumRaidMembers() do
+            local name = UnitName("raid"..i)
+            local _, class = UnitClass("raid"..i)
+            
+            -- Must be correct class, alive, AND NOT BUSY
+            if class == requiredClass and not UnitIsDeadOrGhost("raid"..i) then
+                if name and not IsPlayerBusy(name) then 
+                    table.insert(candidates, name) 
+                end
+            end
+        end
+    else
+        -- Check Player
+        local _, pClass = UnitClass("player")
+        if pClass == requiredClass then 
+            local name = UnitName("player")
+            if name and not IsPlayerBusy(name) then 
+                table.insert(candidates, name) 
+            end
+        end
+        -- Check Party
+        for i = 1, GetNumPartyMembers() do
+            local _, class = UnitClass("party"..i)
+            if class == requiredClass and not UnitIsDeadOrGhost("party"..i) then
+                local name = UnitName("party"..i)
+                if name and not IsPlayerBusy(name) then 
+                    table.insert(candidates, name) 
+                end
+            end
+        end
+    end
+    
+    -- Pick a random candidate from the "Available" pool
+    if table.getn(candidates) > 0 then
+        return candidates[math.random(table.getn(candidates))]
+    end
+    
+    return nil -- No free players found
+end
+
+-- ==========================================================
+-- MODULE 5: ANNOUNCEMENTS
+-- ==========================================================
+
+TankMark.MarkNames = {
+    [8] = "SKULL",
+    [7] = "CROSS",
+    [6] = "SQUARE",
+    [5] = "MOON",
+    [4] = "TRIANGLE",
+    [3] = "DIAMOND",
+    [2] = "CIRCLE",
+    [1] = "STAR"
+}
+
+-- Standard Raid Target Colors (Approximate)
+TankMark.MarkColors = {
+    [8] = "|cffffffff", -- Skull: White
+    [7] = "|cffff0000", -- Cross: Red
+    [6] = "|cff00ccff", -- Square: Blue
+    [5] = "|cffaabbcc", -- Moon: Silver/Grey-ish
+    [4] = "|cff00ff00", -- Triangle: Green
+    [3] = "|cffff00ff", -- Diamond: Purple
+    [2] = "|cffffaa00", -- Circle: Orange
+    [1] = "|cffffff00"  -- Star: Yellow
+}
+
+function TankMark:AnnounceAssignments()
+    -- 1. Determine Channel
+    local channel = "PARTY"
+    if UnitInRaid("player") then
+        if IsRaidLeader() or IsRaidOfficer() then
+            channel = "RAID_WARNING"
+        else
+            channel = "RAID"
+        end
+    elseif GetNumPartyMembers() > 0 then
+        channel = "PARTY"
+    else
+        channel = "SAY" 
+    end
+
+    -- 2. Scan and Broadcast
+    local hasAnnounced = false
+    
+    for i = 8, 1, -1 do
+        local markName = TankMark.MarkNames[i]
+        local color = TankMark.MarkColors[i]
+        local player = TankMark.sessionAssignments[i]
+        local mob = TankMark.activeMobNames[i]
+        
+        -- Combine Color + Name + Reset Code (|r)
+        local coloredMark = color .. markName .. "|r"
+        
+        if player then
+            -- Format: "Xaryu is on [Colored Mark]"
+            SendChatMessage(player .. " is on " .. coloredMark, channel)
+            hasAnnounced = true
+        elseif mob then
+            -- Format: "Target [Colored Mark] (Mob Name)"
+            SendChatMessage("Target " .. coloredMark .. " (" .. mob .. ")", channel)
+            hasAnnounced = true
+        end
+    end
+    
+    if not hasAnnounced then
+        TankMark:Print("No active assignments to announce.")
     end
 end
 
