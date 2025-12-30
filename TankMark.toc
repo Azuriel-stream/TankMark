@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: TankMark |cff00ccff(v0.1-dev)|r
-## Notes: Automates raid marking based on mob priority and group composition.
+## Title: TankMark |cff00ccff(v0.6-dev)|r
+## Notes: Automates raid marking with Dual-Layer Logic (Turtle WoW).
 ## Author: Azuriel
-## Version: 0.3-dev
+## Version: 0.6-dev
 ## SavedVariables: TankMarkDB
 
 TankMark_Data.lua
