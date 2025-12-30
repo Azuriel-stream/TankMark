@@ -1,6 +1,6 @@
--- TankMark: v0.4.3-dev
+-- TankMark: v0.5-dev (Final Polish)
 -- File: TankMark_Options.lua
--- Description: The GUI Configuration Panel (Final Visual Fix: Scrollbar overlap)
+-- Description: The GUI Configuration Panel (Targeting, Editing & Visual Fixes)
 
 if not TankMark then return end
 
@@ -9,6 +9,7 @@ TankMark.selectedIcon = 8
 TankMark.currentTab = 1
 TankMark.mobRows = {} 
 TankMark.profileRows = {}
+TankMark.iconBtn = nil -- Reference for the icon selector button
 
 -- ==========================================================
 -- 1. HELPER FUNCTIONS
@@ -58,6 +59,26 @@ end
 -- 2. TAB 1 LOGIC: MOB DATABASE
 -- ==========================================================
 
+function TankMark:LoadMobForEdit(zone, mobName)
+    if not TankMarkDB.Zones[zone] or not TankMarkDB.Zones[zone][mobName] then return end
+    
+    local data = TankMarkDB.Zones[zone][mobName]
+    
+    -- 1. Fill Input Boxes
+    TankMark.editMob:SetText(mobName)
+    TankMark.editPrio:SetText(data.prio)
+    
+    -- 2. Update Icon Selector (Logic & Visual)
+    TankMark.selectedIcon = data.mark
+    
+    -- FIX: Ensure we update the texture of the button itself
+    if TankMark.iconBtn and TankMark.iconBtn.tex then
+        SetRaidTargetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+    end
+    
+    TankMark:Print("Loaded [" .. mobName .. "] for editing.")
+end
+
 function TankMark:RefreshMobList()
     if not TankMark.scrollChild then return end
     
@@ -89,18 +110,29 @@ function TankMark:RefreshMobList()
             row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
             row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
             
+            -- Delete Button (X)
             row.del = CreateFrame("Button", nil, row, "UIPanelCloseButton")
             row.del:SetWidth(20); row.del:SetHeight(20)
-            -- VISUAL FIX: Increased offset from -5 to -25 to clear scrollbar
-            row.del:SetPoint("RIGHT", -10, 0)
+            row.del:SetPoint("RIGHT", -25, 0)
             
+            -- Edit Button (E)
+            row.edit = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            row.edit:SetWidth(20); row.edit:SetHeight(20)
+            row.edit:SetPoint("RIGHT", row.del, "LEFT", -2, 0)
+            row.edit:SetText("E")
+            local fs = row.edit:GetFontString()
+            if fs then fs:SetFont("Fonts\\FRIZQT__.TTF", 10) end
+
             TankMark.mobRows[i] = row
         end
         
         row:SetPoint("TOPLEFT", TankMark.scrollChild, "TOPLEFT", 5, yOffset)
         SetRaidTargetIconTexture(row.icon, data.mark)
         row.text:SetText("(Prio " .. data.prio .. ") " .. data.name)
+        
         row.del:SetScript("OnClick", function() TankMark:DeleteMob(mobZone, mobName) end)
+        row.edit:SetScript("OnClick", function() TankMark:LoadMobForEdit(mobZone, mobName) end)
+        
         row:Show()
         yOffset = yOffset - 20
     end
@@ -141,35 +173,27 @@ function TankMark:SaveAllProfiles()
     
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
     
-    -- Loop through all 8 rows
     for i = 1, 8 do
         if TankMark.profileRows[i] then
             local text = TankMark.profileRows[i].edit:GetText()
             
-            -- 1. Update Database
             if text == "" then 
                 TankMarkDB.Profiles[zone][i] = nil
             else
                 TankMarkDB.Profiles[zone][i] = text
             end
             
-            -- 2. Update Live Session (The Fix)
-            -- If we are in the zone we are editing, apply changes immediately
             if zone == GetRealZoneText() then
                 if text == "" then
-                    -- If removed in config, remove from session
                     TankMark.sessionAssignments[i] = nil
                 else
-                    -- If changed in config, overwrite session
                     TankMark.sessionAssignments[i] = text
                 end
             end
         end
     end
     
-    -- 3. Refresh HUD to show changes
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-    
     TankMark:Print("Profile saved & session updated for: " .. zone)
 end
 
@@ -249,6 +273,20 @@ function TankMark:CreateOptionsFrame()
     f.editMob = TankMark:CreateEditBox(t1, "Mob Name", 200)
     f.editMob:SetPoint("TOPLEFT", f.editZone, "BOTTOMLEFT", 0, -30)
     
+    -- Target Button
+    local mobTargetBtn = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
+    mobTargetBtn:SetWidth(60); mobTargetBtn:SetHeight(20)
+    mobTargetBtn:SetPoint("LEFT", f.editMob, "RIGHT", 5, 0)
+    mobTargetBtn:SetText("Target")
+    mobTargetBtn:SetFont("Fonts\\FRIZQT__.TTF", 10)
+    mobTargetBtn:SetScript("OnClick", function()
+        if UnitExists("target") and not UnitIsPlayer("target") then
+            f.editMob:SetText(UnitName("target"))
+        else
+            TankMark:Print("Select a valid NPC target first.")
+        end
+    end)
+    
     f.editPrio = TankMark:CreateEditBox(t1, "Prio (1-5)", 50)
     f.editPrio:SetPoint("TOPLEFT", f.editMob, "BOTTOMLEFT", 0, -30)
     f.editPrio:SetNumeric(true); f.editPrio:SetText("1")
@@ -265,7 +303,8 @@ function TankMark:CreateOptionsFrame()
         if TankMark.selectedIcon < 1 then TankMark.selectedIcon = 8 end
         SetRaidTargetIconTexture(this.tex, TankMark.selectedIcon)
     end)
-    f.iconBtn = ib
+    -- FIX: Save Global Reference
+    TankMark.iconBtn = ib
 
     local sb = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
     sb:SetWidth(100); sb:SetHeight(30)
@@ -355,7 +394,7 @@ function TankMark:CreateOptionsFrame()
     TankMark.editPrio = f.editPrio
     TankMark.optionsFrame = f
 
-    TankMark:Print("Options frame updated (v0.4.3).")
+    TankMark:Print("Options frame updated (v0.5-dev).")
 end
 
 function TankMark:ShowOptions()
