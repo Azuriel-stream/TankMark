@@ -1,4 +1,4 @@
--- TankMark: v0.1-dev
+-- TankMark: v0.4-dev
 -- Module: Database Initialization & Utility Functions
 -- File: TankMark_Data.lua
 
@@ -32,47 +32,30 @@ local RAID_ICONS = {
     [1] = "|cffffff00STAR|r",
 }
 
+-- Fallback Classes: If specific assignment is missing, pick one of these
+TankMark.MarkClassDefaults = {
+    [1] = "WARRIOR", -- Star: Usually a Tank
+    [2] = "WARRIOR", -- Circle: Usually a Tank
+    [3] = "WARLOCK", -- Diamond: Banish/Fear
+    [4] = "WARLOCK", -- Triangle: Banish/Fear (or Druid Sleep?)
+    [5] = "MAGE",    -- Moon: Sheep
+    [6] = "MAGE",    -- Square: Sheep (or Hunter Trap?)
+    [7] = nil,       -- Cross: Kill Target (No class fallback)
+    [8] = nil        -- Skull: Kill Target (No class fallback)
+}
+
 -- 3. Database Defaults
 function TankMark:InitializeDB()
     if not TankMarkDB then TankMarkDB = {} end
     
-    -- Global Settings
-    if not TankMarkDB.Settings then
-        TankMarkDB.Settings = {
-            ["AnnounceChannel"] = "RAID", 
-            ["WhisperBackups"] = true,
-            ["AutoResetInCombat"] = false
-        }
-    end
-
-    -- Assignments (0 or nil = Auto/First Available)
-    if not TankMarkDB.Assignments then
-        TankMarkDB.Assignments = {
-            [8] = nil, -- Skull
-            [7] = nil, -- Cross
-            [6] = nil, -- Square
-            [5] = nil, -- Moon
-            [4] = nil, -- Triangle
-            [3] = nil, -- Diamond
-            [2] = nil, -- Circle
-            [1] = nil  -- Star
-        }
-    end
-
-    -- Zone Data (The "Brain")
-    if not TankMarkDB.Zones then
-        TankMarkDB.Zones = {
-            ["Molten Core"] = {
-                 ["Molten Giant"] = { ["prio"] = 1, ["mark"] = 8, ["type"] = "KILL" },
-                 ["Lava Surger"] =  { ["prio"] = 3, ["mark"] = 3, ["type"] = "CC", ["class"] = "WARLOCK" },
-            },
-            ["Winterspring"] = {
-                ["Cobalt Broodling"] = { ["prio"] = 1, ["mark"] = 8, ["type"] = "KILL" },
-            },
-        }
-    end
+    -- 1. Mob Database (Existing)
+    if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     
-    TankMark:Print("Database Initialized. v0.1-dev loaded.")
+    -- 2. Roster Profiles (NEW for v0.4)
+    -- Structure: TankMarkDB.Profiles["ZoneName"][IconID] = "PlayerName"
+    if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
+    
+    TankMark:Print("Database initialized.")
 end
 
 -- 4. Utility: Logging/Printing
