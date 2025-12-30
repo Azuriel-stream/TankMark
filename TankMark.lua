@@ -140,6 +140,7 @@ function TankMark:HandleMouseover()
 
     -- 5. LAYER 2 CHECK: TEMPLATES (Name + Prio)
     local mobName = UnitName("mouseover")
+    if not mobName then return end
     local mobData = nil
     if TankMarkDB.Zones[zone] and TankMarkDB.Zones[zone][mobName] then
         mobData = TankMarkDB.Zones[zone][mobName]
@@ -457,6 +458,8 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.InitializeDB then TankMark:InitializeDB() end
     
     elseif (event == "PLAYER_LOGIN") then
+        math.randomseed(time())
+        math.random(); math.random(); math.random()
         if TankMark.UpdateRoster then TankMark:UpdateRoster() end
         TankMark:Print("Loaded. Hold Ctrl+Mouseover to unmark.")
 
