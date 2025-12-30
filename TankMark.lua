@@ -14,6 +14,7 @@ end
 -- Runtime state for "Used Icons"
 TankMark.usedIcons = {}
 TankMark.activeMobNames = {}
+TankMark.IsActive = true
 
 function TankMark:ResetSession()
     TankMark.usedIcons = {}
@@ -464,6 +465,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:Print("Loaded. Type /tm reset to start a pack.")
 
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
+        if not TankMark.IsActive then return end
         TankMark:HandleMouseover()
 
     elseif (event == "UNIT_HEALTH") then
