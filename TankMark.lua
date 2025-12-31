@@ -14,6 +14,7 @@ end
 TankMark.usedIcons = {}
 TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
+TankMark.activeMobIsCaster = {}
 TankMark.sessionAssignments = {}
 TankMark.IsActive = true
 
@@ -107,6 +108,7 @@ function TankMark:EvictMarkOwner(iconID)
     -- Clear Name association
     TankMark.activeMobNames[iconID] = nil
     TankMark.usedIcons[iconID] = nil
+    TankMark.activeMobIsCaster[iconID] = nil
     
     -- Clear GUID association (CRITICAL for "Ghost State" prevention)
     for guid, mark in pairs(TankMark.activeGUIDs) do
@@ -196,6 +198,7 @@ function TankMark:HandleMouseover()
         if not TankMark.usedIcons[currentIcon] or (guid and not TankMark.activeGUIDs[guid]) then
             TankMark.usedIcons[currentIcon] = true
             TankMark.activeMobNames[currentIcon] = UnitName("mouseover")
+            TankMark.activeMobIsCaster[currentIcon] = (UnitPowerType("mouseover") == 0)
             if guid then TankMark.activeGUIDs[guid] = currentIcon end
             if TankMark.UpdateHUD then TankMark:UpdateHUD() end
         end
@@ -209,7 +212,7 @@ function TankMark:HandleMouseover()
         local lockedIcon = TankMarkDB.StaticGUIDs[zone][guid]
         
         SetRaidTarget("mouseover", lockedIcon)
-        TankMark:RegisterMarkUsage(lockedIcon, UnitName("mouseover"), guid)
+        TankMark:RegisterMarkUsage(lockedIcon, UnitName("mouseover"), guid, (UnitPowerType("mouseover") == 0))
         return
     end
 
@@ -229,9 +232,10 @@ function TankMark:HandleMouseover()
     end
 end
 
-function TankMark:RegisterMarkUsage(icon, name, guid)
+function TankMark:RegisterMarkUsage(icon, name, guid, isCaster)
     TankMark.usedIcons[icon] = true
     TankMark.activeMobNames[icon] = name
+    TankMark.activeMobIsCaster[icon] = isCaster
     if guid then TankMark.activeGUIDs[guid] = icon end
     
     if not TankMark.sessionAssignments[icon] then
@@ -310,15 +314,51 @@ function TankMark:ProcessKnownMob(mobData, guid)
 
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid)
+        TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, (UnitPowerType("mouseover") == 0))
     end
 end
 
 function TankMark:ProcessUnknownMob()
-    local iconToApply = TankMark:GetNextFreeKillIcon()
+    local iconToApply = nil
+    -- Check if Unit has Mana (0). If so, it is a "Caster".
+    -- Rage(1), Focus(2), Energy(3) count as "Melee/Other".
+    local isCaster = (UnitPowerType("mouseover") == 0)
+
+    -- CASTER PRIORITY LOGIC
+    if isCaster then
+        -- Casters aggressively try to take SKULL (8) or CROSS (7)
+        local preferredIcons = {8, 7}
+        
+        for _, iconID in ipairs(preferredIcons) do
+            if not TankMark.usedIcons[iconID] then
+                -- It's free! Take it.
+                iconToApply = iconID
+                break
+            else
+                -- It's taken. Is the current owner a "Melee" (Non-Caster)?
+                -- (And ensure we don't steal from a Known DB mob which always outranks Unknowns)
+                local ownerName = TankMark.activeMobNames[iconID]
+                local ownerPrio = TankMark:GetMobPriority(ownerName)
+                local ownerIsCaster = TankMark.activeMobIsCaster[iconID]
+                
+                -- Condition: Owner is Unknown (Prio 99) AND Owner is NOT a Caster
+                if ownerPrio >= 99 and not ownerIsCaster then
+                    TankMark:EvictMarkOwner(iconID)
+                    iconToApply = iconID
+                    break
+                end
+            end
+        end
+    end
+
+    -- FALLBACK
+    if not iconToApply then
+        iconToApply = TankMark:GetNextFreeKillIcon()
+    end
+
     if iconToApply then
         SetRaidTarget("mouseover", iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, UnitName("mouseover"), TankMark:GetUnitGUID("mouseover"))
+        TankMark:RegisterMarkUsage(iconToApply, UnitName("mouseover"), TankMark:GetUnitGUID("mouseover"), isCaster)
     end
 end
 
