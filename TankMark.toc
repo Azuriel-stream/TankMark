@@ -1,6 +1,6 @@
 ## Interface: 11200
 ## Title: TankMark |cff00ccff(v0.7-alpha)|r
-## Notes: Automates raid marking with Dual-Layer Logic & Nameplate Scanning.
+## Notes: Automates raid marking with Caster Priority & Zone Library.
 ## Author: Azuriel
 ## Version: 0.7-alpha
 ## SavedVariables: TankMarkDB

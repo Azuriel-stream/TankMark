@@ -623,7 +623,7 @@ TankMark:SetScript("OnEvent", function()
     elseif (event == "PLAYER_LOGIN") then
         math.randomseed(time())
         if TankMark.UpdateRoster then TankMark:UpdateRoster() end
-        TankMark:Print("TankMark v0.7-dev Loaded (Full Logic).")
+        TankMark:Print("TankMark v0.7-alpha Loaded.")
 
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         if TankMark.IsActive then TankMark:HandleMouseover() end
