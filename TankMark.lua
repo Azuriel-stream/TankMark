@@ -21,6 +21,26 @@ TankMark.IsActive = true
 -- 1. UTILITIES (Nameplates & GUIDs) - NEW v0.7
 -- ==========================================================
 
+-- COLOR DEFINITIONS
+TankMark.MarkInfo = {
+    [8] = { name = "SKULL",    color = "|cffffffff" }, -- White
+    [7] = { name = "CROSS",    color = "|cffff0000" }, -- Red
+    [6] = { name = "SQUARE",   color = "|cff00ccff" }, -- Blue
+    [5] = { name = "MOON",     color = "|cffaabbcc" }, -- Grey/Silver
+    [4] = { name = "TRIANGLE", color = "|cff00ff00" }, -- Green
+    [3] = { name = "DIAMOND",  color = "|cffff00ff" }, -- Purple
+    [2] = { name = "CIRCLE",   color = "|cffffaa00" }, -- Orange
+    [1] = { name = "STAR",     color = "|cffffff00" }  -- Yellow
+}
+
+function TankMark:GetMarkString(iconID)
+    local info = TankMark.MarkInfo[iconID]
+    if info then
+        return info.color .. info.name .. "|r"
+    end
+    return "Mark " .. iconID
+end
+
 function TankMark:GetUnitGUID(unit)
     local exists, guid = UnitExists(unit)
     if exists and guid then return guid end
@@ -316,10 +336,10 @@ function TankMark:HandleDeath(unitID)
 
         if backupPlayer then
             TankMark.sessionAssignments[assignedIcon] = backupPlayer
-            local iconString = "{rt"..assignedIcon.."}"
-            local msg = "ALERT: " .. deadPlayerName .. " died! You are now assigned to " .. iconString .. "."
+            local markStr = TankMark:GetMarkString(assignedIcon)
+            local msg = "ALERT: " .. deadPlayerName .. " died! You are now assigned to " .. markStr .. "."
             SendChatMessage(msg, "WHISPER", nil, backupPlayer)
-            TankMark:Print("Reassigned " .. iconString .. " to " .. backupPlayer)
+            TankMark:Print("Reassigned " .. markStr .. " to " .. backupPlayer)
         else
             TankMark:Print("|cffff0000CRITICAL:|r " .. deadPlayerName .. " died. No backups found for " .. "{rt"..assignedIcon.."}!")
         end
@@ -454,7 +474,7 @@ function TankMark:SlashHandler(msg)
             if iconID and iconID >= 1 and iconID <= 8 then
                 TankMark.sessionAssignments[iconID] = targetPlayer
                 TankMark.usedIcons[iconID] = true 
-                TankMark:Print("Manually assigned {rt"..iconID.."} to " .. targetPlayer)
+                TankMark:Print("Manually assigned " .. TankMark:GetMarkString(iconID) .. " to " .. targetPlayer)
                 if TankMark.UpdateHUD then TankMark:UpdateHUD() end
             else
                 TankMark:Print("Invalid mark.")
@@ -483,8 +503,8 @@ function TankMark:AnnounceAssignments()
     for i = 8, 1, -1 do
         local player = TankMark.sessionAssignments[i]
         if player then
-             local iconString = "{rt"..i.."}"
-             local msg = iconString .. " assigned to " .. player
+             local markStr = TankMark:GetMarkString(i)
+             local msg = markStr .. " assigned to " .. player
              SendChatMessage(msg, channel)
         end
     end
