@@ -235,13 +235,39 @@ function TankMark:ProcessKnownMob(mobData, guid)
             end
         end
     else
-        -- Kill Target Logic with SMART STEAL (v0.7)
+        -- KILL TARGET LOGIC
+        
+        -- 1. Is the default mark free?
         if not TankMark.usedIcons[mobData.mark] then
             iconToApply = mobData.mark
+            
+        -- 2. Smart Steal Logic (High Priority Only)
         elseif mobData.prio <= 2 then
-            -- High Prio Steal: If mark is taken but this mob is Prio 1/2, take it.
-            iconToApply = mobData.mark
+            local currentOwnerName = TankMark.activeMobNames[mobData.mark]
+            
+            -- STABILITY CHECK: Is the current holder a Duplicate?
+            if currentOwnerName == mobData.name then
+                -- If a duplicate already holds my preferred mark, do NOT steal it.
+                -- This prevents "flickering" (A steals from B, B steals from A).
+                -- Fallback to next best icon.
+                iconToApply = TankMark:GetNextFreeKillIcon()
+            else
+                -- It is a different mob (likely lower prio). Steal it.
+                iconToApply = mobData.mark
+                
+                -- CRITICAL FIX: Clean up the old owner's state
+                -- We must find the GUID that currently holds this mark and deregister it.
+                for oldGuid, markID in pairs(TankMark.activeGUIDs) do
+                    if markID == iconToApply and oldGuid ~= guid then
+                        TankMark.activeGUIDs[oldGuid] = nil
+                        -- We remove the GUID link so if we mouseover the old mob again, 
+                        -- the addon knows it is unmarked and needs a new icon.
+                        break
+                    end
+                end
+            end
         else
+            -- 3. Low Priority Fallback
             iconToApply = TankMark:GetNextFreeKillIcon()
         end
     end
