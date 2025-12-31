@@ -1,4 +1,4 @@
--- TankMark: v0.6-dev (Dual-Layer Data)
+-- TankMark: v0.7-alpha (Dual-Layer Data)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -32,7 +32,7 @@ function TankMark:InitializeDB()
     -- Assignments
     if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
     
-    TankMark:Print("Database initialized (Dual-Layer Ready).")
+    TankMark:Print("Database initialized (v0.7-alpha).")
 end
 
 -- Utility Functions
