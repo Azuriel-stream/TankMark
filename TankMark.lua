@@ -91,6 +91,32 @@ function TankMark:GetLowestHPUnit()
     return bestFrame
 end
 
+-- NEW: Get Priority of a named mob (Defaults to 99 if unknown)
+function TankMark:GetMobPriority(name)
+    local zone = GetRealZoneText()
+    if TankMarkDB.Zones[zone] and TankMarkDB.Zones[zone][name] then
+        return TankMarkDB.Zones[zone][name].prio
+    end
+    return 99 -- Unknown mobs are lowest priority
+end
+
+-- NEW: Force clear internal state of a specific mark (The Eviction)
+function TankMark:EvictMarkOwner(iconID)
+    local oldName = TankMark.activeMobNames[iconID]
+    
+    -- Clear Name association
+    TankMark.activeMobNames[iconID] = nil
+    TankMark.usedIcons[iconID] = nil
+    
+    -- Clear GUID association (CRITICAL for "Ghost State" prevention)
+    for guid, mark in pairs(TankMark.activeGUIDs) do
+        if mark == iconID then
+            TankMark.activeGUIDs[guid] = nil
+            break
+        end
+    end
+end
+
 -- NEW: Clear specific unit marks
 function TankMark:UnmarkUnit(unit)
     local currentIcon = GetRaidTargetIndex(unit)
@@ -219,11 +245,11 @@ function TankMark:ProcessKnownMob(mobData, guid)
     local iconToApply = nil
     
     if mobData.type == "CC" then
+        -- (CC Logic remains unchanged)
         local freeTankIcon = TankMark:GetFreeTankIcon()
         if freeTankIcon then
             iconToApply = freeTankIcon
         else
-            -- CC Logic
             local assignedPlayer = TankMark:GetFirstAvailableBackup(mobData.class)
             if assignedPlayer then
                 if not TankMark.usedIcons[mobData.mark] then
@@ -235,39 +261,49 @@ function TankMark:ProcessKnownMob(mobData, guid)
             end
         end
     else
-        -- KILL TARGET LOGIC
+        -- === KILL TARGET LOGIC ===
         
-        -- 1. Is the default mark free?
+        -- A. Try Primary Mark (e.g., SKULL)
         if not TankMark.usedIcons[mobData.mark] then
             iconToApply = mobData.mark
             
-        -- 2. Smart Steal Logic (High Priority Only)
+        -- B. Primary Taken: Check for Smart Steal (Equal Prio or Lower Prio owner)
         elseif mobData.prio <= 2 then
             local currentOwnerName = TankMark.activeMobNames[mobData.mark]
             
-            -- STABILITY CHECK: Is the current holder a Duplicate?
-            if currentOwnerName == mobData.name then
-                -- If a duplicate already holds my preferred mark, do NOT steal it.
-                -- This prevents "flickering" (A steals from B, B steals from A).
-                -- Fallback to next best icon.
-                iconToApply = TankMark:GetNextFreeKillIcon()
-            else
-                -- It is a different mob (likely lower prio). Steal it.
+            -- 1. Don't steal from myself (Duplicate check)
+            if currentOwnerName ~= mobData.name then
+                -- 2. Steal SKULL!
+                TankMark:EvictMarkOwner(mobData.mark)
                 iconToApply = mobData.mark
+            else
+                -- 3. I am a Duplicate. I can't have SKULL.
+                --    Start Cascading Eviction for the next best marks (Cross, Circle...)
                 
-                -- CRITICAL FIX: Clean up the old owner's state
-                -- We must find the GUID that currently holds this mark and deregister it.
-                for oldGuid, markID in pairs(TankMark.activeGUIDs) do
-                    if markID == iconToApply and oldGuid ~= guid then
-                        TankMark.activeGUIDs[oldGuid] = nil
-                        -- We remove the GUID link so if we mouseover the old mob again, 
-                        -- the addon knows it is unmarked and needs a new icon.
+                -- Priority Order (excluding Skull which we just failed to get)
+                local fallbackOrder = {7, 2, 1, 3, 4, 6, 5} 
+                
+                for _, iconID in ipairs(fallbackOrder) do
+                    if not TankMark.usedIcons[iconID] then
+                        -- Found a truly free seat
+                        iconToApply = iconID
                         break
+                    else
+                        -- Seat is taken. Can we evict the owner?
+                        local ownerName = TankMark.activeMobNames[iconID]
+                        local ownerPrio = TankMark:GetMobPriority(ownerName)
+                        
+                        -- If I am Prio 1, and owner is Prio 99 (Unknown/Trash), I win.
+                        if mobData.prio < ownerPrio then
+                            TankMark:EvictMarkOwner(iconID)
+                            iconToApply = iconID
+                            break
+                        end
                     end
                 end
             end
         else
-            -- 3. Low Priority Fallback
+            -- C. Low Priority Fallback (Just take next empty)
             iconToApply = TankMark:GetNextFreeKillIcon()
         end
     end
