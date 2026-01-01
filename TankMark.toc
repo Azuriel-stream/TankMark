@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: TankMark |cff00ccff(v0.7-alpha)|r
-## Notes: Automates raid marking with Caster Priority & Zone Library.
+## Title: TankMark |cff00ccff(v0.8-dev)|r
+## Notes: Automates raid marking with Combat Log tracking & Zone Library.
 ## Author: Azuriel
-## Version: 0.7-alpha
+## Version: 0.8-dev
 ## SavedVariables: TankMarkDB
 
 TankMark_Data.lua
