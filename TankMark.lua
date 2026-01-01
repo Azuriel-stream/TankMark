@@ -110,11 +110,12 @@ function TankMark:EvictMarkOwner(iconID)
     TankMark.usedIcons[iconID] = nil
     TankMark.activeMobIsCaster[iconID] = nil
     
-    -- Clear GUID association (CRITICAL for "Ghost State" prevention)
+    -- Clear GUID association (CRITICAL FIX: Removed 'break' to clean ALL stale references)
+    -- Previously, this stopped after one match, potentially leaving "ghost" GUIDs behind.
     for guid, mark in pairs(TankMark.activeGUIDs) do
         if mark == iconID then
             TankMark.activeGUIDs[guid] = nil
-            break
+            -- We continue the loop to ensure absolute cleanliness
         end
     end
 end
@@ -226,6 +227,7 @@ function TankMark:HandleMouseover()
     end
 
     if mobData then
+        mobData.name = mobName
         TankMark:ProcessKnownMob(mobData, guid)
     else
         TankMark:ProcessUnknownMob()
@@ -395,33 +397,31 @@ end
 -- ==========================================================
 
 function TankMark:HandleDeath(unitID)
-    -- PART A: MOB DEATH
+    -- 1. MOB DEATH (Clean up the mark)
     if not UnitIsPlayer(unitID) then
         local icon = GetRaidTargetIndex(unitID)
+        
+        -- Logic: If a marked mob dies, free up its slot immediately
         if icon and UnitHealth(unitID) <= 0 then
             TankMark.usedIcons[icon] = nil
             TankMark.activeMobNames[icon] = nil
+            TankMark.activeMobIsCaster[icon] = nil -- Clean up caster flag
             
             local guid = TankMark:GetUnitGUID(unitID)
             if guid then TankMark.activeGUIDs[guid] = nil end
-            
-            -- v0.7: Auto-Chain Logic (If Skull dies, free it immediately for next target)
-            if (icon == 8 or icon == 7) and TankMark.IsActive then
-                -- Logic is handled by simply freeing the icon. 
-                -- The next mouseover will instantly grab the now-free Skull.
-            end
             
             if TankMark.UpdateHUD then TankMark:UpdateHUD() end
         end
         return
     end
 
-    -- PART B: PLAYER DEATH
+    -- 2. PLAYER DEATH (Fail-Safe Reassignment)
     if UnitHealth(unitID) > 0 then return end 
 
     local deadPlayerName = UnitName(unitID)
     if not deadPlayerName then return end
 
+    -- Find if this player had a job
     local assignedIcon = nil
     for icon, assignedTo in pairs(TankMark.sessionAssignments) do
         if assignedTo == deadPlayerName then
@@ -430,19 +430,28 @@ function TankMark:HandleDeath(unitID)
         end
     end
 
+    -- If they had no job, we don't care. Exit.
     if not assignedIcon then return end
 
-    if TankMark:IsMarkAlive(assignedIcon) then
+    -- PERFORMANCE FIX: 
+    -- Instead of scanning 40 raid targets to see if the mob is alive,
+    -- we check our own internal state. 
+    -- If 'usedIcons[icon]' is true, the mob is still considered active/alive by the addon.
+    if TankMark.usedIcons[assignedIcon] then
         local _, classEng = UnitClass(unitID)
         local backupPlayer = TankMark:GetFirstAvailableBackup(classEng)
 
         if backupPlayer then
             TankMark.sessionAssignments[assignedIcon] = backupPlayer
             local markStr = TankMark:GetMarkString(assignedIcon)
+            
             local msg = "ALERT: " .. deadPlayerName .. " died! You are now assigned to " .. markStr .. "."
             SendChatMessage(msg, "WHISPER", nil, backupPlayer)
             TankMark:Print("Reassigned " .. markStr .. " to " .. backupPlayer)
+            
+            if TankMark.UpdateHUD then TankMark:UpdateHUD() end
         else
+            -- No backups found
             TankMark:Print("|cffff0000CRITICAL:|r " .. deadPlayerName .. " died. No backups found for " .. "{rt"..assignedIcon.."}!")
         end
     end
