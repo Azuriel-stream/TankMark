@@ -1,4 +1,4 @@
--- TankMark: v0.7-alpha (Dual-Layer Data)
+-- TankMark: v0.8-dev (Dual-Layer Data)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -22,56 +22,17 @@ TankMark.MarkClassDefaults = {
 
 function TankMark:InitializeDB()
     if not TankMarkDB then TankMarkDB = {} end
-    
-    -- Layer 2: Templates (Name -> Prio)
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
-    
-    -- Layer 1: Overrides (GUID -> Mark) - NEW
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-    
-    -- Assignments
     if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    
-    TankMark:Print("Database initialized (v0.7-alpha).")
+    TankMark:Print("Database initialized (v0.8-dev).")
 end
 
--- Utility Functions
 function TankMark:Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ccff[TankMark]|r " .. msg)
 end
 
-function TankMark:IsMarkAlive(iconID)
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
-    
-    local function checkTarget(unitID)
-        if UnitExists(unitID) and GetRaidTargetIndex(unitID) == iconID then
-            return unitID
-        end
-        return nil
-    end
-
-    local foundUnitID = nil
-    if numRaid > 0 then
-        for i = 1, 40 do
-            foundUnitID = checkTarget("raid"..i.."target")
-            if foundUnitID then break end
-        end
-    elseif numParty > 0 then
-        for i = 1, 4 do
-            foundUnitID = checkTarget("party"..i.."target")
-            if foundUnitID then break end
-        end
-        if not foundUnitID then foundUnitID = checkTarget("target") end 
-    else
-        foundUnitID = checkTarget("target")
-    end
-
-    if foundUnitID then
-        return not UnitIsDeadOrGhost(foundUnitID)
-    end
-    return true 
-end
+-- IsMarkAlive removed in v0.8 (Superseded by internal cache & local VerifyMarkExistence)
 
 function TankMark:UpdateRoster()
     TankMark.runtimeCache.classRoster = {} 
