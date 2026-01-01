@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: TankMark |cff00ccff(v0.8-dev)|r
-## Notes: Automates raid marking with Combat Log tracking & Zone Library.
+## Title: TankMark |cff00ccff(v0.8.1-dev)|r
+## Notes: Automates raid marking with Mark Promotion & Combat Log tracking.
 ## Author: Azuriel
-## Version: 0.8-dev
+## Version: 0.8.1-dev
 ## SavedVariables: TankMarkDB
 
 TankMark_Data.lua
