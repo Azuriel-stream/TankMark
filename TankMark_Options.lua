@@ -371,6 +371,26 @@ function TankMark:CreateOptionsFrame()
     cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
     cb:SetScript("OnClick", function() f:Hide() end)
 
+    -- MASTER TOGGLE CHECKBOX (New v0.10)
+    local masterCheck = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate")
+    masterCheck:SetWidth(24); masterCheck:SetHeight(24)
+    masterCheck:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -10)
+    _G[masterCheck:GetName().."Text"]:SetText("Enable TankMark")
+    
+    -- Init State
+    masterCheck:SetChecked(TankMark.IsActive and 1 or nil)
+    
+    -- On Click Logic
+    masterCheck:SetScript("OnClick", function()
+        if this:GetChecked() then
+            TankMark.IsActive = true
+            TankMark:Print("Auto-Marking |cff00ff00ENABLED|r.")
+        else
+            TankMark.IsActive = false
+            TankMark:Print("Auto-Marking |cffff0000DISABLED|r.")
+        end
+    end)
+
     -- === TABS ===
     local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     tab1:SetWidth(120); tab1:SetHeight(30)
