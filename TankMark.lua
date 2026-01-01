@@ -1,6 +1,5 @@
--- TankMark: v0.9-dev (Hybrid Driver Core)
+-- TankMark: v0.9-dev (SuperWoW Automation)
 -- File: TankMark.lua
--- Description: Core event handling with Driver Abstraction (Standard vs SuperWoW).
 
 if not TankMark then
     TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -17,12 +16,14 @@ local _UnitIsDead = UnitIsDead
 local _GetRaidTargetIndex = GetRaidTargetIndex
 local _UnitName = UnitName
 local _SetRaidTarget = SetRaidTarget
+local _UnitHealth = UnitHealth
 
 -- ==========================================================
--- DRIVER STATE & LOGIC ENGINE
+-- LOGIC ENGINE
 -- ==========================================================
 
 TankMark.IsSuperWoW = false
+TankMark.visibleTargets = {} -- Cache for SuperWoW Scanner
 TankMark.usedIcons = {}
 TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
@@ -32,32 +33,23 @@ TankMark.IsActive = true
 TankMark.DeathPattern = nil 
 
 -- ==========================================================
--- 1. DRIVER ABSTRACTION LAYER (DEFAULT / STANDARD)
--- These methods are the "Standard 1.12" implementation.
--- They will be overwritten if SuperWoW is detected.
+-- 1. DRIVER ABSTRACTION LAYER
 -- ==========================================================
 
--- Standard: GetGUID relies on UnitExists usually returning nil/1.
--- In standard 1.12, we rarely get a real GUID unless using workarounds.
 function TankMark:Driver_GetGUID(unit)
     local exists, guid = _UnitExists(unit)
-    -- In standard vanilla, 'guid' is usually nil. 
-    -- If user has a specialized addon/patch, it might return something.
     if exists and guid then return guid end
     return nil
 end
 
--- Standard: ApplyMark requires a valid UnitID (target, mouseover, raidN).
 function TankMark:Driver_ApplyMark(unitId, icon)
-    -- Safety: Ensure unitId is a string and valid unit
     if type(unitId) == "string" and _UnitExists(unitId) then
         _SetRaidTarget(unitId, icon)
     end
 end
 
--- Standard: Distance check is hard. We rely on "IsVisible" or range hacks.
 function TankMark:Driver_IsDistanceValid(unit)
-    return CheckInteractDistance(unit, 4) -- Approx 28 yards
+    return CheckInteractDistance(unit, 4) -- ~28 yards
 end
 
 -- ==========================================================
@@ -110,9 +102,9 @@ end
 
 function TankMark:UnmarkUnit(unit)
     local currentIcon = _GetRaidTargetIndex(unit)
-    local guid = TankMark:Driver_GetGUID(unit) -- ABSTRACTION USAGE
+    local guid = TankMark:Driver_GetGUID(unit)
     
-    TankMark:Driver_ApplyMark(unit, 0) -- ABSTRACTION USAGE
+    TankMark:Driver_ApplyMark(unit, 0)
     
     if currentIcon then
         TankMark.usedIcons[currentIcon] = nil
@@ -123,14 +115,30 @@ function TankMark:UnmarkUnit(unit)
 end
 
 function TankMark:ClearAllMarks()
+    -- 1. Wipe Internal Data
     TankMark.usedIcons = {}
     TankMark.sessionAssignments = {}
     TankMark.activeMobNames = {}
     TankMark.activeGUIDs = {}
+    TankMark.visibleTargets = {} -- Clear scanner cache
     
+    -- 2. SUPERWOW: Global Instant Wipe
+    -- We iterate through unitIDs "mark1" to "mark8". 
+    -- SuperWoW resolves these to the actual units holding the marks.
+    -- calling SetRaidTarget(unit, 0) clears them.
+    if TankMark.IsSuperWoW then
+        for i = 1, 8 do
+            local markUnit = "mark"..i
+            if _UnitExists(markUnit) then
+                _SetRaidTarget(markUnit, 0)
+            end
+        end
+    end
+
+    -- 3. STANDARD FALLBACK (Safe cleanup for non-SuperWoW users)
     local function ClearUnit(unit)
         if _UnitExists(unit) and _GetRaidTargetIndex(unit) then 
-            TankMark:Driver_ApplyMark(unit, 0) -- ABSTRACTION USAGE
+            TankMark:Driver_ApplyMark(unit, 0)
         end
     end
     ClearUnit("target"); ClearUnit("mouseover")
@@ -139,14 +147,15 @@ function TankMark:ClearAllMarks()
     else
         for i = 1, 4 do ClearUnit("party"..i); ClearUnit("party"..i.."target") end
     end
-    TankMark:Print("Session reset and visible marks cleared.")
+    
+    TankMark:Print("Session reset and ALL marks cleared.")
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
 function TankMark:ResetSession() TankMark:ClearAllMarks() end
 
 -- ==========================================================
--- 3. COMBAT LOG PARSER
+-- 3. COMBAT LOG & SCANNER
 -- ==========================================================
 
 function TankMark:InitCombatLogParser()
@@ -155,6 +164,16 @@ function TankMark:InitCombatLogParser()
 end
 
 function TankMark:VerifyMarkExistence(iconID)
+    -- In SuperWoW, we can just check the activeGUIDs if we trust the scanner
+    if TankMark.IsSuperWoW then
+        for guid, mark in pairs(TankMark.activeGUIDs) do
+            if mark == iconID then
+                if _UnitExists(guid) and not _UnitIsDead(guid) then return true end
+            end
+        end
+        -- Fallback to verify logic just in case scanner missed it
+    end
+
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
     local function Check(unit)
@@ -178,13 +197,23 @@ function TankMark:HandleCombatLog(msg)
         for iconID, name in _pairs(TankMark.activeMobNames) do
             if name == deadMobName then
                 if not TankMark:VerifyMarkExistence(iconID) then
+                    -- Mark is gone.
+                    local guidToClear = nil
+                    for guid, mark in _pairs(TankMark.activeGUIDs) do
+                        if mark == iconID then guidToClear = guid end
+                    end
+
                     TankMark.usedIcons[iconID] = nil
                     TankMark.activeMobNames[iconID] = nil
                     TankMark.activeMobIsCaster[iconID] = nil
-                    for guid, mark in _pairs(TankMark.activeGUIDs) do
-                        if mark == iconID then TankMark.activeGUIDs[guid] = nil end
-                    end
+                    if guidToClear then TankMark.activeGUIDs[guidToClear] = nil end
+                    
                     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+                    
+                    -- SUPERWOW: Trigger Smart Swap immediately
+                    if TankMark.IsSuperWoW and iconID == 8 then
+                        TankMark:SmartDecideNextSkull()
+                    end
                     return 
                 end
             end
@@ -193,7 +222,7 @@ function TankMark:HandleCombatLog(msg)
 end
 
 -- ==========================================================
--- 4. CORE MARKING LOGIC (Refactored for Abstraction)
+-- 4. MARKING LOGIC
 -- ==========================================================
 
 function TankMark:HandleMouseover()
@@ -203,14 +232,13 @@ function TankMark:HandleMouseover()
     end
 
     if UnitIsDeadOrGhost("mouseover") or UnitIsPlayer("mouseover") or UnitIsFriend("player", "mouseover") then return end
-    
     local cType = UnitCreatureType("mouseover")
     if cType == "Critter" or cType == "Non-combat Pet" then return end
 
     local zone = GetRealZoneText()
     if not TankMarkDB.Zones[zone] and not TankMarkDB.StaticGUIDs[zone] then return end
 
-    local guid = TankMark:Driver_GetGUID("mouseover") -- ABSTRACTION USAGE
+    local guid = TankMark:Driver_GetGUID("mouseover")
     local currentIcon = _GetRaidTargetIndex("mouseover")
 
     -- A. EXISTING MARKS
@@ -222,26 +250,20 @@ function TankMark:HandleMouseover()
             if guid then TankMark.activeGUIDs[guid] = currentIcon end
             if TankMark.UpdateHUD then TankMark:UpdateHUD() end
         end
-
-        -- PROMOTION LOGIC (Cycle CROSS -> SKULL)
-        if currentIcon == 7 and not TankMark.usedIcons[8] then
-            TankMark:Driver_ApplyMark("mouseover", 8) -- ABSTRACTION USAGE
-            TankMark:EvictMarkOwner(7)
-            TankMark:RegisterMarkUsage(8, _UnitName("mouseover"), guid, (UnitPowerType("mouseover") == 0))
-        end
         return 
     end
 
     if guid and TankMark.activeGUIDs[guid] then return end
 
-    -- B. NEW MARKS (Static & Templates)
+    -- B. STATIC
     if guid and TankMarkDB.StaticGUIDs[zone] and TankMarkDB.StaticGUIDs[zone][guid] then
         local lockedIcon = TankMarkDB.StaticGUIDs[zone][guid]
-        TankMark:Driver_ApplyMark("mouseover", lockedIcon) -- ABSTRACTION USAGE
+        TankMark:Driver_ApplyMark("mouseover", lockedIcon)
         TankMark:RegisterMarkUsage(lockedIcon, _UnitName("mouseover"), guid, (UnitPowerType("mouseover") == 0))
         return
     end
 
+    -- C. DATABASE
     local mobName = _UnitName("mouseover")
     if not mobName then return end
     
@@ -274,23 +296,8 @@ end
 function TankMark:ProcessKnownMob(mobData, guid)
     local iconToApply = nil
     
-    if mobData.type == "CC" then
-        local freeTankIcon = TankMark:GetFreeTankIcon()
-        if freeTankIcon then
-            iconToApply = freeTankIcon
-        else
-            local assignedPlayer = TankMark:GetFirstAvailableBackup(mobData.class)
-            if assignedPlayer then
-                if not TankMark.usedIcons[mobData.mark] then
-                    iconToApply = mobData.mark
-                    TankMark:AssignCC(iconToApply, assignedPlayer, mobData.type)
-                end
-            else
-                iconToApply = TankMark:GetNextFreeKillIcon()
-            end
-        end
-    else
-        -- KILL TARGET LOGIC
+    -- KILL TARGET LOGIC
+    if mobData.type == "KILL" then
         if not TankMark.usedIcons[mobData.mark] then
             iconToApply = mobData.mark
         elseif mobData.prio <= 2 then
@@ -318,9 +325,22 @@ function TankMark:ProcessKnownMob(mobData, guid)
             iconToApply = TankMark:GetNextFreeKillIcon()
         end
     end
+    
+    -- CC LOGIC (Simplified for 0.9)
+    if mobData.type == "CC" then
+        if not TankMark.usedIcons[mobData.mark] then
+            local assignedPlayer = TankMark:GetFirstAvailableBackup(mobData.class)
+            if assignedPlayer then
+                 iconToApply = mobData.mark
+                 TankMark:AssignCC(iconToApply, assignedPlayer, mobData.type)
+            end
+        end
+    end
 
     if iconToApply then
-        TankMark:Driver_ApplyMark("mouseover", iconToApply) -- ABSTRACTION USAGE
+        -- Use the GUID if we have it (SuperWoW), otherwise "mouseover"
+        local target = guid or "mouseover"
+        TankMark:Driver_ApplyMark(target, iconToApply)
         TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, (UnitPowerType("mouseover") == 0))
     end
 end
@@ -329,28 +349,42 @@ function TankMark:ProcessUnknownMob()
     local iconToApply = nil
     local isCaster = (UnitPowerType("mouseover") == 0)
 
+    -- RESTORED LOGIC: Prioritize Casters for Skull/Cross
     if isCaster then
         local preferredIcons = {8, 7}
         for _, iconID in ipairs(preferredIcons) do
             if not TankMark.usedIcons[iconID] then
-                iconToApply = iconID; break
+                -- Icon is free, take it
+                iconToApply = iconID
+                break
             else
+                -- Icon is taken. Can we steal it?
                 local ownerName = TankMark.activeMobNames[iconID]
-                local ownerPrio = TankMark:GetMobPriority(ownerName)
+                local ownerPrio = TankMark:GetMobPriority(ownerName) -- Returns 99 for unknown mobs
                 local ownerIsCaster = TankMark.activeMobIsCaster[iconID]
+                
+                -- Rule: If current owner is Unknown (Prio 99) AND Not a Caster, 
+                -- but WE are a Caster -> STEAL IT.
                 if ownerPrio >= 99 and not ownerIsCaster then
                     TankMark:EvictMarkOwner(iconID)
-                    iconToApply = iconID; break
+                    iconToApply = iconID
+                    break
                 end
             end
         end
     end
 
-    if not iconToApply then iconToApply = TankMark:GetNextFreeKillIcon() end
+    -- Fallback: If no caster logic applied (or we are melee), get next free icon
+    if not iconToApply then 
+        iconToApply = TankMark:GetNextFreeKillIcon() 
+    end
 
     if iconToApply then
-        TankMark:Driver_ApplyMark("mouseover", iconToApply) -- ABSTRACTION USAGE
-        TankMark:RegisterMarkUsage(iconToApply, _UnitName("mouseover"), TankMark:GetUnitGUID("mouseover"), isCaster)
+        local guid = TankMark:Driver_GetGUID("mouseover")
+        local target = guid or "mouseover"
+        
+        TankMark:Driver_ApplyMark(target, iconToApply)
+        TankMark:RegisterMarkUsage(iconToApply, _UnitName("mouseover"), guid, isCaster)
     end
 end
 
@@ -381,26 +415,32 @@ function TankMark:AssignCC(iconID, playerName, taskType)
 end
 
 -- ==========================================================
--- 5. THE WATCHDOG (DEATH MONITOR)
+-- 5. DEATH HANDLER & SMART AUTOMATION
 -- ==========================================================
 
 function TankMark:HandleDeath(unitID)
     if not UnitIsPlayer(unitID) then
         local icon = _GetRaidTargetIndex(unitID)
-        local hp = UnitHealth(unitID)
+        local hp = _UnitHealth(unitID)
         
         if icon and hp and hp <= 0 then
             TankMark.usedIcons[icon] = nil
             TankMark.activeMobNames[icon] = nil
             TankMark.activeMobIsCaster[icon] = nil
-            local guid = TankMark:Driver_GetGUID(unitID) -- ABSTRACTION USAGE
+            local guid = TankMark:Driver_GetGUID(unitID)
             if guid then TankMark.activeGUIDs[guid] = nil end
             if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+            
+            -- SUPERWOW: Trigger Automation
+            if TankMark.IsSuperWoW and icon == 8 then
+                TankMark:SmartDecideNextSkull()
+            end
         end
         return
     end
 
-    local hp = UnitHealth(unitID)
+    -- Player Death Logic (Standard)
+    local hp = _UnitHealth(unitID)
     if hp and hp > 0 then return end 
 
     local deadPlayerName = _UnitName(unitID)
@@ -409,8 +449,7 @@ function TankMark:HandleDeath(unitID)
     local assignedIcon = nil
     for icon, assignedTo in _pairs(TankMark.sessionAssignments) do
         if assignedTo == deadPlayerName then
-            assignedIcon = icon
-            break
+            assignedIcon = icon; break
         end
     end
     if not assignedIcon then return end
@@ -418,7 +457,6 @@ function TankMark:HandleDeath(unitID)
     if TankMark.usedIcons[assignedIcon] then
         local _, classEng = UnitClass(unitID)
         local backupPlayer = TankMark:GetFirstAvailableBackup(classEng)
-
         if backupPlayer then
             TankMark.sessionAssignments[assignedIcon] = backupPlayer
             local markStr = TankMark:GetMarkString(assignedIcon)
@@ -426,42 +464,33 @@ function TankMark:HandleDeath(unitID)
             SendChatMessage(msg, "WHISPER", nil, backupPlayer)
             TankMark:Print("Reassigned " .. markStr .. " to " .. backupPlayer)
             if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-        else
-            TankMark:Print("|cffff0000CRITICAL:|r " .. deadPlayerName .. " died. No backups found for " .. "{rt"..assignedIcon.."}!")
         end
     end
 end
 
 -- ==========================================================
--- 6. INITIALIZATION & DRIVER LOADING
+-- 6. SUPERWOW DRIVER INITIALIZATION
 -- ==========================================================
 
 function TankMark:InitDriver()
-    -- Check for SuperWoW global
     if type(SUPERWOW_VERSION) ~= "nil" then
         TankMark.IsSuperWoW = true
         TankMark:Print("SuperWoW Detected: |cff00ff00Enhanced Driver Loaded.|r")
         
-        -- OVERRIDE: Driver_GetGUID
-        -- Source 16: "UnitExists now also returns GUID of unit"
+        -- OVERRIDE 1: GUID Extraction
         TankMark.Driver_GetGUID = function(self, unit)
             local exists, guid = _UnitExists(unit)
-            if exists then return guid end -- Use the GUID string returned by API
+            if exists then return guid end 
             return nil
         end
 
-        -- OVERRIDE: Driver_ApplyMark
-        -- Source 44: SetRaidTarget accepts GUID
+        -- OVERRIDE 2: Direct Marking
         TankMark.Driver_ApplyMark = function(self, target, icon)
-            _SetRaidTarget(target, icon) -- 'target' can be a GUID string now
+            _SetRaidTarget(target, icon)
         end
-
-        -- OVERRIDE: Driver_IsDistanceValid
-        -- Source 32: SpellInfo gives max range? Or CheckInteractDistance works on GUID?
-        -- We can try simple interaction check first.
-        TankMark.Driver_IsDistanceValid = function(self, unit)
-            return CheckInteractDistance(unit, 4)
-        end
+        
+        -- OVERRIDE 3: Start Background Scanner
+        TankMark:StartSuperScanner()
         
     else
         TankMark:Print("Standard Client Detected: Loaded Standard Driver.")
@@ -469,12 +498,92 @@ function TankMark:InitDriver()
 end
 
 -- ==========================================================
--- 7. COMMANDS & EVENTS
+-- 7. SUPERWOW FEATURES (Scanner & Smart Logic)
+-- ==========================================================
+
+function TankMark:StartSuperScanner()
+    local f = CreateFrame("Frame", "TMScannerFrame")
+    local elapsed = 0
+    
+    f:SetScript("OnUpdate", function()
+        elapsed = elapsed + arg1
+        if elapsed < 0.2 then return end -- Update 5 times/sec
+        elapsed = 0
+        
+        -- Clear Cache (Optional: optimization possible here)
+        TankMark.visibleTargets = {} 
+        
+        local frames = {WorldFrame:GetChildren()}
+        for _, plate in ipairs(frames) do
+            if plate:IsVisible() and TankMark:IsNameplate(plate) then
+                -- Source 17: frame:GetName(1) returns GUID
+                local guid = plate:GetName(1)
+                if guid then
+                    TankMark.visibleTargets[guid] = true
+                end
+            end
+        end
+    end)
+end
+
+function TankMark:SmartDecideNextSkull()
+    -- 1. Check if Cross exists to promote
+    for guid, mark in pairs(TankMark.activeGUIDs) do
+        if mark == 7 and TankMark.visibleTargets[guid] then
+            -- Verify it's alive
+             if not _UnitIsDead(guid) then
+                 -- Promote
+                 TankMark:Driver_ApplyMark(guid, 8)
+                 TankMark:EvictMarkOwner(7)
+                 
+                 -- Register new state
+                 local name = _UnitName(guid)
+                 TankMark:RegisterMarkUsage(8, name, guid, false)
+                 TankMark:Print("Auto-Promoted " .. name .. " to SKULL.")
+                 return
+             end
+        end
+    end
+    
+    -- 2. If no Cross, find lowest HP "Priority 1" Mob
+    local bestGUID = nil
+    local lowestHP = 999999
+    local zone = GetRealZoneText()
+    
+    if not TankMarkDB.Zones[zone] then return end
+    
+    for guid, _ in pairs(TankMark.visibleTargets) do
+        if not _UnitIsDead(guid) and not _GetRaidTargetIndex(guid) then
+            local name = _UnitName(guid)
+            if name and TankMarkDB.Zones[zone][name] then
+                local data = TankMarkDB.Zones[zone][name]
+                
+                -- Check for Priority 1 (Kill Target)
+                if data.prio == 1 then
+                    local hp = _UnitHealth(guid)
+                    if hp and hp < lowestHP and hp > 0 then
+                        lowestHP = hp
+                        bestGUID = guid
+                    end
+                end
+            end
+        end
+    end
+    
+    if bestGUID then
+        TankMark:Driver_ApplyMark(bestGUID, 8)
+        local name = _UnitName(bestGUID)
+        TankMark:RegisterMarkUsage(8, name, bestGUID, false)
+        TankMark:Print("Auto-Assigned SKULL to " .. name .. " (Lowest HP).")
+    end
+end
+
+-- ==========================================================
+-- 8. COMMANDS & EVENTS (Standard)
 -- ==========================================================
 
 function TankMark:GetAssigneeForMark(markID)
     local zone = GetRealZoneText()
-    
     if TankMarkDB.Profiles[zone] and TankMarkDB.Profiles[zone][markID] then
         local assignedName = TankMarkDB.Profiles[zone][markID]
         if UnitInRaid("player") then
@@ -488,10 +597,8 @@ function TankMark:GetAssigneeForMark(markID)
             end
         end
     end
-    
     local requiredClass = TankMark.MarkClassDefaults[markID]
     if not requiredClass then return nil end 
-    
     local candidates = {}
     local function IsPlayerBusy(name)
         for otherMark, assignee in _pairs(TankMark.sessionAssignments) do
@@ -506,7 +613,6 @@ function TankMark:GetAssigneeForMark(markID)
             if name and not IsPlayerBusy(name) then table.insert(candidates, name) end
         end
     end
-
     if UnitInRaid("player") then
         for i = 1, GetNumRaidMembers() do CheckUnit("raid"..i) end
     else
@@ -517,7 +623,6 @@ function TankMark:GetAssigneeForMark(markID)
         end
         for i = 1, GetNumPartyMembers() do CheckUnit("party"..i) end
     end
-    
     if table.getn(candidates) > 0 then
         return candidates[math.random(table.getn(candidates))]
     end
@@ -535,14 +640,18 @@ function TankMark:SlashHandler(msg)
 
     if cmd == "reset" or cmd == "r" then
         TankMark:ResetSession()
-        
     elseif cmd == "announce" or cmd == "a" then
         if TankMark.AnnounceAssignments then TankMark:AnnounceAssignments() end
-
     elseif cmd == "zone" or cmd == "debug" then
         local currentZone = GetRealZoneText()
         TankMark:Print("Current Zone: " .. currentZone)
         TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
+        
+        if TankMark.IsSuperWoW then
+            local count = 0
+            for k,v in pairs(TankMark.visibleTargets) do count = count + 1 end
+            TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
+        end
         
     elseif cmd == "assign" then
         local markStr, targetPlayer = string.match(args, "^(%S+)%s+(%S+)$")
@@ -560,13 +669,10 @@ function TankMark:SlashHandler(msg)
         else
             TankMark:Print("Usage: /tm assign [mark] [player]")
         end
-
     elseif cmd == "config" or cmd == "c" then
         if TankMark.ShowOptions then TankMark:ShowOptions() end
-
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
-
     else
         TankMark:Print("Commands: /tm reset, /tm announce, /tm assign [mark] [player]")
     end
@@ -576,7 +682,6 @@ function TankMark:AnnounceAssignments()
     local channel = "SAY" 
     if GetNumRaidMembers() > 0 then channel = "RAID"
     elseif GetNumPartyMembers() > 0 then channel = "PARTY" end
-
     SendChatMessage("TankMark Assignments:", channel)
     for i = 8, 1, -1 do
         local player = TankMark.sessionAssignments[i]
@@ -588,37 +693,23 @@ function TankMark:AnnounceAssignments()
     end
 end
 
--- ==========================================================
--- 8. EVENTS
--- ==========================================================
-
 TankMark:SetScript("OnEvent", function()
     if (event == "ADDON_LOADED" and arg1 == "TankMark") then
         if TankMark.InitializeDB then TankMark:InitializeDB() end
-    
     elseif (event == "PLAYER_LOGIN") then
         math.randomseed(time())
         if TankMark.UpdateRoster then TankMark:UpdateRoster() end
         TankMark:InitCombatLogParser()
-        
-        -- NEW v0.9: Initialize Driver Detection
         TankMark:InitDriver()
-        
         TankMark:Print("TankMark v0.9-dev Loaded.")
-
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         if TankMark.IsActive then TankMark:HandleMouseover() end
-
     elseif (event == "UNIT_HEALTH") then
         TankMark:HandleDeath(arg1)
-
     elseif (event == "CHAT_MSG_COMBAT_HOSTILE_DEATH") then
         TankMark:HandleCombatLog(arg1)
-    
     elseif (event == "CHAT_MSG_ADDON") then
-        if TankMark.HandleSync then
-            TankMark:HandleSync(arg1, arg2, arg4)
-        end
+        if TankMark.HandleSync then TankMark:HandleSync(arg1, arg2, arg4) end
     end
 end)
 
@@ -626,6 +717,4 @@ TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 
 SLASH_TANKMARK1 = "/tm"
 SLASH_TANKMARK2 = "/tankmark"
-SlashCmdList["TANKMARK"] = function(msg)
-    TankMark:SlashHandler(msg)
-end
+SlashCmdList["TANKMARK"] = function(msg) TankMark:SlashHandler(msg) end
