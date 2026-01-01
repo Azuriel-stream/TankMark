@@ -40,38 +40,38 @@ function TankMark:Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ccff[TankMark]|r " .. msg)
 end
 
-function TankMark:IsMarkAlive(iconID)
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
+-- function TankMark:IsMarkAlive(iconID)
+--     local numRaid = GetNumRaidMembers()
+--     local numParty = GetNumPartyMembers()
     
-    local function checkTarget(unitID)
-        if UnitExists(unitID) and GetRaidTargetIndex(unitID) == iconID then
-            return unitID
-        end
-        return nil
-    end
+--     local function checkTarget(unitID)
+--         if UnitExists(unitID) and GetRaidTargetIndex(unitID) == iconID then
+--             return unitID
+--         end
+--         return nil
+--     end
 
-    local foundUnitID = nil
-    if numRaid > 0 then
-        for i = 1, 40 do
-            foundUnitID = checkTarget("raid"..i.."target")
-            if foundUnitID then break end
-        end
-    elseif numParty > 0 then
-        for i = 1, 4 do
-            foundUnitID = checkTarget("party"..i.."target")
-            if foundUnitID then break end
-        end
-        if not foundUnitID then foundUnitID = checkTarget("target") end 
-    else
-        foundUnitID = checkTarget("target")
-    end
+--     local foundUnitID = nil
+--     if numRaid > 0 then
+--         for i = 1, 40 do
+--             foundUnitID = checkTarget("raid"..i.."target")
+--             if foundUnitID then break end
+--         end
+--     elseif numParty > 0 then
+--         for i = 1, 4 do
+--             foundUnitID = checkTarget("party"..i.."target")
+--             if foundUnitID then break end
+--         end
+--         if not foundUnitID then foundUnitID = checkTarget("target") end 
+--     else
+--         foundUnitID = checkTarget("target")
+--     end
 
-    if foundUnitID then
-        return not UnitIsDeadOrGhost(foundUnitID)
-    end
-    return true 
-end
+--     if foundUnitID then
+--         return not UnitIsDeadOrGhost(foundUnitID)
+--     end
+--     return true 
+-- end
 
 function TankMark:UpdateRoster()
     TankMark.runtimeCache.classRoster = {} 
