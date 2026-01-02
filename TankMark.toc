@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: TankMark |cff00ccff(v0.10-dev)|r
-## Notes: Automates raid marking with SuperWoW Support & Smart Scanning.
+## Title: TankMark |cff00ccff(v0.11)|r
+## Notes: Automates raid marking with SuperWoW Support, Smart Scanning & Sync.
 ## Author: Azuriel
-## Version: 0.10-dev
+## Version: 0.11
 ## SavedVariables: TankMarkDB
 
 TankMark_Data.lua

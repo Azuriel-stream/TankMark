@@ -1,4 +1,4 @@
--- TankMark: v0.8-dev (Dual-Layer Data)
+-- TankMark: v0.11 (Core Data & Events)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -25,14 +25,12 @@ function TankMark:InitializeDB()
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
     if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    TankMark:Print("Database initialized (v0.8-dev).")
+    TankMark:Print("Database initialized (v0.11).")
 end
 
 function TankMark:Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ccff[TankMark]|r " .. msg)
 end
-
--- IsMarkAlive removed in v0.8 (Superseded by internal cache & local VerifyMarkExistence)
 
 function TankMark:UpdateRoster()
     TankMark.runtimeCache.classRoster = {} 
