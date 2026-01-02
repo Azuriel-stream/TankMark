@@ -1,4 +1,4 @@
--- TankMark: v0.11-RC8 (Fix: Input Focus Bug)
+-- TankMark: v0.12-DoubleDecker (Layout Fix & GUID Lock)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -29,6 +29,7 @@ TankMark.mobRows = {}
 TankMark.profileRows = {}
 TankMark.iconBtn = nil 
 TankMark.classBtn = nil 
+TankMark.classDropDown = nil 
 TankMark.lockCheck = nil 
 TankMark.isZoneListMode = false 
 TankMark.scrollFrame = nil 
@@ -56,7 +57,7 @@ function TankMark:CreateEditBox(parent, title, w)
     local eb = CreateFrame("EditBox", nil, parent)
     eb:SetWidth(w); eb:SetHeight(20)
     eb:SetFontObject(GameFontHighlightSmall)
-    eb:SetAutoFocus(false) -- Critical: Prevents stealing focus
+    eb:SetAutoFocus(false) 
     eb:SetTextInsets(5, 5, 0, 0)
     
     local left = eb:CreateTexture(nil, "BACKGROUND")
@@ -82,7 +83,6 @@ function TankMark:CreateEditBox(parent, title, w)
     label:SetPoint("BOTTOMLEFT", eb, "TOPLEFT", -5, 2)
     label:SetText(title or "") 
     
-    -- FIXED: Clear focus on Enter or Escape
     eb:SetScript("OnEscapePressed", function() eb:ClearFocus() end)
     eb:SetScript("OnEnterPressed", function() eb:ClearFocus() end)
     return eb
@@ -104,10 +104,10 @@ function TankMark:UpdateClassButton()
     if not TankMark.classBtn then return end
     if TankMark.selectedClass then
         TankMark.classBtn:SetText(TankMark.selectedClass)
-        TankMark.classBtn.label:SetText("|cff00ff00CC Class:|r") 
+        TankMark.classBtn:SetTextColor(0, 1, 0)
     else
-        TankMark.classBtn:SetText("ANY")
-        TankMark.classBtn.label:SetText("CC Class:") 
+        TankMark.classBtn:SetText("Any Class")
+        TankMark.classBtn:SetTextColor(1, 0.82, 0) 
     end
 end
 
@@ -176,7 +176,7 @@ function TankMark:UpdateMobList()
     end
 
     local numItems = _getn(listData)
-    local MAX_ROWS = 10
+    local MAX_ROWS = 9
     local ROW_HEIGHT = 22
     
     FauxScrollFrame_Update(TankMark.scrollFrame, numItems, MAX_ROWS, ROW_HEIGHT)
@@ -204,7 +204,8 @@ function TankMark:UpdateMobList()
                     if data.type == "CC" then color = "|cff00ccff" end
                     local markInfo = TankMark.MarkInfo[data.mark]
                     local markName = markInfo and markInfo.name or "?"
-                    row.text:SetText(color .. data.name .. "|r  (" .. markName .. ")")
+                    
+                    row.text:SetText("|cff888888["..data.prio.."]|r " .. color .. data.name .. "|r")
                     
                     local clickMob = data.name
                     row.del:SetScript("OnClick", function() 
@@ -220,7 +221,9 @@ function TankMark:UpdateMobList()
                         TankMark.selectedIcon = data.mark
                         TankMark.selectedClass = data.class
                         TankMark:UpdateClassButton()
-                        if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        if TankMark.iconBtn and TankMark.iconBtn.tex then 
+                            SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) 
+                        end
                     end)
                 end
                 row:Show()
@@ -241,15 +244,17 @@ function TankMark:SaveFormData()
     if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
     
+    -- [RESTORED] Lock GUID Logic
     if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
         local exists, guid = UnitExists("target")
+        -- Verify target matches the name being saved to prevent accidents
         if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
             if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
             TankMarkDB.StaticGUIDs[zone][guid] = icon
-            TankMark:Print("LOCKED GUID for: " .. mob)
-            TankMark.lockCheck:SetChecked(nil) 
+            TankMark:Print("|cff00ff00LOCKED GUID|r for: " .. mob)
+            TankMark.lockCheck:SetChecked(nil) -- Reset after save
         else
-            TankMark:Print("Warning: To lock GUID, you must target the mob.")
+            TankMark:Print("|cffff0000Error:|r To lock GUID, you must target the specific mob.")
         end
     end
 
@@ -258,8 +263,11 @@ function TankMark:SaveFormData()
         ["prio"] = prio, ["mark"] = icon, ["class"] = classReq, ["type"] = mobType 
     }
     
-    TankMark:Print("Saved: " .. mob .. " ("..mobType..")")
+    TankMark:Print("Saved: " .. mob .. " (Prio: "..prio..", Mark: "..icon..")")
+    
+    -- Clear Form
     TankMark.editMob:SetText("")
+    TankMark.editPrio:SetText("1") 
     TankMark.selectedClass = nil
     TankMark:UpdateClassButton()
     
@@ -338,7 +346,35 @@ function TankMark:RequestWipeProfile()
 end
 
 -- ==========================================================
--- 4. MAIN FRAME CONSTRUCTION
+-- 4. CLASS DROPDOWN INIT
+-- ==========================================================
+function TankMark:InitClassMenu()
+    local info = {}
+    
+    -- Option: Any Class (Clear)
+    info = {}
+    info.text = "|cffffffffAny Class (Kill)|r"
+    info.func = function() 
+        TankMark.selectedClass = nil
+        TankMark:UpdateClassButton()
+    end
+    UIDropDownMenu_AddButton(info)
+    
+    -- List Classes
+    for _, class in _ipairs(CLASS_LIST) do
+        info = {}
+        info.text = class
+        info.func = function()
+            TankMark.selectedClass = class
+            TankMark:UpdateClassButton()
+        end
+        info.checked = (TankMark.selectedClass == class)
+        UIDropDownMenu_AddButton(info)
+    end
+end
+
+-- ==========================================================
+-- 5. MAIN FRAME CONSTRUCTION
 -- ==========================================================
 
 function TankMark:CreateOptionsFrame()
@@ -401,11 +437,50 @@ function TankMark:CreateOptionsFrame()
     UIDropDownMenu_SetText(GetRealZoneText(), drop) 
     TankMark.zoneDropDown = drop
 
+    -- [NEW] Zone Manager Button (Gear Icon)
+    local zmBtn = CreateFrame("Button", nil, t1)
+    zmBtn:SetWidth(24); zmBtn:SetHeight(24)
+    zmBtn:SetPoint("LEFT", drop, "RIGHT", -5, 2) -- Anchored to right of dropdown
+    
+    local nTex = zmBtn:CreateTexture(nil, "ARTWORK")
+    nTex:SetAllPoints()
+    nTex:SetTexture("Interface\\Icons\\INV_Misc_Gear_01") -- Standard Gear Icon
+    nTex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- Trim ugly borders
+    zmBtn:SetNormalTexture(nTex)
+    
+    local hTex = zmBtn:CreateTexture(nil, "HIGHLIGHT")
+    hTex:SetAllPoints()
+    hTex:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    hTex:SetBlendMode("ADD")
+    zmBtn:SetHighlightTexture(hTex)
+    
+    local pTex = zmBtn:CreateTexture(nil, "PUSHED")
+    pTex:SetAllPoints()
+    pTex:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+    pTex:SetTexCoord(0.12, 0.88, 0.12, 0.88) -- Slight zoom on push
+    pTex:SetVertexColor(0.8, 0.8, 0.8) -- Darken on push
+    zmBtn:SetPushedTexture(pTex)
+    
+    zmBtn:SetScript("OnClick", function() 
+        TankMark:ToggleZoneBrowser()
+        -- Play sound for feedback
+        PlaySound("igMainMenuOptionCheckBoxOn")
+    end)
+    
+    -- Tooltip
+    zmBtn:SetScript("OnEnter", function() 
+        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Manage Zones")
+        GameTooltip:AddLine("Click to view all saved zones.\nAllows deleting old zone data.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    zmBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    
     -- SCROLL LIST
     local sf = CreateFrame("ScrollFrame", "TankMarkScrollFrame", t1, "FauxScrollFrameTemplate")
     sf:SetPoint("TOPLEFT", 15, -50)
     sf:SetWidth(380)
-    sf:SetHeight(220) 
+    sf:SetHeight(200) 
     
     local listBg = CreateFrame("Frame", nil, t1)
     listBg:SetPoint("TOPLEFT", sf, -5, 5)
@@ -424,7 +499,7 @@ function TankMark:CreateOptionsFrame()
     TankMark.scrollFrame = sf
 
     -- CREATE ROWS
-    for i = 1, 10 do
+    for i = 1, 9 do
         local row = CreateFrame("Button", nil, t1) 
         row:SetWidth(380)
         row:SetHeight(22)
@@ -477,75 +552,103 @@ function TankMark:CreateOptionsFrame()
     TankMark.searchBox = sBox
 
     -- ======================================================
-    -- ADD NEW MOB SECTION
+    -- DOUBLE-DECKER ADD/EDIT SECTION (v0.12 Final Polish)
     -- ======================================================
     local addGroup = CreateFrame("Frame", nil, t1)
-    addGroup:SetPoint("BOTTOMLEFT", 5, -5) 
-    addGroup:SetWidth(410); addGroup:SetHeight(80)
+    -- 1. LEFT ALIGN to match Search bar (x=15 padding)
+    addGroup:SetPoint("BOTTOMLEFT", 15, 0)
+    -- 2. Full Width to allow centering elements inside if needed
+    addGroup:SetWidth(400) 
+    addGroup:SetHeight(90) 
     
-    local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 110)
-    nameBox:SetPoint("TOPLEFT", 0, -10)
+    -- [NEW] VISUAL DIVIDER (Centered in Window)
+    local div = addGroup:CreateTexture(nil, "ARTWORK")
+    div:SetHeight(1)
+    div:SetWidth(380) -- Matches the list width
+    -- Anchor to TOP CENTER of the group (which is roughly window center)
+    div:SetPoint("TOP", addGroup, "TOP", 0, 0) 
+    div:SetTexture(1, 1, 1)
+    div:SetAlpha(0.2)
+
+    -- === ROW 1: Name & Target ===
+    
+    -- 1. Mob Name (Expanded to 210px)
+    local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 210)
+    nameBox:SetPoint("TOPLEFT", 0, -30)
     TankMark.editMob = nameBox 
     
+    -- 2. Target Button
     local targetBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    targetBtn:SetWidth(50); targetBtn:SetHeight(20)
+    targetBtn:SetWidth(60); targetBtn:SetHeight(20)
     targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0)
     targetBtn:SetText("Target")
     targetBtn:SetScript("OnClick", function()
         if UnitExists("target") then nameBox:SetText(UnitName("target")) end
     end)
     
+    -- === ROW 2: Prio, Icon, Class, Lock, Save ===
+    
+    -- 3. Priority Box
+    local prioBox = TankMark:CreateEditBox(addGroup, "Prio", 30)
+    prioBox:SetPoint("TOPLEFT", 0, -65) -- New Row Start
+    prioBox:SetText("1")
+    prioBox:SetMaxLetters(2)
+    prioBox:SetNumeric(true)
+    TankMark.editPrio = prioBox
+    
+    -- 4. Icon Selector
     local iconSel = CreateFrame("Button", nil, addGroup)
     iconSel:SetWidth(24); iconSel:SetHeight(24)
-    iconSel:SetPoint("LEFT", targetBtn, "RIGHT", 5, 0)
+    iconSel:SetPoint("LEFT", prioBox, "RIGHT", 10, 0)
     local iconTex = iconSel:CreateTexture(nil, "ARTWORK")
     iconTex:SetAllPoints()
+    iconSel.tex = iconTex -- Fix: Assign texture to button for easy access
     iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
     SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
+    
     iconSel:SetScript("OnClick", function()
         TankMark.selectedIcon = TankMark.selectedIcon - 1
         if TankMark.selectedIcon < 1 then TankMark.selectedIcon = 8 end
         SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
     end)
     TankMark.iconBtn = iconSel
-    
+
+    -- 5. Class Dropdown Button
     local cBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    cBtn:SetWidth(70); cBtn:SetHeight(24)
-    cBtn:SetPoint("LEFT", iconSel, "RIGHT", 5, 0)
-    cBtn:SetText("ANY")
-    cBtn.label = cBtn:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    cBtn.label:SetPoint("BOTTOM", cBtn, "TOP", 0, 3)
-    cBtn.label:SetText("CC Class:")
+    cBtn:SetWidth(80); cBtn:SetHeight(24)
+    cBtn:SetPoint("LEFT", iconSel, "RIGHT", 10, 0)
+    cBtn:SetText("Any Class")
+    
+    local cDrop = CreateFrame("Frame", "TMClassDropDown", cBtn, "UIDropDownMenuTemplate")
+    UIDropDownMenu_Initialize(cDrop, function() TankMark:InitClassMenu() end, "MENU")
+    TankMark.classDropDown = cDrop
+    
     cBtn:SetScript("OnClick", function()
-        local current = TankMark.selectedClass
-        local nextClass = nil
-        if not current then nextClass = CLASS_LIST[1] 
-        else
-            for i, c in ipairs(CLASS_LIST) do
-                if c == current then
-                    nextClass = (i < table.getn(CLASS_LIST)) and CLASS_LIST[i+1] or nil
-                    break
-                end
-            end
-        end
-        TankMark.selectedClass = nextClass
-        TankMark:UpdateClassButton()
+        ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0)
     end)
-    cBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    cBtn:SetScript("OnMouseUp", function() if arg1 == "RightButton" then TankMark.selectedClass = nil; TankMark:UpdateClassButton() end end)
     TankMark.classBtn = cBtn
 
+    -- 6. [RESTORED] Lock Checkbox
+    local lCheck = CreateFrame("CheckButton", nil, addGroup, "UICheckButtonTemplate")
+    lCheck:SetWidth(24); lCheck:SetHeight(24)
+    lCheck:SetPoint("LEFT", cBtn, "RIGHT", 5, 0)
+    
+    lCheck:SetScript("OnEnter", function() 
+        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Lock GUID")
+        GameTooltip:AddLine("Check this to permanently assign this mark\nto this SPECIFIC creature instance.\n(Requires Target)", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    lCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    TankMark.lockCheck = lCheck
+
+    -- 7. Save Button
     local addBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    addBtn:SetWidth(70); addBtn:SetHeight(24)
-    addBtn:SetPoint("LEFT", cBtn, "RIGHT", 5, 0)
-    addBtn:SetText("Add/Save")
+    addBtn:SetWidth(60); addBtn:SetHeight(24)
+    addBtn:SetPoint("LEFT", lCheck, "RIGHT", 5, 0)
+    addBtn:SetText("Save")
     addBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
     
-    -- FIXED: CreateEditBox used for hidden prio box to prevent Focus Stealing
-    TankMark.editPrio = TankMark:CreateEditBox(f, "", 0)
-    TankMark.editPrio:SetText("1") 
-    TankMark.editPrio:Hide()
-
     TankMark.optionsFrame = f
     
     -- === TAB 2 INIT ===
@@ -629,7 +732,7 @@ function TankMark:CreateOptionsFrame()
         TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
     end)
     
-    TankMark:Print("Options frame updated (v0.11-RC8).")
+    TankMark:Print("Options frame updated (v0.12-DoubleDecker).")
 end
 
 function TankMark:ShowOptions()

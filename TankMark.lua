@@ -1,4 +1,4 @@
--- TankMark: v0.11-RC1 (Turtle WoW Optimized)
+-- TankMark: v0.11-RC2 (Turtle WoW Optimized - Memory Fix)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -28,6 +28,12 @@ local _UnitHealth = UnitHealth
 local _IsSpellInRange = IsSpellInRange
 local _CheckInteractDistance = CheckInteractDistance
 local _getglobal = getglobal
+
+-- Helper: Table Wipe for Lua 5.0 (Reduces Garbage)
+local function table_wipe(t)
+    if not t then return end
+    for k in pairs(t) do t[k] = nil end
+end
 
 -- ==========================================================
 -- LOGIC VARIABLES
@@ -553,16 +559,27 @@ end
 function TankMark:StartSuperScanner()
     local f = CreateFrame("Frame", "TMScannerFrame")
     local elapsed = 0
+    
+    -- FIXED: Initialize once, not every loop
+    TankMark.visibleTargets = {} 
+
     f:SetScript("OnUpdate", function()
         if not TankMark:CanAutomate() then return end
         elapsed = elapsed + arg1
-        if elapsed < 0.1 then return end 
+        
+        -- FIXED: Throttle increased to 0.25s (4Hz) to reduce table churn
+        if elapsed < 0.25 then return end 
         elapsed = 0
         
-        TankMark.visibleTargets = {} 
+        -- FIXED: Recycle table instead of creating new one
+        table_wipe(TankMark.visibleTargets) 
+        
+        -- Note: {WorldFrame:GetChildren()} still creates a table (unavoidable in Lua 5.0)
+        -- but reducing frequency by 60% helps significantly.
         local frames = {WorldFrame:GetChildren()}
         for _, plate in _ipairs(frames) do
             if plate:IsVisible() and TankMark:IsNameplate(plate) then
+                -- [Source 17] frame:GetName(1) returns GUID on nameplates
                 local guid = plate:GetName(1)
                 if guid then 
                     TankMark.visibleTargets[guid] = true 
