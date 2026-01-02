@@ -1,4 +1,4 @@
--- TankMark: v0.12-Final (Polish: Zone Manager UX)
+-- TankMark: v0.12-Final (UX: Checkbox Mode Toggle)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -34,6 +34,7 @@ TankMark.lockCheck = nil
 TankMark.isZoneListMode = false 
 TankMark.scrollFrame = nil 
 TankMark.searchBox = nil 
+TankMark.zoneModeCheck = nil -- [NEW] Global ref for the checkbox
 
 local CLASS_LIST = { "WARRIOR", "MAGE", "WARLOCK", "HUNTER", "DRUID", "PRIEST", "ROGUE", "SHAMAN", "PALADIN" }
 
@@ -123,12 +124,16 @@ function TankMark:SetDropdownState(enabled)
     local txt = _getglobal(name.."Text")
     
     if enabled then
-        if btn then btn:Enable() end
+        if btn then 
+            btn:Enable() 
+            btn:Show() 
+        end
         TankMark.zoneDropDown:EnableMouse(true)
         if txt then txt:SetVertexColor(1, 1, 1) end 
     else
-        if btn then btn:Disable() end
-        -- [FIX] Button remains visible but disabled (no Hide call)
+        if btn then 
+            btn:Disable() 
+        end
         TankMark.zoneDropDown:EnableMouse(false)
         if txt then txt:SetVertexColor(0.5, 0.5, 0.5) end 
     end
@@ -140,11 +145,15 @@ function TankMark:ToggleZoneBrowser()
     
     if TankMark.isZoneListMode then
          TankMark:SetDropdownState(false)
-         -- [FIX] Prompt updated to "Manage Saved Zones"
          UIDropDownMenu_SetText("Manage Saved Zones", TankMark.zoneDropDown)
     else
          TankMark:SetDropdownState(true)
          UIDropDownMenu_SetText(GetRealZoneText(), TankMark.zoneDropDown)
+    end
+    
+    -- [SYNC] Ensure Checkbox matches state (if triggered externally)
+    if TankMark.zoneModeCheck then 
+        TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
     end
     
     TankMark:UpdateMobList()
@@ -155,6 +164,12 @@ function TankMark:SelectZone(zoneName)
         TankMark:SetDropdownState(true)
         UIDropDownMenu_SetText(zoneName, TankMark.zoneDropDown)
         TankMark.isZoneListMode = false 
+        
+        -- [UX FIX] Auto-untick the manager checkbox
+        if TankMark.zoneModeCheck then 
+            TankMark.zoneModeCheck:SetChecked(nil)
+        end
+        
         TankMark:UpdateMobList()
     end
 end
@@ -220,24 +235,20 @@ function TankMark:UpdateMobList()
             if index <= numItems then
                 local data = listData[index]
                 
-                -- [FIX] Dynamic Button Resizing Logic
                 if TankMark.isZoneListMode then
                     row.icon:Hide()
                     row.text:SetText("|cffffd200" .. data.label .. "|r")
                     
                     local clickZone = data.label
                     
-                    -- DELETE BUTTON: Wide & Red
                     row.del:SetWidth(60) 
                     row.del:SetText("|cffff0000Delete|r")
                     row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(clickZone) end)
                     
-                    -- LOAD BUTTON: Wide
                     row.edit:SetWidth(50)
                     row.edit:SetText("Load")
                     row.edit:SetScript("OnClick", function() TankMark:SelectZone(clickZone) end)
                     
-                    -- Adjust anchors to prevent overlap if needed (Left aligns automatically)
                 else
                     SetRaidTargetIconTexture(row.icon, data.mark)
                     row.icon:Show()
@@ -250,7 +261,6 @@ function TankMark:UpdateMobList()
                     
                     local clickMob = data.name
                     
-                    -- RESET BUTTONS: Small & Standard
                     row.del:SetWidth(20)
                     row.del:SetText("X")
                     row.del:SetScript("OnClick", function() 
@@ -290,7 +300,6 @@ function TankMark:SaveFormData()
     if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
     
-    -- Lock GUID Logic
     if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
         local exists, guid = UnitExists("target")
         if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
@@ -482,42 +491,19 @@ function TankMark:CreateOptionsFrame()
     UIDropDownMenu_SetText(GetRealZoneText(), drop) 
     TankMark.zoneDropDown = drop
 
-    -- [NEW] Zone Manager Button (Restored 1.12 Texture)
-    local zmBtn = CreateFrame("Button", nil, t1)
-    zmBtn:SetWidth(24); zmBtn:SetHeight(24)
-    zmBtn:SetPoint("LEFT", drop, "RIGHT", -5, 2) 
+    -- [NEW] Manage Zones Checkbox (Replaces Gear Icons)
+    local mzCheck = CreateFrame("CheckButton", "TM_ManageZonesCheck", t1, "UICheckButtonTemplate")
+    mzCheck:SetWidth(24); mzCheck:SetHeight(24)
+    mzCheck:SetPoint("LEFT", drop, "RIGHT", 10, 2)
     
-    local nTex = zmBtn:CreateTexture(nil, "ARTWORK")
-    nTex:SetAllPoints()
-    nTex:SetTexture("Interface\\Icons\\INV_Misc_Gear_01") -- Reliable 1.12 Gold Gear
-    nTex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- Trim borders for clean look
-    zmBtn:SetNormalTexture(nTex)
+    _G[mzCheck:GetName().."Text"]:SetText("Manage Zones")
     
-    local hTex = zmBtn:CreateTexture(nil, "HIGHLIGHT")
-    hTex:SetAllPoints()
-    hTex:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-    hTex:SetBlendMode("ADD")
-    zmBtn:SetHighlightTexture(hTex)
-    
-    local pTex = zmBtn:CreateTexture(nil, "PUSHED")
-    pTex:SetAllPoints()
-    pTex:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
-    pTex:SetTexCoord(0.12, 0.88, 0.12, 0.88)
-    pTex:SetVertexColor(0.8, 0.8, 0.8)
-    zmBtn:SetPushedTexture(pTex)
-    
-    zmBtn:SetScript("OnClick", function() 
+    mzCheck:SetScript("OnClick", function()
         TankMark:ToggleZoneBrowser()
         PlaySound("igMainMenuOptionCheckBoxOn")
     end)
     
-    zmBtn:SetScript("OnEnter", function() 
-        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Manage Zones")
-        GameTooltip:AddLine("Click to view all saved zones.\nAllows deleting zone data.", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    zmBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    TankMark.zoneModeCheck = mzCheck
 
     -- SCROLL LIST
     local sf = CreateFrame("ScrollFrame", "TankMarkScrollFrame", t1, "FauxScrollFrameTemplate")
@@ -782,6 +768,11 @@ function TankMark:ShowOptions()
     -- Safety: Clear focus from any hidden elements
     if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
     if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
+    
+    -- Ensure checkbox matches state on show
+    if TankMark.zoneModeCheck then 
+        TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
+    end
     
     local cz = GetRealZoneText()
     if cz and cz ~= "" then
