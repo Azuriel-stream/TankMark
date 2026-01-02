@@ -1,4 +1,4 @@
--- TankMark: v0.7-alpha (Fix: Lua 5.0 Closures)
+-- TankMark: v0.11-RC5 (UI Spacing & Tab 2 Layout Fix)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -31,46 +31,66 @@ TankMark.iconBtn = nil
 TankMark.classBtn = nil 
 TankMark.lockCheck = nil 
 TankMark.isZoneListMode = false 
+TankMark.scrollFrame = nil 
+TankMark.searchBox = nil 
 
 local CLASS_LIST = { "WARRIOR", "MAGE", "WARLOCK", "HUNTER", "DRUID", "PRIEST", "ROGUE", "SHAMAN", "PALADIN" }
+
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
+local _pairs = pairs
+local _ipairs = ipairs
+local _insert = table.insert
+local _sort = table.sort
+local _getn = table.getn
+local _format = string.format
+local _lower = string.lower
+local _strfind = string.find
 
 -- ==========================================================
 -- 1. HELPER FUNCTIONS
 -- ==========================================================
 
-function TankMark:CreateEditBox(parent, title, width)
+function TankMark:CreateEditBox(parent, text, w)
     local eb = CreateFrame("EditBox", nil, parent)
+    eb:SetWidth(w); eb:SetHeight(20)
+    eb:SetFontObject(GameFontHighlightSmall)
     eb:SetAutoFocus(false)
-    eb:SetWidth(width); eb:SetHeight(20)
-    eb:SetFontObject("GameFontHighlight")
-    eb:SetTextInsets(8, 8, 0, 0)
-
-    eb:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 5, right = 5, top = 5, bottom = 5 }
-    })
-    eb:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
-    eb:SetBackdropColor(0, 0, 0, 0.8)
-
-    local label = eb:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("BOTTOMLEFT", eb, "TOPLEFT", -5, 2)
-    label:SetText(title)
+    eb:SetTextInsets(5, 5, 0, 0)
     
+    local left = eb:CreateTexture(nil, "BACKGROUND")
+    left:SetTexture("Interface\\Common\\Common-Input-Border")
+    left:SetTexCoord(0, 0.0625, 0, 0.625)
+    left:SetWidth(8); left:SetHeight(20)
+    left:SetPoint("LEFT", 0, 0)
+    
+    local right = eb:CreateTexture(nil, "BACKGROUND")
+    right:SetTexture("Interface\\Common\\Common-Input-Border")
+    right:SetTexCoord(0.9375, 1, 0, 0.625)
+    right:SetWidth(8); right:SetHeight(20)
+    right:SetPoint("RIGHT", 0, 0)
+    
+    local mid = eb:CreateTexture(nil, "BACKGROUND")
+    mid:SetTexture("Interface\\Common\\Common-Input-Border")
+    mid:SetTexCoord(0.0625, 0.9375, 0, 0.625)
+    mid:SetHeight(20)
+    mid:SetPoint("LEFT", left, "RIGHT", 0, 0)
+    mid:SetPoint("RIGHT", right, "LEFT", 0, 0)
+    
+    eb:SetText(text)
     eb:SetScript("OnEscapePressed", function() eb:ClearFocus() end)
-    eb:SetScript("OnEditFocusGained", function() this:HighlightText() end)
-    eb:SetScript("OnEditFocusLost", function() this:HighlightText(0,0) end)
-    
     return eb
 end
 
 function TankMark:UpdateTabs()
     if TankMark.currentTab == 1 then
-        TankMark.tab1:Show(); TankMark.tab2:Hide()
-        TankMark:RefreshMobList() 
+        if TankMark.tab1 then TankMark.tab1:Show() end
+        if TankMark.tab2 then TankMark.tab2:Hide() end
+        TankMark:UpdateMobList() 
     else
-        TankMark.tab1:Hide(); TankMark.tab2:Show()
+        if TankMark.tab1 then TankMark.tab1:Hide() end
+        if TankMark.tab2 then TankMark.tab2:Show() end
         TankMark:RefreshProfileUI() 
     end
 end
@@ -90,31 +110,17 @@ end
 -- 2. TAB 1 LOGIC: MOB DATABASE & ZONE BROWSER
 -- ==========================================================
 
-function TankMark:LoadMobForEdit(zone, mobName)
-    if not TankMarkDB.Zones[zone] or not TankMarkDB.Zones[zone][mobName] then return end
-    local data = TankMarkDB.Zones[zone][mobName]
-    
-    TankMark.editMob:SetText(mobName)
-    TankMark.editPrio:SetText(data.prio)
-    TankMark.selectedIcon = data.mark
-    if TankMark.iconBtn and TankMark.iconBtn.tex then
-        SetRaidTargetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
-    end
-    TankMark.selectedClass = data.class 
-    TankMark:UpdateClassButton()
-    TankMark:Print("Loaded [" .. mobName .. "] for editing.")
-end
-
 function TankMark:ToggleZoneBrowser()
     TankMark.isZoneListMode = not TankMark.isZoneListMode
-    TankMark:RefreshMobList()
+    if TankMark.searchBox then TankMark.searchBox:SetText("") end
+    TankMark:UpdateMobList()
 end
 
 function TankMark:SelectZone(zoneName)
-    if TankMark.editZone then
-        TankMark.editZone:SetText(zoneName)
+    if TankMark.zoneDropDown then
+        UIDropDownMenu_SetText(zoneName, TankMark.zoneDropDown)
         TankMark.isZoneListMode = false 
-        TankMark:RefreshMobList()
+        TankMark:UpdateMobList()
     end
 end
 
@@ -122,127 +128,112 @@ function TankMark:RequestDeleteZone(zoneName)
     TankMark.pendingWipeAction = function()
         TankMarkDB.Zones[zoneName] = nil
         TankMark:Print("Deleted zone: " .. zoneName)
-        TankMark:RefreshMobList()
+        TankMark:UpdateMobList()
     end
     StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete ENTIRE ZONE:\n|cffff0000" .. zoneName .. "|r?")
 end
 
-function TankMark:RefreshMobList()
-    if not TankMark.scrollChild then return end
-    
-    for _, row in pairs(TankMark.mobRows) do row:Hide() end
-    
+function TankMark:UpdateMobList()
+    if not TankMark.optionsFrame or not TankMark.optionsFrame:IsVisible() then return end
+
+    local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or GetRealZoneText()
     local listData = {}
-    local isZoneMode = TankMark.isZoneListMode
     
-    if isZoneMode then
-        -- === MODE: ZONE BROWSER ===
-        if TankMark.listHeader then TankMark.listHeader:SetText("Browsing: All Zones") end
-        
-        for zoneName, _ in pairs(TankMarkDB.Zones) do
-            table.insert(listData, { label = zoneName, type = "ZONE" })
+    local filter = ""
+    if TankMark.searchBox then
+        filter = _lower(TankMark.searchBox:GetText())
+    end
+
+    if TankMark.isZoneListMode then
+        for zoneName, _ in _pairs(TankMarkDB.Zones) do
+            if filter == "" or _strfind(_lower(zoneName), filter, 1, true) then
+                _insert(listData, { label = zoneName, type = "ZONE" })
+            end
         end
-        table.sort(listData, function(a,b) return a.label < b.label end)
-        
+        _sort(listData, function(a,b) return a.label < b.label end)
     else
-        -- === MODE: MOB LIST ===
-        local zone = TankMark.editZone and TankMark.editZone:GetText() or ""
-        if TankMark.listHeader then
-            TankMark.listHeader:SetText("Database: " .. (zone ~= "" and zone or "Unknown Zone"))
-        end
-        
-        if zone and TankMarkDB.Zones[zone] then
-            for mobName, data in pairs(TankMarkDB.Zones[zone]) do
-                table.insert(listData, {
-                    label = mobName, 
-                    type = "MOB", 
-                    prio = data.prio, 
-                    mark = data.mark, 
-                    class = data.class,
-                    zone = zone 
+        local mobsData = TankMarkDB.Zones[zone] or {}
+        for name, info in _pairs(mobsData) do
+            if filter == "" or _strfind(_lower(name), filter, 1, true) then
+                _insert(listData, { 
+                    name = name, 
+                    prio = info.prio, 
+                    mark = info.mark, 
+                    type = info.type,
+                    class = info.class
                 })
             end
-            table.sort(listData, function(a,b) return a.prio < b.prio end)
         end
+        _sort(listData, function(a, b) 
+            if a.prio == b.prio then return a.name < b.name end
+            return a.prio < b.prio 
+        end)
     end
-    
-    local totalHeight = (table.getn(listData) * 20) + 20
-    if totalHeight < 230 then totalHeight = 230 end
-    TankMark.scrollChild:SetHeight(totalHeight)
 
-    local yOffset = -5
-    for i, data in ipairs(listData) do
+    local numItems = _getn(listData)
+    local MAX_ROWS = 10
+    local ROW_HEIGHT = 22
+    
+    FauxScrollFrame_Update(TankMark.scrollFrame, numItems, MAX_ROWS, ROW_HEIGHT)
+    local offset = FauxScrollFrame_GetOffset(TankMark.scrollFrame)
+
+    for i = 1, MAX_ROWS do
+        local index = offset + i
         local row = TankMark.mobRows[i]
         
-        if not row then
-            row = CreateFrame("Frame", nil, TankMark.scrollChild)
-            row:SetWidth(260); row:SetHeight(20)
-            
-            row.icon = row:CreateTexture(nil, "ARTWORK")
-            row.icon:SetWidth(16); row.icon:SetHeight(16)
-            row.icon:SetPoint("LEFT", 5, 0)
-            row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-            
-            row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            
-            row.del = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-            row.del:SetWidth(20); row.del:SetHeight(20)
-            row.del:SetPoint("RIGHT", -25, 0)
-            
-            row.edit = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            row.edit:SetWidth(20); row.edit:SetHeight(20)
-            row.edit:SetPoint("RIGHT", row.del, "LEFT", -2, 0)
-            row.edit:SetText("E")
-            row.edit:SetFont("Fonts\\FRIZQT__.TTF", 10)
-
-            TankMark.mobRows[i] = row
+        if row then
+            if index <= numItems then
+                local data = listData[index]
+                
+                if TankMark.isZoneListMode then
+                    row.icon:Hide()
+                    row.text:SetText("|cffffd200" .. data.label .. "|r")
+                    local clickZone = data.label
+                    row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(clickZone) end)
+                    row.edit:SetText("GO")
+                    row.edit:SetScript("OnClick", function() TankMark:SelectZone(clickZone) end)
+                else
+                    SetRaidTargetIconTexture(row.icon, data.mark)
+                    row.icon:Show()
+                    local color = "|cffffffff"
+                    if data.type == "CC" then color = "|cff00ccff" end
+                    local markInfo = TankMark.MarkInfo[data.mark]
+                    local markName = markInfo and markInfo.name or "?"
+                    row.text:SetText(color .. data.name .. "|r  (" .. markName .. ")")
+                    
+                    local clickMob = data.name
+                    row.del:SetScript("OnClick", function() 
+                        TankMarkDB.Zones[zone][clickMob] = nil
+                        TankMark:UpdateMobList()
+                        TankMark:Print("Removed " .. clickMob)
+                    end)
+                    
+                    row.edit:SetText("E")
+                    row.edit:SetScript("OnClick", function() 
+                        TankMark.editMob:SetText(clickMob)
+                        TankMark.editPrio:SetText(data.prio)
+                        TankMark.selectedIcon = data.mark
+                        TankMark.selectedClass = data.class
+                        TankMark:UpdateClassButton()
+                        if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                    end)
+                end
+                row:Show()
+            else
+                row:Hide()
+            end
         end
-        
-        row:SetPoint("TOPLEFT", TankMark.scrollChild, "TOPLEFT", 5, yOffset)
-        
-        if data.type == "ZONE" then
-            -- Zone Visuals
-            row.icon:SetTexture(nil) 
-            row.text:SetPoint("LEFT", 5, 0) 
-            row.text:SetText("|cffffd200" .. data.label .. "|r")
-            
-            -- FIX: Capture value locally for closure
-            local clickZone = data.label
-            
-            row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(clickZone) end)
-            row.edit:SetScript("OnClick", function() TankMark:SelectZone(clickZone) end)
-            
-        else
-            -- Mob Visuals
-            row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-            SetRaidTargetIconTexture(row.icon, data.mark)
-            row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0) 
-            
-            local displayStr = "(Prio " .. data.prio .. ") " .. data.label
-            if data.class then displayStr = displayStr .. " |cff00ff00[" .. string.sub(data.class, 1, 3) .. "]|r" end
-            row.text:SetText(displayStr)
-            
-            -- FIX: Capture values locally for closure
-            local clickZone = data.zone
-            local clickMob = data.label
-            
-            row.del:SetScript("OnClick", function() TankMark:DeleteMob(clickZone, clickMob) end)
-            row.edit:SetScript("OnClick", function() TankMark:LoadMobForEdit(clickZone, clickMob) end)
-        end
-        
-        row:Show()
-        yOffset = yOffset - 20
     end
 end
 
 function TankMark:SaveFormData()
-    local zone = TankMark.editZone:GetText()
+    local zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
     local mob = TankMark.editMob:GetText()
     local prio = tonumber(TankMark.editPrio:GetText()) or 1
     local icon = TankMark.selectedIcon
     local classReq = TankMark.selectedClass 
     
-    if zone == "" or mob == "" then return end
+    if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
     
     if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
@@ -268,23 +259,23 @@ function TankMark:SaveFormData()
     TankMark:UpdateClassButton()
     
     TankMark.isZoneListMode = false 
-    TankMark:RefreshMobList()
+    TankMark:UpdateMobList()
 end
 
 function TankMark:DeleteMob(zone, mob)
     if TankMarkDB.Zones[zone] then
         TankMarkDB.Zones[zone][mob] = nil
-        TankMark:RefreshMobList()
+        TankMark:UpdateMobList()
     end
 end
 
 function TankMark:RequestWipeZone()
-    local zone = TankMark.editZone:GetText()
+    local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown)
     if zone and zone ~= "" and TankMarkDB.Zones[zone] then
         TankMark.pendingWipeAction = function()
             TankMarkDB.Zones[zone] = {}
             TankMark:Print("Wiped all data for zone: " .. zone)
-            TankMark:RefreshMobList()
+            TankMark:UpdateMobList()
         end
         StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to WIPE the database for: |cffff0000" .. zone .. "|r?")
     else
@@ -293,7 +284,7 @@ function TankMark:RequestWipeZone()
 end
 
 -- ==========================================================
--- 3. TAB 2 LOGIC: TEAM PROFILES
+-- 3. TAB 2 LOGIC: TEAM PROFILES (LAYOUT FIX)
 -- ==========================================================
 
 function TankMark:SaveAllProfiles()
@@ -321,7 +312,9 @@ function TankMark:RefreshProfileUI()
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
     local data = TankMarkDB.Profiles[zone]
     for i = 1, 8 do
-        TankMark.profileRows[i].edit:SetText(data[i] or "")
+        if TankMark.profileRows[i] then
+            TankMark.profileRows[i].edit:SetText(data[i] or "")
+        end
     end
 end
 
@@ -344,118 +337,176 @@ end
 -- ==========================================================
 
 function TankMark:CreateOptionsFrame()
+    if TankMark.optionsFrame then return end
+    
     local f = CreateFrame("Frame", "TankMarkOptions", UIParent)
-    f:SetWidth(600); f:SetHeight(400)
-    f:SetPoint("CENTER", 0, 0); f:SetFrameStrata("HIGH")
-    f:EnableMouse(true); f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function() this:StartMoving() end)
-    f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
-
+    f:SetWidth(450); f:SetHeight(480) 
+    f:SetPoint("CENTER", 0, 0)
     f:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() f:StartMoving() end)
+    f:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
+    f:Hide()
 
-    local t = f:CreateTexture(nil, "ARTWORK")
-    t:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
-    t:SetWidth(400); t:SetHeight(64)
-    t:SetPoint("TOP", f, "TOP", 0, 12)
-    local txt = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    txt:SetPoint("TOP", t, "TOP", 0, -14)
-    txt:SetText("TankMark Config (v0.7-alpha)")
-
+    local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    t:SetPoint("TOP", 0, -15)
+    t:SetText("TankMark Configuration")
+    
     local cb = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
-    cb:SetScript("OnClick", function() f:Hide() end)
+    cb:SetPoint("TOPRIGHT", -5, -5)
 
-    -- MASTER TOGGLE CHECKBOX (New v0.10)
-    local masterCheck = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate")
-    masterCheck:SetWidth(24); masterCheck:SetHeight(24)
-    masterCheck:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -10)
-    _G[masterCheck:GetName().."Text"]:SetText("Enable TankMark")
-    
-    -- Init State
-    masterCheck:SetChecked(TankMark.IsActive and 1 or nil)
-    
-    -- On Click Logic
-    masterCheck:SetScript("OnClick", function()
-        if this:GetChecked() then
-            TankMark.IsActive = true
-            TankMark:Print("Auto-Marking |cff00ff00ENABLED|r.")
-        else
-            TankMark.IsActive = false
-            TankMark:Print("Auto-Marking |cffff0000DISABLED|r.")
-        end
-    end)
-
-    -- === TABS ===
-    local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    tab1:SetWidth(120); tab1:SetHeight(30)
-    tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5) 
-    tab1:SetText("Mob Database")
-    tab1:SetScript("OnClick", function() TankMark.currentTab = 1; TankMark:UpdateTabs() end)
-    
-    local tab2 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    tab2:SetWidth(120); tab2:SetHeight(30)
-    tab2:SetPoint("LEFT", tab1, "RIGHT", 5, 0)
-    tab2:SetText("Team Profiles")
-    tab2:SetScript("OnClick", function() TankMark.currentTab = 2; TankMark:UpdateTabs() end)
-
-    -- ==========================================================
-    -- TAB 1 CONTENT
-    -- ==========================================================
+    -- === CREATE TAB 1 CONTAINER ===
     local t1 = CreateFrame("Frame", nil, f)
-    t1:SetPoint("TOPLEFT", 15, -40); t1:SetPoint("BOTTOMRIGHT", -15, 50)
-    TankMark.tab1 = t1
+    t1:SetPoint("TOPLEFT", 15, -40)
+    t1:SetPoint("BOTTOMRIGHT", -15, 50)
     
-    f.editZone = TankMark:CreateEditBox(t1, "Zone Name", 160)
-    f.editZone:SetPoint("TOPLEFT", t1, "TOPLEFT", 15, -20)
-    f.editZone:SetScript("OnEnterPressed", function() this:ClearFocus(); TankMark:RefreshMobList() end)
-    
-    local browseBtn = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
-    browseBtn:SetWidth(70); browseBtn:SetHeight(22)
-    browseBtn:SetPoint("LEFT", f.editZone, "RIGHT", 5, 0)
-    browseBtn:SetText("Browse")
-    browseBtn:SetScript("OnClick", function() TankMark:ToggleZoneBrowser() end)
-    
-    f.editMob = TankMark:CreateEditBox(t1, "Mob Name", 200)
-    f.editMob:SetPoint("TOPLEFT", f.editZone, "BOTTOMLEFT", 0, -30)
-    
-    local mobTargetBtn = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
-    mobTargetBtn:SetWidth(60); mobTargetBtn:SetHeight(20)
-    mobTargetBtn:SetPoint("LEFT", f.editMob, "RIGHT", 5, 0)
-    mobTargetBtn:SetText("Target")
-    mobTargetBtn:SetFont("Fonts\\FRIZQT__.TTF", 10)
-    mobTargetBtn:SetScript("OnClick", function()
-        if UnitExists("target") and not UnitIsPlayer("target") then
-            f.editMob:SetText(UnitName("target"))
+    -- ZONE DROPDOWN
+    local drop = CreateFrame("Frame", "TMZoneDropDown", t1, "UIDropDownMenuTemplate")
+    drop:SetPoint("TOPLEFT", 0, -10)
+    UIDropDownMenu_SetWidth(150, drop)
+    UIDropDownMenu_Initialize(drop, function()
+        local curr = GetRealZoneText()
+        local info = {}
+        info.text = curr
+        info.func = function() 
+            UIDropDownMenu_SetSelectedID(drop, this:GetID())
+            TankMark:UpdateMobList() 
+        end
+        UIDropDownMenu_AddButton(info)
+        
+        for zName, _ in _pairs(TankMarkDB.Zones) do
+            if zName ~= curr then
+                info = {}
+                info.text = zName
+                info.func = function() 
+                    UIDropDownMenu_SetSelectedID(drop, this:GetID())
+                    TankMark:UpdateMobList() 
+                end
+                UIDropDownMenu_AddButton(info)
+            end
         end
     end)
+    UIDropDownMenu_SetText(GetRealZoneText(), drop) 
+    TankMark.zoneDropDown = drop
+
+    -- SCROLL LIST
+    local sf = CreateFrame("ScrollFrame", "TankMarkScrollFrame", t1, "FauxScrollFrameTemplate")
+    sf:SetPoint("TOPLEFT", 15, -50)
+    sf:SetWidth(380)
+    sf:SetHeight(220) 
     
-    f.editPrio = TankMark:CreateEditBox(t1, "Prio (1-5)", 50)
-    f.editPrio:SetPoint("TOPLEFT", f.editMob, "BOTTOMLEFT", 0, -30)
-    f.editPrio:SetNumeric(true); f.editPrio:SetText("1")
+    local listBg = CreateFrame("Frame", nil, t1)
+    listBg:SetPoint("TOPLEFT", sf, -5, 5)
+    listBg:SetPoint("BOTTOMRIGHT", sf, 25, -5)
+    listBg:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    listBg:SetBackdropColor(0, 0, 0, 0.5)
+
+    sf:SetScript("OnVerticalScroll", function() 
+        FauxScrollFrame_OnVerticalScroll(22, function() TankMark:UpdateMobList() end) 
+    end)
+    TankMark.scrollFrame = sf
+
+    -- CREATE ROWS
+    for i = 1, 10 do
+        local row = CreateFrame("Button", nil, t1) 
+        row:SetWidth(380)
+        row:SetHeight(22)
+        row:SetPoint("TOPLEFT", 15, -50 - ((i-1)*22))
+        
+        local icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetWidth(18); icon:SetHeight(18)
+        icon:SetPoint("LEFT", 0, 0)
+        row.icon = icon
+        
+        local txt = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        txt:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+        row.text = txt
+        
+        local del = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        del:SetWidth(20); del:SetHeight(18)
+        del:SetPoint("RIGHT", -5, 0)
+        del:SetText("X")
+        row.del = del
+        
+        local editBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        editBtn:SetWidth(20); editBtn:SetHeight(18)
+        editBtn:SetPoint("RIGHT", del, "LEFT", -2, 0)
+        editBtn:SetText("E")
+        row.edit = editBtn
+        
+        row:Hide()
+        TankMark.mobRows[i] = row
+    end
+
+    -- SEARCH BOX (FIX: Move group down 10px later)
+    local searchLabel = t1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 5, -8) 
+    searchLabel:SetText("Search:")
+
+    local sBox = TankMark:CreateEditBox(t1, "", 150)
+    sBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
+    sBox:SetScript("OnTextChanged", function() 
+        TankMark:UpdateMobList() 
+    end)
     
-    local ib = CreateFrame("Button", nil, t1)
-    ib:SetWidth(30); ib:SetHeight(30)
-    ib:SetPoint("LEFT", f.editPrio, "RIGHT", 80, 0)
-    ib.tex = ib:CreateTexture(nil, "ARTWORK")
-    ib.tex:SetAllPoints(ib)
-    ib.tex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    SetRaidTargetIconTexture(ib.tex, 8)
-    ib:SetScript("OnClick", function()
+    local sClear = CreateFrame("Button", nil, sBox, "UIPanelCloseButton")
+    sClear:SetWidth(20); sClear:SetHeight(20)
+    sClear:SetPoint("LEFT", sBox, "RIGHT", 2, 0)
+    sClear:SetScript("OnClick", function() 
+        sBox:SetText("")
+        sBox:ClearFocus()
+        TankMark:UpdateMobList()
+    end)
+    TankMark.searchBox = sBox
+
+    -- ======================================================
+    -- ADD NEW MOB SECTION (FIX: Moved Y from 10 to -5)
+    -- ======================================================
+    local addGroup = CreateFrame("Frame", nil, t1)
+    addGroup:SetPoint("BOTTOMLEFT", 5, -5) -- Pushed down 15px total to create gap
+    addGroup:SetWidth(410); addGroup:SetHeight(80)
+    
+    local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 110)
+    nameBox:SetPoint("TOPLEFT", 0, -10)
+    TankMark.editMob = nameBox 
+    
+    local targetBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    targetBtn:SetWidth(50); targetBtn:SetHeight(20)
+    targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0)
+    targetBtn:SetText("Target")
+    targetBtn:SetScript("OnClick", function()
+        if UnitExists("target") then nameBox:SetText(UnitName("target")) end
+    end)
+    
+    local iconSel = CreateFrame("Button", nil, addGroup)
+    iconSel:SetWidth(24); iconSel:SetHeight(24)
+    iconSel:SetPoint("LEFT", targetBtn, "RIGHT", 5, 0)
+    local iconTex = iconSel:CreateTexture(nil, "ARTWORK")
+    iconTex:SetAllPoints()
+    iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
+    iconSel:SetScript("OnClick", function()
         TankMark.selectedIcon = TankMark.selectedIcon - 1
         if TankMark.selectedIcon < 1 then TankMark.selectedIcon = 8 end
-        SetRaidTargetIconTexture(this.tex, TankMark.selectedIcon)
+        SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
     end)
-    TankMark.iconBtn = ib
-
-    local cBtn = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
-    cBtn:SetWidth(80); cBtn:SetHeight(24)
-    cBtn:SetPoint("LEFT", ib, "RIGHT", 20, 0)
+    TankMark.iconBtn = iconSel
+    
+    local cBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    cBtn:SetWidth(70); cBtn:SetHeight(24)
+    cBtn:SetPoint("LEFT", iconSel, "RIGHT", 5, 0)
     cBtn:SetText("ANY")
     cBtn.label = cBtn:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     cBtn.label:SetPoint("BOTTOM", cBtn, "TOP", 0, 3)
@@ -478,54 +529,22 @@ function TankMark:CreateOptionsFrame()
     cBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     cBtn:SetScript("OnMouseUp", function() if arg1 == "RightButton" then TankMark.selectedClass = nil; TankMark:UpdateClassButton() end end)
     TankMark.classBtn = cBtn
-    
-    local lockCheck = CreateFrame("CheckButton", "TMLockCheck", t1, "UICheckButtonTemplate")
-    lockCheck:SetWidth(24); lockCheck:SetHeight(24)
-    lockCheck:SetPoint("TOPLEFT", f.editPrio, "BOTTOMLEFT", 0, -20)
-    _G[lockCheck:GetName().."Text"]:SetText("Lock GUID (Require Target)")
-    TankMark.lockCheck = lockCheck
 
-    local sb = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
-    sb:SetWidth(100); sb:SetHeight(30)
-    sb:SetPoint("LEFT", lockCheck, "RIGHT", 130, 0)
-    sb:SetText("Save Mob")
-    sb:SetScript("OnClick", function() TankMark:SaveFormData() end)
+    local addBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    addBtn:SetWidth(70); addBtn:SetHeight(24)
+    addBtn:SetPoint("LEFT", cBtn, "RIGHT", 5, 0)
+    addBtn:SetText("Add/Save")
+    addBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
     
-    local wipeBtn = CreateFrame("Button", nil, t1, "UIPanelButtonTemplate")
-    wipeBtn:SetWidth(100); wipeBtn:SetHeight(22)
-    wipeBtn:SetPoint("BOTTOMLEFT", t1, "BOTTOMLEFT", 15, 10)
-    wipeBtn:SetText("|cffff0000Wipe Zone DB|r")
-    wipeBtn:SetScript("OnClick", function() TankMark:RequestWipeZone() end)
+    TankMark.editPrio = CreateFrame("EditBox", nil, f) 
+    TankMark.editPrio:SetText("1") 
 
-    local listBg = CreateFrame("Frame", nil, t1)
-    listBg:SetWidth(280); listBg:SetHeight(230)
-    listBg:SetPoint("TOPRIGHT", t1, "TOPRIGHT", -10, -20)
-    listBg:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 5, right = 5, top = 5, bottom = 5 }
-    })
-    listBg:SetBackdropColor(0, 0, 0, 0.5)
+    TankMark.optionsFrame = f
     
-    local lh = listBg:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    lh:SetPoint("BOTTOMLEFT", listBg, "TOPLEFT", 5, 2)
-    lh:SetText("Database: None")
-    TankMark.listHeader = lh
-    
-    local scrollFrame = CreateFrame("ScrollFrame", "TMScrollFrame", listBg, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 0, -5); scrollFrame:SetPoint("BOTTOMRIGHT", -30, 5)
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(260); scrollChild:SetHeight(230) 
-    scrollFrame:SetScrollChild(scrollChild)
-    TankMark.scrollChild = scrollChild
-
-    -- ==========================================================
-    -- TAB 2 CONTENT
-    -- ==========================================================
+    -- === TAB 2 INIT (FIX: COMPACT 2-COLUMN LAYOUT) ===
     local t2 = CreateFrame("Frame", nil, f)
     t2:SetPoint("TOPLEFT", 15, -40); t2:SetPoint("BOTTOMRIGHT", -15, 50)
-    t2:Hide() 
+    t2:Hide()
     TankMark.tab2 = t2
     
     local pZone = TankMark:CreateEditBox(t2, "Profile Zone (Type to change)", 250)
@@ -548,7 +567,7 @@ function TankMark:CreateOptionsFrame()
     local pY = -80; local pX = 20
     for i = 8, 1, -1 do
         local row = CreateFrame("Frame", nil, t2)
-        row:SetWidth(260); row:SetHeight(30)
+        row:SetWidth(200); row:SetHeight(30) -- Reduced width
         row:SetPoint("TOPLEFT", t2, "TOPLEFT", pX, pY)
         
         local ico = row:CreateTexture(nil, "ARTWORK")
@@ -557,15 +576,17 @@ function TankMark:CreateOptionsFrame()
         ico:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
         SetRaidTargetIconTexture(ico, i)
         
-        local eb = TankMark:CreateEditBox(row, "", 120)
-        eb:SetPoint("LEFT", ico, "RIGHT", 10, 0)
+        -- Reduced input box width from 120 -> 90
+        local eb = TankMark:CreateEditBox(row, "", 90) 
+        eb:SetPoint("LEFT", ico, "RIGHT", 5, 0)
         row.edit = eb
         
+        -- Reduced button width from 60 -> 50
         local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        btn:SetWidth(60); btn:SetHeight(20)
-        btn:SetPoint("LEFT", eb, "RIGHT", 5, 0)
+        btn:SetWidth(50); btn:SetHeight(20)
+        btn:SetPoint("LEFT", eb, "RIGHT", 2, 0)
         btn:SetText("Target")
-        btn:SetFont("Fonts\\FRIZQT__.TTF", 10)
+        btn:SetFont("Fonts\\FRIZQT__.TTF", 9)
         btn:SetScript("OnClick", function()
             if UnitExists("target") and UnitIsPlayer("target") then
                 eb:SetText(UnitName("target"))
@@ -574,23 +595,40 @@ function TankMark:CreateOptionsFrame()
         
         TankMark.profileRows[i] = row
         pY = pY - 40
-        if i == 5 then pY = -80; pX = 300 end
+        if i == 5 then pY = -80; pX = 225 end -- Moved col 2 closer (300 -> 225)
     end
 
-    TankMark.editZone = f.editZone; TankMark.editMob = f.editMob
-    TankMark.editPrio = f.editPrio; TankMark.optionsFrame = f
-
-    TankMark:Print("Options frame updated (v0.7-alpha).")
+    -- === TABS ===
+    local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    tab1:SetWidth(120); tab1:SetHeight(30)
+    tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5) 
+    tab1:SetText("Mob Database")
+    tab1:SetScript("OnClick", function() TankMark.currentTab = 1; TankMark:UpdateTabs() end)
+    
+    local tab2 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    tab2:SetWidth(120); tab2:SetHeight(30)
+    tab2:SetPoint("LEFT", tab1, "RIGHT", 5, 0)
+    tab2:SetText("Team Profiles")
+    tab2:SetScript("OnClick", function() TankMark.currentTab = 2; TankMark:UpdateTabs() end)
+    
+    TankMark.tab1 = t1 
+    
+    -- Master Toggle
+    local masterCheck = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate")
+    masterCheck:SetWidth(24); masterCheck:SetHeight(24)
+    masterCheck:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -10)
+    _G[masterCheck:GetName().."Text"]:SetText("Enable TankMark")
+    masterCheck:SetChecked(TankMark.IsActive and 1 or nil)
+    masterCheck:SetScript("OnClick", function()
+        TankMark.IsActive = this:GetChecked() and true or false
+        TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    end)
+    
+    TankMark:Print("Options frame updated (v0.11-RC5).")
 end
 
 function TankMark:ShowOptions()
     if not TankMark.optionsFrame then TankMark:CreateOptionsFrame() end
-    if not TankMark.optionsFrame:IsVisible() then TankMark.optionsFrame:Show() end
-    
-    local cz = GetRealZoneText()
-    if cz and cz ~= "" then
-        TankMark.editZone:SetText(cz)
-        TankMark.profileZone:SetText(cz)
-    end
-    TankMark:UpdateTabs()
+    TankMark.optionsFrame:Show()
+    TankMark:UpdateMobList()
 end
