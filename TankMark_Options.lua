@@ -1,5 +1,6 @@
--- TankMark: v0.12-Final (UX: Checkbox Mode Toggle)
+-- TankMark: v0.11 (Golden Master)
 -- File: TankMark_Options.lua
+-- Release Date: 2025-01-02
 
 if not TankMark then return end
 
@@ -32,9 +33,10 @@ TankMark.classBtn = nil
 TankMark.classDropDown = nil 
 TankMark.lockCheck = nil 
 TankMark.isZoneListMode = false 
+TankMark.lockViewZone = nil 
 TankMark.scrollFrame = nil 
 TankMark.searchBox = nil 
-TankMark.zoneModeCheck = nil -- [NEW] Global ref for the checkbox
+TankMark.zoneModeCheck = nil
 
 local CLASS_LIST = { "WARRIOR", "MAGE", "WARLOCK", "HUNTER", "DRUID", "PRIEST", "ROGUE", "SHAMAN", "PALADIN" }
 
@@ -90,6 +92,14 @@ function TankMark:CreateEditBox(parent, title, w)
     return eb
 end
 
+-- [SAFETY] Self-Healing DB Check
+function TankMark:ValidateDB()
+    if not TankMarkDB then TankMarkDB = {} end
+    if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
+    if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
+    if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
+end
+
 function TankMark:UpdateTabs()
     if TankMark.currentTab == 1 then
         if TankMark.tab1 then TankMark.tab1:Show() end
@@ -141,6 +151,8 @@ end
 
 function TankMark:ToggleZoneBrowser()
     TankMark.isZoneListMode = not TankMark.isZoneListMode
+    TankMark.lockViewZone = nil -- Always reset drill-down
+    
     if TankMark.searchBox then TankMark.searchBox:SetText("") end
     
     if TankMark.isZoneListMode then
@@ -151,11 +163,15 @@ function TankMark:ToggleZoneBrowser()
          UIDropDownMenu_SetText(GetRealZoneText(), TankMark.zoneDropDown)
     end
     
-    -- [SYNC] Ensure Checkbox matches state (if triggered externally)
     if TankMark.zoneModeCheck then 
         TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
     end
     
+    TankMark:UpdateMobList()
+end
+
+function TankMark:ViewLocksForZone(zoneName)
+    TankMark.lockViewZone = zoneName
     TankMark:UpdateMobList()
 end
 
@@ -165,7 +181,6 @@ function TankMark:SelectZone(zoneName)
         UIDropDownMenu_SetText(zoneName, TankMark.zoneDropDown)
         TankMark.isZoneListMode = false 
         
-        -- [UX FIX] Auto-untick the manager checkbox
         if TankMark.zoneModeCheck then 
             TankMark.zoneModeCheck:SetChecked(nil)
         end
@@ -174,9 +189,20 @@ function TankMark:SelectZone(zoneName)
     end
 end
 
+function TankMark:DeleteLock(guid)
+    TankMark:ValidateDB()
+    local z = TankMark.lockViewZone
+    if z and TankMarkDB.StaticGUIDs[z] then
+        TankMarkDB.StaticGUIDs[z][guid] = nil
+        TankMark:UpdateMobList()
+    end
+end
+
 function TankMark:RequestDeleteZone(zoneName)
+    TankMark:ValidateDB()
     TankMark.pendingWipeAction = function()
         TankMarkDB.Zones[zoneName] = nil
+        TankMarkDB.StaticGUIDs[zoneName] = nil
         TankMark:Print("Deleted zone: " .. zoneName)
         TankMark:UpdateMobList()
     end
@@ -185,6 +211,7 @@ end
 
 function TankMark:UpdateMobList()
     if not TankMark.optionsFrame or not TankMark.optionsFrame:IsVisible() then return end
+    TankMark:ValidateDB()
 
     local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or GetRealZoneText()
     local listData = {}
@@ -194,13 +221,36 @@ function TankMark:UpdateMobList()
         filter = _lower(TankMark.searchBox:GetText())
     end
 
-    if TankMark.isZoneListMode then
+    -- [MODE 1] LOCKS VIEW
+    if TankMark.isZoneListMode and TankMark.lockViewZone then
+        local z = TankMark.lockViewZone
+        _insert(listData, { type="BACK", label=".. Back to Zones" })
+        
+        if TankMarkDB.StaticGUIDs[z] then
+            for guid, icon in _pairs(TankMarkDB.StaticGUIDs[z]) do
+                _insert(listData, { type="LOCK", guid=guid, mark=icon })
+            end
+        end
+        _sort(listData, function(a,b) 
+            if a.type == "BACK" then return true end
+            if b.type == "BACK" then return false end
+            return a.mark < b.mark 
+        end)
+
+    -- [MODE 2] ZONE MANAGER
+    elseif TankMark.isZoneListMode then
         for zoneName, _ in _pairs(TankMarkDB.Zones) do
             if filter == "" or _strfind(_lower(zoneName), filter, 1, true) then
-                _insert(listData, { label = zoneName, type = "ZONE" })
+                local locks = 0
+                if TankMarkDB.StaticGUIDs[zoneName] then
+                    for k,v in _pairs(TankMarkDB.StaticGUIDs[zoneName]) do locks = locks + 1 end
+                end
+                _insert(listData, { label = zoneName, type = "ZONE", lockCount = locks })
             end
         end
         _sort(listData, function(a,b) return a.label < b.label end)
+
+    -- [MODE 3] STANDARD LIST
     else
         local mobsData = TankMarkDB.Zones[zone] or {}
         for name, info in _pairs(mobsData) do
@@ -235,42 +285,72 @@ function TankMark:UpdateMobList()
             if index <= numItems then
                 local data = listData[index]
                 
-                if TankMark.isZoneListMode then
-                    row.icon:Hide()
-                    row.text:SetText("|cffffd200" .. data.label .. "|r")
+                -- CLEAN ROW STATE
+                row.icon:Hide()
+                row.icon:SetTexture("") 
+                row.icon:SetTexCoord(0, 1, 0, 1)
+                
+                row.del:Hide()
+                row.edit:Hide()
+                row.text:SetTextColor(1,1,1)
+                row:SetScript("OnClick", nil)
+                
+                if data.type == "BACK" then
+                    row.text:SetText("|cffffd200<< Back to Zones|r")
+                    row.icon:Show()
+                    row.icon:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
+                    row:SetScript("OnClick", function() 
+                        TankMark.lockViewZone = nil 
+                        TankMark:UpdateMobList()
+                        PlaySound("igMainMenuOptionCheckBoxOn")
+                    end)
+                    
+                elseif data.type == "LOCK" then
+                    SetRaidTargetIconTexture(row.icon, data.mark)
+                    row.icon:Show()
+                    row.text:SetText(data.guid)
+                    row.del:Show()
+                    row.del:SetWidth(20); row.del:SetText("X")
+                    row.del:SetScript("OnClick", function() TankMark:DeleteLock(data.guid) end)
+
+                elseif data.type == "ZONE" then
+                    local lockInfo = (data.lockCount > 0) and (" |cff00ff00("..data.lockCount.." locks)|r") or ""
+                    row.text:SetText("|cffffd200" .. data.label .. "|r" .. lockInfo)
                     
                     local clickZone = data.label
-                    
+                    row.del:Show()
                     row.del:SetWidth(60) 
                     row.del:SetText("|cffff0000Delete|r")
                     row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(clickZone) end)
                     
+                    row.edit:Show()
                     row.edit:SetWidth(50)
-                    row.edit:SetText("Load")
-                    row.edit:SetScript("OnClick", function() TankMark:SelectZone(clickZone) end)
+                    row.edit:SetText("Locks")
+                    row.edit:SetScript("OnClick", function() TankMark:ViewLocksForZone(clickZone) end)
                     
                 else
-                    SetRaidTargetIconTexture(row.icon, data.mark)
-                    row.icon:Show()
+                    if data.mark then
+                        SetRaidTargetIconTexture(row.icon, data.mark)
+                        row.icon:Show()
+                    else
+                        row.icon:Hide()
+                    end
                     local color = "|cffffffff"
                     if data.type == "CC" then color = "|cff00ccff" end
-                    local markInfo = TankMark.MarkInfo[data.mark]
-                    local markName = markInfo and markInfo.name or "?"
                     
                     row.text:SetText("|cff888888["..data.prio.."]|r " .. color .. data.name .. "|r")
                     
                     local clickMob = data.name
-                    
-                    row.del:SetWidth(20)
-                    row.del:SetText("X")
+                    row.del:Show()
+                    row.del:SetWidth(20); row.del:SetText("X")
                     row.del:SetScript("OnClick", function() 
                         TankMarkDB.Zones[zone][clickMob] = nil
                         TankMark:UpdateMobList()
                         TankMark:Print("Removed " .. clickMob)
                     end)
                     
-                    row.edit:SetWidth(20)
-                    row.edit:SetText("E")
+                    row.edit:Show()
+                    row.edit:SetWidth(20); row.edit:SetText("E")
                     row.edit:SetScript("OnClick", function() 
                         TankMark.editMob:SetText(clickMob)
                         TankMark.editPrio:SetText(data.prio)
@@ -291,6 +371,7 @@ function TankMark:UpdateMobList()
 end
 
 function TankMark:SaveFormData()
+    TankMark:ValidateDB()
     local zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
     local mob = TankMark.editMob:GetText()
     local prio = tonumber(TankMark.editPrio:GetText()) or 1
@@ -300,6 +381,7 @@ function TankMark:SaveFormData()
     if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
     
+    -- Lock GUID Logic
     if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
         local exists, guid = UnitExists("target")
         if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
@@ -337,6 +419,7 @@ function TankMark:DeleteMob(zone, mob)
 end
 
 function TankMark:RequestWipeZone()
+    TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown)
     if zone and zone ~= "" and TankMarkDB.Zones[zone] then
         TankMark.pendingWipeAction = function()
@@ -351,10 +434,11 @@ function TankMark:RequestWipeZone()
 end
 
 -- ==========================================================
--- 3. TAB 2 LOGIC: TEAM PROFILES (FIXED LAYOUT)
+-- 3. TAB 2 LOGIC: TEAM PROFILES
 -- ==========================================================
 
 function TankMark:SaveAllProfiles()
+    TankMark:ValidateDB()
     local zone = TankMark.profileZone:GetText()
     if not zone or zone == "" then return end
     
@@ -375,6 +459,7 @@ function TankMark:SaveAllProfiles()
 end
 
 function TankMark:RefreshProfileUI()
+    TankMark:ValidateDB()
     local zone = TankMark.profileZone:GetText()
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
     local data = TankMarkDB.Profiles[zone]
@@ -386,6 +471,7 @@ function TankMark:RefreshProfileUI()
 end
 
 function TankMark:RequestWipeProfile()
+    TankMark:ValidateDB()
     local zone = TankMark.profileZone:GetText()
     if zone and zone ~= "" and TankMarkDB.Profiles[zone] then
         TankMark.pendingWipeAction = function()
@@ -433,6 +519,7 @@ end
 
 function TankMark:CreateOptionsFrame()
     if TankMark.optionsFrame then return end
+    TankMark:ValidateDB()
     
     local f = CreateFrame("Frame", "TankMarkOptions", UIParent)
     f:SetWidth(450); f:SetHeight(480) 
@@ -491,18 +578,15 @@ function TankMark:CreateOptionsFrame()
     UIDropDownMenu_SetText(GetRealZoneText(), drop) 
     TankMark.zoneDropDown = drop
 
-    -- [NEW] Manage Zones Checkbox (Replaces Gear Icons)
+    -- [NEW] Manage Zones Checkbox
     local mzCheck = CreateFrame("CheckButton", "TM_ManageZonesCheck", t1, "UICheckButtonTemplate")
     mzCheck:SetWidth(24); mzCheck:SetHeight(24)
     mzCheck:SetPoint("LEFT", drop, "RIGHT", 10, 2)
-    
     _G[mzCheck:GetName().."Text"]:SetText("Manage Zones")
-    
     mzCheck:SetScript("OnClick", function()
         TankMark:ToggleZoneBrowser()
         PlaySound("igMainMenuOptionCheckBoxOn")
     end)
-    
     TankMark.zoneModeCheck = mzCheck
 
     -- SCROLL LIST
@@ -581,14 +665,13 @@ function TankMark:CreateOptionsFrame()
     TankMark.searchBox = sBox
 
     -- ======================================================
-    -- DOUBLE-DECKER ADD/EDIT SECTION (v0.12 Final Polish)
+    -- DOUBLE-DECKER ADD/EDIT SECTION (v0.11 Final)
     -- ======================================================
     local addGroup = CreateFrame("Frame", nil, t1)
     addGroup:SetPoint("BOTTOMLEFT", 15, 0)
     addGroup:SetWidth(400) 
     addGroup:SetHeight(90) 
     
-    -- [NEW] VISUAL DIVIDER (Centered in Window)
     local div = addGroup:CreateTexture(nil, "ARTWORK")
     div:SetHeight(1)
     div:SetWidth(380) 
@@ -758,12 +841,13 @@ function TankMark:CreateOptionsFrame()
         TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
     end)
     
-    TankMark:Print("Options frame updated (v0.12-Final Polish).")
+    TankMark:Print("TankMark v0.11 Options Loaded.")
 end
 
 function TankMark:ShowOptions()
     if not TankMark.optionsFrame then TankMark:CreateOptionsFrame() end
     TankMark.optionsFrame:Show()
+    TankMark:ValidateDB()
     
     -- Safety: Clear focus from any hidden elements
     if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
