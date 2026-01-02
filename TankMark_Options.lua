@@ -1,6 +1,5 @@
--- TankMark: v0.11 (Golden Master)
+-- TankMark: v0.12-dev (Enhanced Lock Manager)
 -- File: TankMark_Options.lua
--- Release Date: 2025-01-02
 
 if not TankMark then return end
 
@@ -37,6 +36,7 @@ TankMark.lockViewZone = nil
 TankMark.scrollFrame = nil 
 TankMark.searchBox = nil 
 TankMark.zoneModeCheck = nil
+TankMark.editingLockGUID = nil
 
 local CLASS_LIST = { "WARRIOR", "MAGE", "WARLOCK", "HUNTER", "DRUID", "PRIEST", "ROGUE", "SHAMAN", "PALADIN" }
 
@@ -152,6 +152,7 @@ end
 function TankMark:ToggleZoneBrowser()
     TankMark.isZoneListMode = not TankMark.isZoneListMode
     TankMark.lockViewZone = nil -- Always reset drill-down
+    TankMark.editingLockGUID = nil
     
     if TankMark.searchBox then TankMark.searchBox:SetText("") end
     
@@ -172,6 +173,7 @@ end
 
 function TankMark:ViewLocksForZone(zoneName)
     TankMark.lockViewZone = zoneName
+    TankMark.editingLockGUID = nil
     TankMark:UpdateMobList()
 end
 
@@ -189,13 +191,20 @@ function TankMark:SelectZone(zoneName)
     end
 end
 
-function TankMark:DeleteLock(guid)
+function TankMark:RequestDeleteLock(guid, name)
     TankMark:ValidateDB()
     local z = TankMark.lockViewZone
-    if z and TankMarkDB.StaticGUIDs[z] then
-        TankMarkDB.StaticGUIDs[z][guid] = nil
-        TankMark:UpdateMobList()
+    local dispName = name or "Unknown Mob"
+    
+    TankMark.pendingWipeAction = function()
+        if z and TankMarkDB.StaticGUIDs[z] then
+            TankMarkDB.StaticGUIDs[z][guid] = nil
+            TankMark:UpdateMobList()
+            TankMark:Print("Removed lock for: " .. dispName)
+        end
     end
+    
+    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Remove Lock for:\n|cffff0000" .. dispName .. "|r?")
 end
 
 function TankMark:RequestDeleteZone(zoneName)
@@ -227,8 +236,17 @@ function TankMark:UpdateMobList()
         _insert(listData, { type="BACK", label=".. Back to Zones" })
         
         if TankMarkDB.StaticGUIDs[z] then
-            for guid, icon in _pairs(TankMarkDB.StaticGUIDs[z]) do
-                _insert(listData, { type="LOCK", guid=guid, mark=icon })
+            for guid, data in _pairs(TankMarkDB.StaticGUIDs[z]) do
+                local icon, mobName
+                -- Hybrid Reader for v0.12 compatibility
+                if type(data) == "table" then
+                    icon = data.mark
+                    mobName = data.name or "Named Mob"
+                else
+                    icon = data
+                    mobName = "Unknown Mob"
+                end
+                _insert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
             end
         end
         _sort(listData, function(a,b) 
@@ -287,8 +305,6 @@ function TankMark:UpdateMobList()
                 
                 -- CLEAN ROW STATE
                 row.icon:Hide()
-                row.icon:SetTexture("") 
-                row.icon:SetTexCoord(0, 1, 0, 1)
                 
                 row.del:Hide()
                 row.edit:Hide()
@@ -299,19 +315,47 @@ function TankMark:UpdateMobList()
                     row.text:SetText("|cffffd200<< Back to Zones|r")
                     row.icon:Show()
                     row.icon:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
+                    row.icon:SetTexCoord(0, 1, 0, 1) -- [FIX] Reset coords for the arrow
                     row:SetScript("OnClick", function() 
-                        TankMark.lockViewZone = nil 
+                        TankMark.lockViewZone = nil
+                        TankMark.editingLockGUID = nil
                         TankMark:UpdateMobList()
                         PlaySound("igMainMenuOptionCheckBoxOn")
                     end)
                     
                 elseif data.type == "LOCK" then
+                    row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
                     SetRaidTargetIconTexture(row.icon, data.mark)
                     row.icon:Show()
-                    row.text:SetText(data.guid)
+                    
+                    local shortGuid = string.sub(data.guid, -6)
+                    row.text:SetText(data.name .. " |cff888888(" .. shortGuid .. ")|r")
+                    
                     row.del:Show()
                     row.del:SetWidth(20); row.del:SetText("X")
-                    row.del:SetScript("OnClick", function() TankMark:DeleteLock(data.guid) end)
+                    row.del:SetScript("OnClick", function() 
+                        -- Pass name for the confirmation prompt
+                        TankMark:RequestDeleteLock(data.guid, data.name) 
+                    end)
+                    row.edit:Show()
+                    row.edit:SetWidth(20); row.edit:SetText("E")
+                    row.edit:SetScript("OnClick", function()
+                        -- Load data into form
+                        TankMark.editMob:SetText(data.name or "Unknown")
+                        TankMark.selectedIcon = data.mark
+                        TankMark.editingLockGUID = data.guid -- Enter "Edit Mode"
+                        
+                        if TankMark.lockCheck then 
+                            TankMark.lockCheck:SetChecked(nil)
+                            TankMark.lockCheck:Hide() 
+                        end
+
+                        -- Visual updates
+                        if TankMark.iconBtn and TankMark.iconBtn.tex then 
+                            SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) 
+                        end
+                        TankMark:Print("Editing lock for: " .. (data.name or "Unknown"))
+                    end)
 
                 elseif data.type == "ZONE" then
                     local lockInfo = (data.lockCount > 0) and (" |cff00ff00("..data.lockCount.." locks)|r") or ""
@@ -330,6 +374,7 @@ function TankMark:UpdateMobList()
                     
                 else
                     if data.mark then
+                        row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
                         SetRaidTargetIconTexture(row.icon, data.mark)
                         row.icon:Show()
                     else
@@ -344,9 +389,7 @@ function TankMark:UpdateMobList()
                     row.del:Show()
                     row.del:SetWidth(20); row.del:SetText("X")
                     row.del:SetScript("OnClick", function() 
-                        TankMarkDB.Zones[zone][clickMob] = nil
-                        TankMark:UpdateMobList()
-                        TankMark:Print("Removed " .. clickMob)
+                        TankMark:RequestDeleteMob(zone, clickMob)
                     end)
                     
                     row.edit:Show()
@@ -360,6 +403,8 @@ function TankMark:UpdateMobList()
                         if TankMark.iconBtn and TankMark.iconBtn.tex then 
                             SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) 
                         end
+                        if TankMark.lockCheck then TankMark.lockCheck:Show() end
+                        TankMark.editingLockGUID = nil
                     end)
                 end
                 row:Show()
@@ -372,7 +417,23 @@ end
 
 function TankMark:SaveFormData()
     TankMark:ValidateDB()
-    local zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
+    
+    -- [FIX] Context-Aware Zone Resolution
+    -- If we are editing a lock, we MUST use the zone we are viewing, 
+    -- NOT the dropdown text (which might be "Manage Saved Zones").
+    local zone
+    if TankMark.editingLockGUID and TankMark.lockViewZone then
+        zone = TankMark.lockViewZone
+    else
+        zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
+    end
+    
+    -- [FIX] Guard Clause: Never allow saving to the placeholder name
+    if zone == "Manage Saved Zones" then
+        TankMark:Print("|cffff0000Error:|r Cannot save to 'Manage Saved Zones'. Please select a valid zone.")
+        return
+    end
+    
     local mob = TankMark.editMob:GetText()
     local prio = tonumber(TankMark.editPrio:GetText()) or 1
     local icon = TankMark.selectedIcon
@@ -380,13 +441,38 @@ function TankMark:SaveFormData()
     
     if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
+
+    -- [INTERCEPT] Updating an Existing Lock?
+    if TankMark.editingLockGUID then
+        if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
+        
+        -- Update the existing record directly
+        TankMarkDB.StaticGUIDs[zone][TankMark.editingLockGUID] = { ["mark"] = icon, ["name"] = mob }
+        
+        TankMark:Print("Updated lock: " .. mob .. " (" .. TankMark:GetMarkString(icon) .. ")")
+        
+        -- Reset State
+        TankMark.editingLockGUID = nil
+        TankMark.editMob:SetText("")
+        
+        -- [FIX] Restore the Lock Checkbox visibility
+        if TankMark.lockCheck then 
+            TankMark.lockCheck:SetChecked(nil)
+            TankMark.lockCheck:Show() 
+        end
+        
+        TankMark:UpdateMobList()
+        return
+    end
     
-    -- Lock GUID Logic
+    -- Lock GUID Logic (Standard)
     if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
         local exists, guid = UnitExists("target")
         if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
             if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
-            TankMarkDB.StaticGUIDs[zone][guid] = icon
+            
+            TankMarkDB.StaticGUIDs[zone][guid] = { ["mark"] = icon, ["name"] = mob }
+            
             TankMark:Print("|cff00ff00LOCKED GUID|r for: " .. mob)
             TankMark.lockCheck:SetChecked(nil)
         else
@@ -411,11 +497,18 @@ function TankMark:SaveFormData()
     TankMark:UpdateMobList()
 end
 
-function TankMark:DeleteMob(zone, mob)
-    if TankMarkDB.Zones[zone] then
-        TankMarkDB.Zones[zone][mob] = nil
-        TankMark:UpdateMobList()
+function TankMark:RequestDeleteMob(zone, mob)
+    TankMark:ValidateDB()
+    
+    TankMark.pendingWipeAction = function()
+        if TankMarkDB.Zones[zone] then
+            TankMarkDB.Zones[zone][mob] = nil
+            TankMark:UpdateMobList()
+            TankMark:Print("Removed mob: " .. mob)
+        end
     end
+    
+    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete Mob from DB:\n|cffff0000" .. mob .. "|r?")
 end
 
 function TankMark:RequestWipeZone()
@@ -451,11 +544,16 @@ function TankMark:SaveAllProfiles()
             
             if zone == GetRealZoneText() then
                 TankMark.sessionAssignments[i] = (text ~= "") and text or nil
+                if TankMark.sessionAssignments[i] then
+                     TankMark.usedIcons[i] = true 
+                else
+                     TankMark.usedIcons[i] = nil
+                end
             end
         end
     end
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-    TankMark:Print("Profile saved for: " .. zone)
+    TankMark:Print("Profile saved and synced for: " .. zone)
 end
 
 function TankMark:RefreshProfileUI()
@@ -841,7 +939,7 @@ function TankMark:CreateOptionsFrame()
         TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
     end)
     
-    TankMark:Print("TankMark v0.11 Options Loaded.")
+    TankMark:Print("TankMark v0.12-dev Options Loaded.")
 end
 
 function TankMark:ShowOptions()
