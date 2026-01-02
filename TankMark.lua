@@ -48,7 +48,7 @@ TankMark.sessionAssignments = {}
 TankMark.IsActive = true 
 TankMark.DeathPattern = nil 
 TankMark.RangeSpellID = nil 
-TankMark.IsRecorderActive = false -- [NEW] Recorder State
+TankMark.IsRecorderActive = false 
 
 -- ==========================================================
 -- RANGE SYSTEM (Turtle WoW / SuperWoW Optimized)
@@ -302,7 +302,6 @@ end
 -- CORE PROCESSING & RECORDER
 -- ==========================================================
 
--- [NEW] Flight Recorder
 function TankMark:RecordUnit(guid)
     local name = _UnitName(guid)
     if not name then return end
@@ -310,7 +309,6 @@ function TankMark:RecordUnit(guid)
     local zone = GetRealZoneText()
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
     
-    -- Check uniqueness (No duplicates)
     if not TankMarkDB.Zones[zone][name] then
         TankMarkDB.Zones[zone][name] = { 
             ["prio"] = 1, 
@@ -320,7 +318,6 @@ function TankMark:RecordUnit(guid)
         }
         TankMark:Print("Recorder: Captured [" .. name .. "]")
         
-        -- Refresh UI if open to show new entries
         if TankMark.UpdateMobList then TankMark:UpdateMobList() end
     end
 end
@@ -334,12 +331,12 @@ function TankMark:ProcessUnit(guid, mode)
     local cType = UnitCreatureType(guid)
     if cType == "Critter" or cType == "Non-combat Pet" then return end
 
-    -- [NEW] Recorder Hook: Runs before DB check
+    -- [NEW] Recorder Hook
     if TankMark.IsRecorderActive then
         TankMark:RecordUnit(guid)
     end
 
-    -- 2. Check Database Existence (Allow if Recorder is creating it)
+    -- 2. Check Database Existence
     local zone = GetRealZoneText()
     if not TankMark.IsRecorderActive and not TankMarkDB.Zones[zone] and not TankMarkDB.StaticGUIDs[zone] then return end
 
@@ -354,7 +351,7 @@ function TankMark:ProcessUnit(guid, mode)
 
     if TankMark.activeGUIDs[guid] then return end
 
-    -- 5. Range Check (Pass-through for Recorder?)
+    -- 5. Range Check
     if mode == "PASSIVE" then
         if not TankMark:Driver_IsDistanceValid(guid) then return end
     end
@@ -397,7 +394,6 @@ function TankMark:ProcessUnit(guid, mode)
 end
 
 function TankMark:HandleMouseover()
-    -- [MOD] Allow running if Recorder is Active, even if automation is off
     if not TankMark:CanAutomate() and not TankMark.IsRecorderActive then return end
 
     if IsControlKeyDown() then
@@ -411,7 +407,6 @@ function TankMark:HandleMouseover()
         return
     end
 
-    -- Scanner runs on Mouseover for non-SuperWoW
     local guid = TankMark:Driver_GetGUID("mouseover")
     if guid then TankMark:ProcessUnit(guid, "PASSIVE") end
 end
@@ -599,7 +594,6 @@ function TankMark:StartSuperScanner()
     TankMark.visibleTargets = {} 
 
     f:SetScript("OnUpdate", function()
-        -- [MOD] Allow scanning if Recorder is Active
         if not TankMark:CanAutomate() and not TankMark.IsRecorderActive then return end
         
         elapsed = elapsed + arg1
@@ -737,7 +731,6 @@ function TankMark:SlashHandler(msg)
         TankMark.IsActive = false
         TankMark:Print("Auto-Marking |cffff0000DISABLED|r.")
     elseif cmd == "recorder" then
-        -- [NEW] Recorder Commands
         if args == "start" then
             TankMark.IsRecorderActive = true
             TankMark:Print("Flight Recorder: |cff00ff00ENABLED|r. Adding new mobs to DB.")
@@ -745,7 +738,7 @@ function TankMark:SlashHandler(msg)
             TankMark.IsRecorderActive = false
             TankMark:Print("Flight Recorder: |cffff0000DISABLED|r.")
         else
-            TankMark:Print("Usage: /tm recorder start | stop")
+            TankMark:Print("Usage: /tmark recorder start | stop")
         end
     elseif cmd == "zone" or cmd == "debug" then
         local currentZone = GetRealZoneText()
@@ -770,14 +763,14 @@ function TankMark:SlashHandler(msg)
                 TankMark:Print("Invalid mark.")
             end
         else
-            TankMark:Print("Usage: /tm assign [mark] [player]")
+            TankMark:Print("Usage: /tmark assign [mark] [player]")
         end
     elseif cmd == "config" or cmd == "c" then
         if TankMark.ShowOptions then TankMark:ShowOptions() end
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
     else
-        TankMark:Print("Commands: /tm reset, /tm on, /tm off, /tm assign, /tm recorder")
+        TankMark:Print("Commands: /tmark reset, /tmark on, /tmark off, /tmark assign, /tmark recorder")
     end
 end
 
@@ -819,6 +812,7 @@ end)
 
 TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 
-SLASH_TANKMARK1 = "/tm"
+-- [FIX] CHANGED COMMAND FROM /tm TO /tmark
+SLASH_TANKMARK1 = "/tmark"
 SLASH_TANKMARK2 = "/tankmark"
 SlashCmdList["TANKMARK"] = function(msg) TankMark:SlashHandler(msg) end

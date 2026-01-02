@@ -689,7 +689,7 @@ function TankMark:CreateOptionsFrame()
 
     -- SCROLL LIST
     local sf = CreateFrame("ScrollFrame", "TankMarkScrollFrame", t1, "FauxScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 15, -50)
+    sf:SetPoint("TOPLEFT", 10, -50)
     sf:SetWidth(380)
     sf:SetHeight(200) 
     
@@ -714,7 +714,7 @@ function TankMark:CreateOptionsFrame()
         local row = CreateFrame("Button", nil, t1) 
         row:SetWidth(380)
         row:SetHeight(22)
-        row:SetPoint("TOPLEFT", 15, -50 - ((i-1)*22))
+        row:SetPoint("TOPLEFT", 10, -50 - ((i-1)*22))
         
         local icon = row:CreateTexture(nil, "ARTWORK")
         icon:SetWidth(18); icon:SetHeight(18)
@@ -766,7 +766,7 @@ function TankMark:CreateOptionsFrame()
     -- DOUBLE-DECKER ADD/EDIT SECTION (v0.11 Final)
     -- ======================================================
     local addGroup = CreateFrame("Frame", nil, t1)
-    addGroup:SetPoint("BOTTOMLEFT", 15, 0)
+    addGroup:SetPoint("BOTTOMLEFT", 10, 0)
     addGroup:SetWidth(400) 
     addGroup:SetHeight(90) 
     
