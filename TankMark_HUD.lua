@@ -1,6 +1,5 @@
--- TankMark: v0.5-dev (Final Polish)
+-- TankMark: v0.11 (HUD & Context Menu)
 -- File: TankMark_HUD.lua
--- Description: The Heads-Up Display with Context Menu (Toggle & Unmark)
 
 if not TankMark then return end
 
