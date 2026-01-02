@@ -1,4 +1,4 @@
--- TankMark: v0.11-RC5 (UI Spacing & Tab 2 Layout Fix)
+-- TankMark: v0.11-RC8 (Fix: Input Focus Bug)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -52,11 +52,11 @@ local _strfind = string.find
 -- 1. HELPER FUNCTIONS
 -- ==========================================================
 
-function TankMark:CreateEditBox(parent, text, w)
+function TankMark:CreateEditBox(parent, title, w)
     local eb = CreateFrame("EditBox", nil, parent)
     eb:SetWidth(w); eb:SetHeight(20)
     eb:SetFontObject(GameFontHighlightSmall)
-    eb:SetAutoFocus(false)
+    eb:SetAutoFocus(false) -- Critical: Prevents stealing focus
     eb:SetTextInsets(5, 5, 0, 0)
     
     local left = eb:CreateTexture(nil, "BACKGROUND")
@@ -78,8 +78,13 @@ function TankMark:CreateEditBox(parent, text, w)
     mid:SetPoint("LEFT", left, "RIGHT", 0, 0)
     mid:SetPoint("RIGHT", right, "LEFT", 0, 0)
     
-    eb:SetText(text)
+    local label = eb:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    label:SetPoint("BOTTOMLEFT", eb, "TOPLEFT", -5, 2)
+    label:SetText(title or "") 
+    
+    -- FIXED: Clear focus on Enter or Escape
     eb:SetScript("OnEscapePressed", function() eb:ClearFocus() end)
+    eb:SetScript("OnEnterPressed", function() eb:ClearFocus() end)
     return eb
 end
 
@@ -284,7 +289,7 @@ function TankMark:RequestWipeZone()
 end
 
 -- ==========================================================
--- 3. TAB 2 LOGIC: TEAM PROFILES (LAYOUT FIX)
+-- 3. TAB 2 LOGIC: TEAM PROFILES (FIXED LAYOUT)
 -- ==========================================================
 
 function TankMark:SaveAllProfiles()
@@ -362,7 +367,7 @@ function TankMark:CreateOptionsFrame()
     local cb = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     cb:SetPoint("TOPRIGHT", -5, -5)
 
-    -- === CREATE TAB 1 CONTAINER ===
+    -- === TAB 1 CONTAINER ===
     local t1 = CreateFrame("Frame", nil, f)
     t1:SetPoint("TOPLEFT", 15, -40)
     t1:SetPoint("BOTTOMRIGHT", -15, 50)
@@ -450,7 +455,7 @@ function TankMark:CreateOptionsFrame()
         TankMark.mobRows[i] = row
     end
 
-    -- SEARCH BOX (FIX: Move group down 10px later)
+    -- SEARCH BOX
     local searchLabel = t1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     searchLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 5, -8) 
     searchLabel:SetText("Search:")
@@ -472,10 +477,10 @@ function TankMark:CreateOptionsFrame()
     TankMark.searchBox = sBox
 
     -- ======================================================
-    -- ADD NEW MOB SECTION (FIX: Moved Y from 10 to -5)
+    -- ADD NEW MOB SECTION
     -- ======================================================
     local addGroup = CreateFrame("Frame", nil, t1)
-    addGroup:SetPoint("BOTTOMLEFT", 5, -5) -- Pushed down 15px total to create gap
+    addGroup:SetPoint("BOTTOMLEFT", 5, -5) 
     addGroup:SetWidth(410); addGroup:SetHeight(80)
     
     local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 110)
@@ -536,25 +541,27 @@ function TankMark:CreateOptionsFrame()
     addBtn:SetText("Add/Save")
     addBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
     
-    TankMark.editPrio = CreateFrame("EditBox", nil, f) 
+    -- FIXED: CreateEditBox used for hidden prio box to prevent Focus Stealing
+    TankMark.editPrio = TankMark:CreateEditBox(f, "", 0)
     TankMark.editPrio:SetText("1") 
+    TankMark.editPrio:Hide()
 
     TankMark.optionsFrame = f
     
-    -- === TAB 2 INIT (FIX: COMPACT 2-COLUMN LAYOUT) ===
+    -- === TAB 2 INIT ===
     local t2 = CreateFrame("Frame", nil, f)
     t2:SetPoint("TOPLEFT", 15, -40); t2:SetPoint("BOTTOMRIGHT", -15, 50)
     t2:Hide()
     TankMark.tab2 = t2
     
-    local pZone = TankMark:CreateEditBox(t2, "Profile Zone (Type to change)", 250)
-    pZone:SetPoint("TOP", t2, "TOP", 0, -30) 
+    local pZone = TankMark:CreateEditBox(t2, "Profile Zone", 200) 
+    pZone:SetPoint("TOPLEFT", t2, "TOPLEFT", 50, -30) 
     pZone:SetScript("OnEnterPressed", function() this:ClearFocus(); TankMark:RefreshProfileUI() end)
     TankMark.profileZone = pZone
     
     local pSave = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
-    pSave:SetWidth(120); pSave:SetHeight(30)
-    pSave:SetPoint("LEFT", pZone, "RIGHT", 20, 0)
+    pSave:SetWidth(100); pSave:SetHeight(30)
+    pSave:SetPoint("LEFT", pZone, "RIGHT", 10, 0)
     pSave:SetText("Save Profile")
     pSave:SetScript("OnClick", function() TankMark:SaveAllProfiles() end)
     
@@ -567,7 +574,7 @@ function TankMark:CreateOptionsFrame()
     local pY = -80; local pX = 20
     for i = 8, 1, -1 do
         local row = CreateFrame("Frame", nil, t2)
-        row:SetWidth(200); row:SetHeight(30) -- Reduced width
+        row:SetWidth(200); row:SetHeight(30)
         row:SetPoint("TOPLEFT", t2, "TOPLEFT", pX, pY)
         
         local ico = row:CreateTexture(nil, "ARTWORK")
@@ -576,12 +583,10 @@ function TankMark:CreateOptionsFrame()
         ico:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
         SetRaidTargetIconTexture(ico, i)
         
-        -- Reduced input box width from 120 -> 90
         local eb = TankMark:CreateEditBox(row, "", 90) 
         eb:SetPoint("LEFT", ico, "RIGHT", 5, 0)
         row.edit = eb
         
-        -- Reduced button width from 60 -> 50
         local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         btn:SetWidth(50); btn:SetHeight(20)
         btn:SetPoint("LEFT", eb, "RIGHT", 2, 0)
@@ -595,7 +600,7 @@ function TankMark:CreateOptionsFrame()
         
         TankMark.profileRows[i] = row
         pY = pY - 40
-        if i == 5 then pY = -80; pX = 225 end -- Moved col 2 closer (300 -> 225)
+        if i == 5 then pY = -80; pX = 225 end 
     end
 
     -- === TABS ===
@@ -624,11 +629,22 @@ function TankMark:CreateOptionsFrame()
         TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
     end)
     
-    TankMark:Print("Options frame updated (v0.11-RC5).")
+    TankMark:Print("Options frame updated (v0.11-RC8).")
 end
 
 function TankMark:ShowOptions()
     if not TankMark.optionsFrame then TankMark:CreateOptionsFrame() end
     TankMark.optionsFrame:Show()
-    TankMark:UpdateMobList()
+    
+    -- Safety: Clear focus from any hidden elements
+    if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
+    if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
+    
+    local cz = GetRealZoneText()
+    if cz and cz ~= "" then
+        if TankMark.editZone then TankMark.editZone:SetText(cz) end
+        if TankMark.profileZone then TankMark.profileZone:SetText(cz) end
+    end
+    
+    TankMark:UpdateTabs()
 end
