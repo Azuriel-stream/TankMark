@@ -797,7 +797,6 @@ function TankMark:CreateOptionsFrame()
             nameBox:SetText(UnitName("target"))
             -- SMART DETECTION
             TankMark.detectedCreatureType = UnitCreatureType("target")
-            TankMark:Print("Target Type: " .. (TankMark.detectedCreatureType or "Unknown"))
             -- [NEW] Wake up buttons
             if TankMark.lockBtn then TankMark.lockBtn:Enable() end
             if TankMark.saveBtn then TankMark.saveBtn:Enable() end

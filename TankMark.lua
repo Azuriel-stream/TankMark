@@ -817,7 +817,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitCombatLogParser()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell() 
-        TankMark:Print("TankMark v0.13-dev (Hybrid Driver + Ignore) Loaded.")
+        TankMark:Print("TankMark v0.13 (Hybrid Driver + Ignore) Loaded.")
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         TankMark:HandleMouseover()
     elseif (event == "UNIT_HEALTH") then
