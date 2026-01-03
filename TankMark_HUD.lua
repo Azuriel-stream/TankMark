@@ -1,4 +1,4 @@
--- TankMark: v0.11 (HUD & Context Menu)
+-- TankMark: v0.12 (HUD & Context Menu)
 -- File: TankMark_HUD.lua
 
 if not TankMark then return end
