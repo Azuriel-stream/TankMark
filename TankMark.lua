@@ -1,4 +1,4 @@
--- TankMark: v0.13-dev (Hybrid Driver & Ignore Logic)
+-- TankMark: v0.13 (Hybrid Driver & Ignore Logic)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -77,7 +77,9 @@ function TankMark:ScanForRangeSpell()
     local bestIndex = nil
 
     local i = 1
+    -- [FIX] Added safety cap to prevent infinite loop
     while true do
+       if i > 1000 then break end 
        local spellName, rank = GetSpellName(i, "spell")
        if not spellName then break end
        
