@@ -298,6 +298,7 @@ end
 function TankMark:UpdateMobList()
     if not TankMark.optionsFrame or not TankMark.optionsFrame:IsVisible() then return end
     TankMark:ValidateDB()
+    local db = TankMarkDB -- [FIX] Localized DB
 
     local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or GetRealZoneText()
     local listData = {}
@@ -309,25 +310,28 @@ function TankMark:UpdateMobList()
     if TankMark.isZoneListMode and TankMark.lockViewZone then
         local z = TankMark.lockViewZone
         _insert(listData, { type="BACK", label=".. Back to Zones" })
-        if TankMarkDB.StaticGUIDs[z] then
-            for guid, data in _pairs(TankMarkDB.StaticGUIDs[z]) do
+        if db.StaticGUIDs[z] then
+            for guid, data in _pairs(db.StaticGUIDs[z]) do
                 local icon = (type(data) == "table") and data.mark or data
                 local mobName = (type(data) == "table") and data.name or "Unknown Mob"
                 _insert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
             end
         end
+        -- [FIX] Safe Sort
         _sort(listData, function(a,b) 
+            if not a or not b then return false end
             if a.type=="BACK" then return true end; if b.type=="BACK" then return false end
-            return a.mark < b.mark 
+            local mA = a.mark or 0; local mB = b.mark or 0
+            return mA < mB 
         end)
 
     -- [MODE 2] ZONE MANAGER
     elseif TankMark.isZoneListMode then
-        for zoneName, _ in _pairs(TankMarkDB.Zones) do
+        for zoneName, _ in _pairs(db.Zones) do
             if filter == "" or _strfind(_lower(zoneName), filter, 1, true) then
                 local locks = 0
-                if TankMarkDB.StaticGUIDs[zoneName] then
-                    for k,v in _pairs(TankMarkDB.StaticGUIDs[zoneName]) do locks = locks + 1 end
+                if db.StaticGUIDs[zoneName] then
+                    for k,v in _pairs(db.StaticGUIDs[zoneName]) do locks = locks + 1 end
                 end
                 _insert(listData, { label = zoneName, type = "ZONE", lockCount = locks })
             end
@@ -336,15 +340,20 @@ function TankMark:UpdateMobList()
 
     -- [MODE 3] STANDARD LIST
     else
-        local mobsData = TankMarkDB.Zones[zone] or {}
+        local mobsData = db.Zones[zone] or {}
         for name, info in _pairs(mobsData) do
             if filter == "" or _strfind(_lower(name), filter, 1, true) then
                 _insert(listData, { name=name, prio=info.prio, mark=info.mark, type=info.type, class=info.class })
             end
         end
+        -- [FIX] Safe Sort
         _sort(listData, function(a, b) 
-            if a.prio == b.prio then return a.name < b.name end
-            return a.prio < b.prio 
+            if not a or not b then return false end
+            local pA = a.prio or 99; local pB = b.prio or 99
+            if pA == pB then 
+                return (a.name or "") < (b.name or "")
+            end
+            return pA < pB 
         end)
     end
 
