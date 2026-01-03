@@ -1,4 +1,4 @@
--- TankMark: v0.11-RC1 (Full Data Sync)
+-- TankMark: v0.12 (Full Data Sync)
 -- File: TankMark_Sync.lua
 
 if not TankMark then return end
