@@ -1,4 +1,4 @@
--- TankMark: v0.13-dev (Hybrid Driver & Ignore Logic)
+-- TankMark: v0.14 (Hybrid Driver, TWA Sync & Normal Filter)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -27,6 +27,7 @@ local _SetRaidTarget = SetRaidTarget
 local _UnitHealth = UnitHealth
 local _IsSpellInRange = IsSpellInRange
 local _CheckInteractDistance = CheckInteractDistance
+local _UnitClassification = UnitClassification -- [v0.14]
 local _getglobal = getglobal
 
 -- Helper: Table Wipe for Lua 5.0 (Reduces Garbage)
@@ -46,9 +47,10 @@ TankMark.activeGUIDs = {}
 TankMark.activeMobIsCaster = {}
 TankMark.sessionAssignments = {}
 TankMark.IsActive = true 
+TankMark.MarkNormals = false -- [v0.14] Default: Do not mark normal mobs
 TankMark.DeathPattern = nil 
-TankMark.RangeSpellID = nil     -- Stores ID for SuperWoW
-TankMark.RangeSpellIndex = nil  -- Stores Book Index for Standard
+TankMark.RangeSpellID = nil     
+TankMark.RangeSpellIndex = nil  
 TankMark.IsRecorderActive = false 
 
 -- ==========================================================
@@ -78,6 +80,7 @@ function TankMark:ScanForRangeSpell()
 
     local i = 1
     while true do
+       if i > 1000 then break end -- Safety Cap
        local spellName, rank = GetSpellName(i, "spell")
        if not spellName then break end
        
@@ -126,12 +129,12 @@ end
 -- PERMISSIONS
 -- ==========================================================
 
-function TankMark:CanAutomate()
-    if not TankMark.IsActive then return false end
+-- [v0.14] Helper to check Leader/Assist regardless of "IsActive" toggle
+function TankMark:HasPermissions()
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
     
-    if numRaid == 0 and numParty == 0 then return false end
+    if numRaid == 0 and numParty == 0 then return true end -- Solo
 
     if numRaid > 0 then
         return (IsRaidLeader() or IsRaidOfficer())
@@ -139,6 +142,11 @@ function TankMark:CanAutomate()
         return IsPartyLeader()
     end
     return false
+end
+
+function TankMark:CanAutomate()
+    if not TankMark.IsActive then return false end
+    return TankMark:HasPermissions()
 end
 
 -- ==========================================================
@@ -218,35 +226,40 @@ function TankMark:UnmarkUnit(unit)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
+-- [v0.14] Refactored: Separate Local Wipe from Server Wipe
 function TankMark:ClearAllMarks()
-    if not TankMark:CanAutomate() then 
-        TankMark:Print("Cannot reset: Not leader/assist.")
-        return 
-    end
+    -- 1. Always wipe Local State
     TankMark.usedIcons = {}
     TankMark.sessionAssignments = {}
     TankMark.activeMobNames = {}
     TankMark.activeGUIDs = {}
     TankMark.visibleTargets = {}
     
-    if TankMark.IsSuperWoW then
-        for i = 1, 8 do
-            if _UnitExists("mark"..i) then _SetRaidTarget("mark"..i, 0) end
+    -- 2. Check Permissions for Server Wipe
+    if TankMark:HasPermissions() then
+        if TankMark.IsSuperWoW then
+            for i = 1, 8 do
+                if _UnitExists("mark"..i) then _SetRaidTarget("mark"..i, 0) end
+            end
         end
+
+        local function ClearUnit(unit)
+            if _UnitExists(unit) and _GetRaidTargetIndex(unit) then 
+                -- We call SetRaidTarget direct here to bypass CanAutomate check
+                _SetRaidTarget(unit, 0)
+            end
+        end
+        ClearUnit("target"); ClearUnit("mouseover")
+        if UnitInRaid("player") then
+            for i = 1, 40 do ClearUnit("raid"..i); ClearUnit("raid"..i.."target") end
+        else
+            for i = 1, 4 do ClearUnit("party"..i); ClearUnit("party"..i.."target") end
+        end
+        TankMark:Print("Session reset and ALL marks cleared.")
+    else
+        TankMark:Print("Session reset (Local HUD only - No permission to clear in-game marks).")
     end
 
-    local function ClearUnit(unit)
-        if _UnitExists(unit) and _GetRaidTargetIndex(unit) then 
-            TankMark:Driver_ApplyMark(unit, 0)
-        end
-    end
-    ClearUnit("target"); ClearUnit("mouseover")
-    if UnitInRaid("player") then
-        for i = 1, 40 do ClearUnit("raid"..i); ClearUnit("raid"..i.."target") end
-    else
-        for i = 1, 4 do ClearUnit("party"..i); ClearUnit("party"..i.."target") end
-    end
-    TankMark:Print("Session reset and ALL marks cleared.")
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
@@ -343,6 +356,20 @@ function TankMark:ProcessUnit(guid, mode)
     if UnitIsPlayer(guid) or UnitIsFriend("player", guid) then return end
     local cType = UnitCreatureType(guid)
     if cType == "Critter" or cType == "Non-combat Pet" then return end
+
+    -- [v0.14] Normal/Trivial Mob Filter
+    if not TankMark.MarkNormals then
+        -- [cite_start] SuperWoW allows passing GUID to UnitClassification [cite: 44]
+        local cls = _UnitClassification(guid)
+        -- Fallback for standard clients (best effort if unit is mouseover)
+        if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
+            cls = _UnitClassification("mouseover")
+        end
+        
+        if cls == "normal" or cls == "trivial" or cls == "minus" then
+            return -- Ignore normal mobs unless toggle is on
+        end
+    end
 
     -- Recorder Hook
     if TankMark.IsRecorderActive then
@@ -749,6 +776,12 @@ function TankMark:SlashHandler(msg)
     elseif cmd == "off" or cmd == "disable" then
         TankMark.IsActive = false
         TankMark:Print("Auto-Marking |cffff0000DISABLED|r.")
+    elseif cmd == "normals" then
+        TankMark.MarkNormals = not TankMark.MarkNormals
+        TankMark:Print("Marking Normal Mobs: " .. (TankMark.MarkNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
+             if TankMark.normalsCheck then TankMark.normalsCheck:SetChecked(TankMark.MarkNormals) end
+        end
     elseif cmd == "recorder" then
         if args == "start" then
             TankMark.IsRecorderActive = true
@@ -817,7 +850,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitCombatLogParser()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell() 
-        TankMark:Print("TankMark v0.13 (Hybrid Driver + Ignore) Loaded.")
+        TankMark:Print("TankMark v0.14 (TWA Integration Active) Loaded.")
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         TankMark:HandleMouseover()
     elseif (event == "UNIT_HEALTH") then
