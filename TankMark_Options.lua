@@ -1,4 +1,4 @@
--- TankMark: v0.12-dev (Enhanced Lock Manager)
+-- TankMark: v0.13-dev (Smart Assignment UI & Ignore Logic)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -30,7 +30,9 @@ TankMark.profileRows = {}
 TankMark.iconBtn = nil 
 TankMark.classBtn = nil 
 TankMark.classDropDown = nil 
-TankMark.lockCheck = nil 
+TankMark.lockBtn = nil 
+TankMark.saveBtn = nil
+TankMark.cancelBtn = nil
 TankMark.isZoneListMode = false 
 TankMark.lockViewZone = nil 
 TankMark.scrollFrame = nil 
@@ -38,7 +40,35 @@ TankMark.searchBox = nil
 TankMark.zoneModeCheck = nil
 TankMark.editingLockGUID = nil
 
-local CLASS_LIST = { "WARRIOR", "MAGE", "WARLOCK", "HUNTER", "DRUID", "PRIEST", "ROGUE", "SHAMAN", "PALADIN" }
+-- Smart Logic State
+TankMark.detectedCreatureType = nil
+TankMark.isLockActive = false
+
+-- ==========================================================
+-- SMART MAPPINGS
+-- ==========================================================
+-- Maps Class -> { Default Icon, Default Prio }
+local CLASS_DEFAULTS = {
+    ["MAGE"]    = { icon = 5, prio = 3 }, -- Moon (Poly)
+    ["WARLOCK"] = { icon = 3, prio = 3 }, -- Diamond (Banish/Seduce)
+    ["DRUID"]   = { icon = 4, prio = 3 }, -- Triangle (Hibernate/Root)
+    ["ROGUE"]   = { icon = 1, prio = 3 }, -- Star (Sap)
+    ["PRIEST"]  = { icon = 6, prio = 3 }, -- Square (Shackle)
+    ["HUNTER"]  = { icon = 2, prio = 3 }, -- Circle (Trap)
+    ["KILL"]    = { icon = 8, prio = 1 }, -- Skull (No CC)
+    ["IGNORE"]  = { icon = 0, prio = 9 }  -- [NEW] Ignore State
+}
+
+-- Maps Creature Type -> Valid CC Classes
+local CC_MAP = {
+    ["Humanoid"]  = { "MAGE", "ROGUE", "WARLOCK", "PRIEST" }, -- Poly, Sap, Seduce, MC
+    ["Beast"]     = { "MAGE", "DRUID", "HUNTER" },            -- Poly, Hibernate, Trap
+    ["Elemental"] = { "WARLOCK" },                            -- Banish
+    ["Demon"]     = { "WARLOCK" },                            -- Banish/Enslave
+    ["Undead"]    = { "PRIEST" },                             -- Shackle
+    ["Dragonkin"] = { "DRUID" }                               -- Hibernate
+}
+local ALL_CLASSES = { "MAGE", "WARLOCK", "DRUID", "ROGUE", "PRIEST", "HUNTER", "WARRIOR", "SHAMAN", "PALADIN" }
 
 -- ==========================================================
 -- LOCALIZATIONS
@@ -57,7 +87,21 @@ local _getglobal = getglobal
 -- 1. HELPER FUNCTIONS
 -- ==========================================================
 
+-- [NEW] Helper to handle Icon 0 (Disabled) texture
+local function SetIconTexture(texture, iconID)
+    if not texture then return end
+    if iconID == 0 then
+        -- Show a red "X" (Pass) icon for ignored
+        texture:SetTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+        texture:SetTexCoord(0, 1, 0, 1)
+    else
+        texture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        SetRaidTargetIconTexture(texture, iconID)
+    end
+end
+
 function TankMark:CreateEditBox(parent, title, w)
+    -- Manual construction for visual stability
     local eb = CreateFrame("EditBox", nil, parent)
     eb:SetWidth(w); eb:SetHeight(20)
     eb:SetFontObject(GameFontHighlightSmall)
@@ -92,7 +136,6 @@ function TankMark:CreateEditBox(parent, title, w)
     return eb
 end
 
--- [SAFETY] Self-Healing DB Check
 function TankMark:ValidateDB()
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
@@ -112,19 +155,97 @@ function TankMark:UpdateTabs()
     end
 end
 
+-- ==========================================================
+-- 2. SMART UI LOGIC
+-- ==========================================================
+
 function TankMark:UpdateClassButton()
     if not TankMark.classBtn then return end
     if TankMark.selectedClass then
         TankMark.classBtn:SetText(TankMark.selectedClass)
-        TankMark.classBtn:SetTextColor(0, 1, 0)
+        TankMark.classBtn:SetTextColor(0, 1, 0) -- Green for CC
     else
-        TankMark.classBtn:SetText("Any Class")
-        TankMark.classBtn:SetTextColor(1, 0.82, 0) 
+        TankMark.classBtn:SetText("No CC (Kill)")
+        TankMark.classBtn:SetTextColor(1, 0.82, 0) -- Gold for Standard
+    end
+    -- [NEW] Special handling for Ignored
+    if TankMark.selectedIcon == 0 then
+        TankMark.classBtn:SetText("IGNORED")
+        TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5) -- Grey
     end
 end
 
+function TankMark:ApplySmartDefaults(className)
+    local defaults = className and CLASS_DEFAULTS[className] or CLASS_DEFAULTS["KILL"]
+    
+    -- Update Icon
+    TankMark.selectedIcon = defaults.icon
+    if TankMark.iconBtn and TankMark.iconBtn.tex then
+        SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+    end
+    
+    -- Update Prio
+    if TankMark.editPrio then
+        TankMark.editPrio:SetText(tostring(defaults.prio))
+    end
+end
+
+function TankMark:ToggleLockState()
+    if not UnitExists("target") and not TankMark.editingLockGUID then 
+        TankMark:Print("Error: You must target a mob to lock it.")
+        return 
+    end
+    
+    TankMark.isLockActive = not TankMark.isLockActive
+    
+    if TankMark.lockBtn then
+        if TankMark.isLockActive then
+            TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
+            TankMark.lockBtn:LockHighlight() -- Visually depressed
+        else
+            TankMark.lockBtn:SetText("Lock Mark")
+            TankMark.lockBtn:UnlockHighlight()
+        end
+    end
+end
+
+function TankMark:ResetEditor()
+    -- Clear Fields
+    if TankMark.editMob then TankMark.editMob:SetText("") end
+    if TankMark.editPrio then TankMark.editPrio:SetText("1") end
+    
+    -- Reset Flags
+    TankMark.editingLockGUID = nil
+    TankMark.detectedCreatureType = nil
+    TankMark.isLockActive = false
+    
+    -- Reset Smart Elements
+    TankMark.selectedClass = nil
+    TankMark:UpdateClassButton()
+    
+    -- Reset Icon to Skull
+    TankMark.selectedIcon = 8
+    if TankMark.iconBtn and TankMark.iconBtn.tex then
+        SetIconTexture(TankMark.iconBtn.tex, 8)
+    end
+    
+    -- Reset Lock Button
+    if TankMark.lockBtn then
+        TankMark.lockBtn:SetText("Lock Mark")
+        TankMark.lockBtn:UnlockHighlight()
+        TankMark.lockBtn:Disable() 
+    end
+    
+    -- Reset Save Button
+    if TankMark.saveBtn then 
+        TankMark.saveBtn:SetText("Save") 
+        TankMark.saveBtn:Disable() 
+    end
+    if TankMark.cancelBtn then TankMark.cancelBtn:Hide() end
+end
+
 -- ==========================================================
--- 2. TAB 1 LOGIC: MOB DATABASE & ZONE BROWSER
+-- 3. ZONE BROWSER & LIST
 -- ==========================================================
 
 function TankMark:SetDropdownState(enabled)
@@ -134,16 +255,11 @@ function TankMark:SetDropdownState(enabled)
     local txt = _getglobal(name.."Text")
     
     if enabled then
-        if btn then 
-            btn:Enable() 
-            btn:Show() 
-        end
+        if btn then btn:Enable(); btn:Show() end
         TankMark.zoneDropDown:EnableMouse(true)
         if txt then txt:SetVertexColor(1, 1, 1) end 
     else
-        if btn then 
-            btn:Disable() 
-        end
+        if btn then btn:Disable() end
         TankMark.zoneDropDown:EnableMouse(false)
         if txt then txt:SetVertexColor(0.5, 0.5, 0.5) end 
     end
@@ -151,8 +267,10 @@ end
 
 function TankMark:ToggleZoneBrowser()
     TankMark.isZoneListMode = not TankMark.isZoneListMode
-    TankMark.lockViewZone = nil -- Always reset drill-down
-    TankMark.editingLockGUID = nil
+    TankMark.lockViewZone = nil 
+    
+    -- Full Reset of Editor when switching views
+    TankMark:ResetEditor()
     
     if TankMark.searchBox then TankMark.searchBox:SetText("") end
     
@@ -173,49 +291,8 @@ end
 
 function TankMark:ViewLocksForZone(zoneName)
     TankMark.lockViewZone = zoneName
-    TankMark.editingLockGUID = nil
+    TankMark:ResetEditor()
     TankMark:UpdateMobList()
-end
-
-function TankMark:SelectZone(zoneName)
-    if TankMark.zoneDropDown then
-        TankMark:SetDropdownState(true)
-        UIDropDownMenu_SetText(zoneName, TankMark.zoneDropDown)
-        TankMark.isZoneListMode = false 
-        
-        if TankMark.zoneModeCheck then 
-            TankMark.zoneModeCheck:SetChecked(nil)
-        end
-        
-        TankMark:UpdateMobList()
-    end
-end
-
-function TankMark:RequestDeleteLock(guid, name)
-    TankMark:ValidateDB()
-    local z = TankMark.lockViewZone
-    local dispName = name or "Unknown Mob"
-    
-    TankMark.pendingWipeAction = function()
-        if z and TankMarkDB.StaticGUIDs[z] then
-            TankMarkDB.StaticGUIDs[z][guid] = nil
-            TankMark:UpdateMobList()
-            TankMark:Print("Removed lock for: " .. dispName)
-        end
-    end
-    
-    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Remove Lock for:\n|cffff0000" .. dispName .. "|r?")
-end
-
-function TankMark:RequestDeleteZone(zoneName)
-    TankMark:ValidateDB()
-    TankMark.pendingWipeAction = function()
-        TankMarkDB.Zones[zoneName] = nil
-        TankMarkDB.StaticGUIDs[zoneName] = nil
-        TankMark:Print("Deleted zone: " .. zoneName)
-        TankMark:UpdateMobList()
-    end
-    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete ENTIRE ZONE:\n|cffff0000" .. zoneName .. "|r?")
 end
 
 function TankMark:UpdateMobList()
@@ -226,32 +303,21 @@ function TankMark:UpdateMobList()
     local listData = {}
     
     local filter = ""
-    if TankMark.searchBox then
-        filter = _lower(TankMark.searchBox:GetText())
-    end
+    if TankMark.searchBox then filter = _lower(TankMark.searchBox:GetText()) end
 
     -- [MODE 1] LOCKS VIEW
     if TankMark.isZoneListMode and TankMark.lockViewZone then
         local z = TankMark.lockViewZone
         _insert(listData, { type="BACK", label=".. Back to Zones" })
-        
         if TankMarkDB.StaticGUIDs[z] then
             for guid, data in _pairs(TankMarkDB.StaticGUIDs[z]) do
-                local icon, mobName
-                -- Hybrid Reader for v0.12 compatibility
-                if type(data) == "table" then
-                    icon = data.mark
-                    mobName = data.name or "Named Mob"
-                else
-                    icon = data
-                    mobName = "Unknown Mob"
-                end
+                local icon = (type(data) == "table") and data.mark or data
+                local mobName = (type(data) == "table") and data.name or "Unknown Mob"
                 _insert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
             end
         end
         _sort(listData, function(a,b) 
-            if a.type == "BACK" then return true end
-            if b.type == "BACK" then return false end
+            if a.type=="BACK" then return true end; if b.type=="BACK" then return false end
             return a.mark < b.mark 
         end)
 
@@ -273,13 +339,7 @@ function TankMark:UpdateMobList()
         local mobsData = TankMarkDB.Zones[zone] or {}
         for name, info in _pairs(mobsData) do
             if filter == "" or _strfind(_lower(name), filter, 1, true) then
-                _insert(listData, { 
-                    name = name, 
-                    prio = info.prio, 
-                    mark = info.mark, 
-                    type = info.type,
-                    class = info.class
-                })
+                _insert(listData, { name=name, prio=info.prio, mark=info.mark, type=info.type, class=info.class })
             end
         end
         _sort(listData, function(a, b) 
@@ -290,137 +350,100 @@ function TankMark:UpdateMobList()
 
     local numItems = _getn(listData)
     local MAX_ROWS = 9 
-    local ROW_HEIGHT = 22
-    
-    FauxScrollFrame_Update(TankMark.scrollFrame, numItems, MAX_ROWS, ROW_HEIGHT)
+    FauxScrollFrame_Update(TankMark.scrollFrame, numItems, MAX_ROWS, 22)
     local offset = FauxScrollFrame_GetOffset(TankMark.scrollFrame)
 
     for i = 1, MAX_ROWS do
         local index = offset + i
         local row = TankMark.mobRows[i]
-        
         if row then
             if index <= numItems then
                 local data = listData[index]
-                
-                -- CLEAN ROW STATE
-                row.icon:Hide()
-                
-                row.del:Hide()
-                row.edit:Hide()
+                row.icon:Hide(); row.del:Hide(); row.edit:Hide()
                 row.text:SetTextColor(1,1,1)
                 row:SetScript("OnClick", nil)
                 
                 if data.type == "BACK" then
                     row.text:SetText("|cffffd200<< Back to Zones|r")
-                    row.icon:Show()
-                    row.icon:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
-                    row.icon:SetTexCoord(0, 1, 0, 1) -- [FIX] Reset coords for the arrow
+                    row.icon:Show(); row.icon:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
+                    row.icon:SetTexCoord(0, 1, 0, 1)
                     row:SetScript("OnClick", function() 
-                        TankMark.lockViewZone = nil
-                        TankMark.editingLockGUID = nil
-                        TankMark:UpdateMobList()
+                        TankMark.lockViewZone = nil; TankMark:ResetEditor(); TankMark:UpdateMobList()
                         PlaySound("igMainMenuOptionCheckBoxOn")
                     end)
-                    
                 elseif data.type == "LOCK" then
-                    row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                    SetRaidTargetIconTexture(row.icon, data.mark)
-                    row.icon:Show()
-                    
-                    local shortGuid = string.sub(data.guid, -6)
-                    row.text:SetText(data.name .. " |cff888888(" .. shortGuid .. ")|r")
-                    
-                    row.del:Show()
-                    row.del:SetWidth(20); row.del:SetText("X")
-                    row.del:SetScript("OnClick", function() 
-                        -- Pass name for the confirmation prompt
-                        TankMark:RequestDeleteLock(data.guid, data.name) 
-                    end)
-                    row.edit:Show()
-                    row.edit:SetWidth(20); row.edit:SetText("E")
+                    SetIconTexture(row.icon, data.mark); row.icon:Show()
+                    row.text:SetText(data.name .. " |cff888888(" .. string.sub(data.guid, -6) .. ")|r")
+                    row.del:Show(); row.del:SetText("X"); row.del:SetWidth(20)
+                    row.del:SetScript("OnClick", function() TankMark:RequestDeleteLock(data.guid, data.name) end)
+                    row.edit:Show(); row.edit:SetText("E"); row.edit:SetWidth(20)
                     row.edit:SetScript("OnClick", function()
-                        -- Load data into form
+                        -- [EDIT MODE: LOCK]
                         TankMark.editMob:SetText(data.name or "Unknown")
                         TankMark.selectedIcon = data.mark
-                        TankMark.editingLockGUID = data.guid -- Enter "Edit Mode"
+                        TankMark.editingLockGUID = data.guid
+                        TankMark.selectedClass = nil
                         
-                        if TankMark.lockCheck then 
-                            TankMark.lockCheck:SetChecked(nil)
-                            TankMark.lockCheck:Hide() 
-                        end
-
-                        -- Visual updates
-                        if TankMark.iconBtn and TankMark.iconBtn.tex then 
-                            SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) 
-                        end
-                        TankMark:Print("Editing lock for: " .. (data.name or "Unknown"))
+                        -- Update Visuals
+                        TankMark:UpdateClassButton()
+                        if TankMark.iconBtn then SetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        
+                        -- [NEW] Wake Up Save Button
+                        TankMark.saveBtn:SetText("Update")
+                        TankMark.saveBtn:Enable()
+                        TankMark.cancelBtn:Show()
+                        
+                        -- Disable Smart Features in Edit Mode
+                        TankMark.lockBtn:Disable()
+                        TankMark.lockBtn:SetText("Locked")
+                        
+                        TankMark:Print("Editing lock: " .. data.name)
                     end)
-
                 elseif data.type == "ZONE" then
-                    local lockInfo = (data.lockCount > 0) and (" |cff00ff00("..data.lockCount.." locks)|r") or ""
-                    row.text:SetText("|cffffd200" .. data.label .. "|r" .. lockInfo)
-                    
-                    local clickZone = data.label
-                    row.del:Show()
-                    row.del:SetWidth(60) 
-                    row.del:SetText("|cffff0000Delete|r")
-                    row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(clickZone) end)
-                    
-                    row.edit:Show()
-                    row.edit:SetWidth(50)
-                    row.edit:SetText("Locks")
-                    row.edit:SetScript("OnClick", function() TankMark:ViewLocksForZone(clickZone) end)
-                    
+                    local info = (data.lockCount > 0) and (" |cff00ff00("..data.lockCount.." locks)|r") or ""
+                    row.text:SetText("|cffffd200" .. data.label .. "|r" .. info)
+                    row.del:Show(); row.del:SetText("|cffff0000Delete|r"); row.del:SetWidth(60)
+                    row.del:SetScript("OnClick", function() TankMark:RequestDeleteZone(data.label) end)
+                    row.edit:Show(); row.edit:SetText("Locks"); row.edit:SetWidth(50)
+                    row.edit:SetScript("OnClick", function() TankMark:ViewLocksForZone(data.label) end)
                 else
-                    if data.mark then
-                        row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                        SetRaidTargetIconTexture(row.icon, data.mark)
-                        row.icon:Show()
-                    else
-                        row.icon:Hide()
-                    end
-                    local color = "|cffffffff"
-                    if data.type == "CC" then color = "|cff00ccff" end
-                    
-                    row.text:SetText("|cff888888["..data.prio.."]|r " .. color .. data.name .. "|r")
-                    
-                    local clickMob = data.name
-                    row.del:Show()
-                    row.del:SetWidth(20); row.del:SetText("X")
-                    row.del:SetScript("OnClick", function() 
-                        TankMark:RequestDeleteMob(zone, clickMob)
-                    end)
-                    
-                    row.edit:Show()
-                    row.edit:SetWidth(20); row.edit:SetText("E")
-                    row.edit:SetScript("OnClick", function() 
-                        TankMark.editMob:SetText(clickMob)
+                    -- Standard Mob Entry
+                    SetIconTexture(row.icon, data.mark); row.icon:Show()
+                    local c = (data.type=="CC") and "|cff00ccff" or "|cffffffff"
+                    if data.mark == 0 then c = "|cff888888" end -- Grey for ignored
+                    row.text:SetText("|cff888888["..data.prio.."]|r " .. c .. data.name .. "|r")
+                    row.del:Show(); row.del:SetText("X"); row.del:SetWidth(20)
+                    row.del:SetScript("OnClick", function() TankMark:RequestDeleteMob(zone, data.name) end)
+                    row.edit:Show(); row.edit:SetText("E"); row.edit:SetWidth(20)
+                    row.edit:SetScript("OnClick", function()
+                        -- [EDIT MODE: MOB]
+                        TankMark.editMob:SetText(data.name)
                         TankMark.editPrio:SetText(data.prio)
                         TankMark.selectedIcon = data.mark
                         TankMark.selectedClass = data.class
+                        
                         TankMark:UpdateClassButton()
-                        if TankMark.iconBtn and TankMark.iconBtn.tex then 
-                            SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) 
-                        end
-                        if TankMark.lockCheck then TankMark.lockCheck:Show() end
-                        TankMark.editingLockGUID = nil
+                        if TankMark.iconBtn then SetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        
+                        -- [NEW] Wake Up Save Button
+                        TankMark.saveBtn:SetText("Update")
+                        TankMark.saveBtn:Enable()
+                        TankMark.cancelBtn:Show()
+                        TankMark.lockBtn:Disable() 
                     end)
                 end
                 row:Show()
-            else
-                row:Hide()
-            end
+            else row:Hide() end
         end
     end
 end
 
+-- ==========================================================
+-- 4. SAVE & DELETE LOGIC
+-- ==========================================================
+
 function TankMark:SaveFormData()
     TankMark:ValidateDB()
-    
-    -- [FIX] Context-Aware Zone Resolution
-    -- If we are editing a lock, we MUST use the zone we are viewing, 
-    -- NOT the dropdown text (which might be "Manage Saved Zones").
     local zone
     if TankMark.editingLockGUID and TankMark.lockViewZone then
         zone = TankMark.lockViewZone
@@ -428,9 +451,8 @@ function TankMark:SaveFormData()
         zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
     end
     
-    -- [FIX] Guard Clause: Never allow saving to the placeholder name
     if zone == "Manage Saved Zones" then
-        TankMark:Print("|cffff0000Error:|r Cannot save to 'Manage Saved Zones'. Please select a valid zone.")
+        TankMark:Print("Error: Select a valid zone.")
         return
     end
     
@@ -442,64 +464,43 @@ function TankMark:SaveFormData()
     if zone == "" or mob == "" or mob == "Mob Name" then return end
     if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
 
-    -- [INTERCEPT] Updating an Existing Lock?
+    -- CASE 1: Updating Existing Lock
     if TankMark.editingLockGUID then
         if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
-        
-        -- Update the existing record directly
         TankMarkDB.StaticGUIDs[zone][TankMark.editingLockGUID] = { ["mark"] = icon, ["name"] = mob }
-        
-        TankMark:Print("Updated lock: " .. mob .. " (" .. TankMark:GetMarkString(icon) .. ")")
-        
-        -- Reset State
-        TankMark.editingLockGUID = nil
-        TankMark.editMob:SetText("")
-        
-        -- [FIX] Restore the Lock Checkbox visibility
-        if TankMark.lockCheck then 
-            TankMark.lockCheck:SetChecked(nil)
-            TankMark.lockCheck:Show() 
-        end
-        
+        TankMark:Print("Updated lock: " .. mob)
+        TankMark:ResetEditor()
         TankMark:UpdateMobList()
         return
     end
     
-    -- Lock GUID Logic (Standard)
-    if TankMark.lockCheck and TankMark.lockCheck:GetChecked() then
+    -- CASE 2: Creating New Lock
+    if TankMark.isLockActive then
         local exists, guid = UnitExists("target")
         if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
             if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
-            
             TankMarkDB.StaticGUIDs[zone][guid] = { ["mark"] = icon, ["name"] = mob }
-            
             TankMark:Print("|cff00ff00LOCKED GUID|r for: " .. mob)
-            TankMark.lockCheck:SetChecked(nil)
         else
-            TankMark:Print("|cffff0000Error:|r To lock GUID, you must target the specific mob.")
+            TankMark:Print("|cffff0000Error:|r Target lost or name mismatch. Lock failed.")
+            return
         end
     end
 
+    -- CASE 3: Save/Update Standard DB
     local mobType = classReq and "CC" or "KILL"
     TankMarkDB.Zones[zone][mob] = { 
         ["prio"] = prio, ["mark"] = icon, ["class"] = classReq, ["type"] = mobType 
     }
     
     TankMark:Print("Saved: " .. mob .. " (Prio: "..prio..", Mark: "..icon..")")
-    
-    -- Clear Form
-    TankMark.editMob:SetText("")
-    TankMark.editPrio:SetText("1") 
-    TankMark.selectedClass = nil
-    TankMark:UpdateClassButton()
-    
+    TankMark:ResetEditor()
     TankMark.isZoneListMode = false 
     TankMark:UpdateMobList()
 end
 
 function TankMark:RequestDeleteMob(zone, mob)
     TankMark:ValidateDB()
-    
     TankMark.pendingWipeAction = function()
         if TankMarkDB.Zones[zone] then
             TankMarkDB.Zones[zone][mob] = nil
@@ -507,27 +508,35 @@ function TankMark:RequestDeleteMob(zone, mob)
             TankMark:Print("Removed mob: " .. mob)
         end
     end
-    
     StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete Mob from DB:\n|cffff0000" .. mob .. "|r?")
 end
 
-function TankMark:RequestWipeZone()
+function TankMark:RequestDeleteLock(guid, name)
     TankMark:ValidateDB()
-    local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown)
-    if zone and zone ~= "" and TankMarkDB.Zones[zone] then
-        TankMark.pendingWipeAction = function()
-            TankMarkDB.Zones[zone] = {}
-            TankMark:Print("Wiped all data for zone: " .. zone)
+    local z = TankMark.lockViewZone
+    TankMark.pendingWipeAction = function()
+        if z and TankMarkDB.StaticGUIDs[z] then
+            TankMarkDB.StaticGUIDs[z][guid] = nil
             TankMark:UpdateMobList()
+            TankMark:Print("Removed lock for: " .. (name or "GUID"))
         end
-        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to WIPE the database for: |cffff0000" .. zone .. "|r?")
-    else
-        TankMark:Print("No data to wipe for this zone.")
     end
+    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Remove Lock for:\n|cffff0000" .. (name or "Unknown") .. "|r?")
+end
+
+function TankMark:RequestDeleteZone(zoneName)
+    TankMark:ValidateDB()
+    TankMark.pendingWipeAction = function()
+        TankMarkDB.Zones[zoneName] = nil
+        TankMarkDB.StaticGUIDs[zoneName] = nil
+        TankMark:Print("Deleted zone: " .. zoneName)
+        TankMark:UpdateMobList()
+    end
+    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete ENTIRE ZONE:\n|cffff0000" .. zoneName .. "|r?")
 end
 
 -- ==========================================================
--- 3. TAB 2 LOGIC: TEAM PROFILES
+-- 5. PROFILE LOGIC (Restored)
 -- ==========================================================
 
 function TankMark:SaveAllProfiles()
@@ -584,35 +593,98 @@ function TankMark:RequestWipeProfile()
 end
 
 -- ==========================================================
--- 4. CLASS DROPDOWN INIT
+-- 6. DROPDOWN INIT
 -- ==========================================================
+
+function TankMark:InitIconMenu()
+    local iconNames = {
+        [8] = "|cffffffffSkull|r",
+        [7] = "|cffff0000Cross|r",
+        [6] = "|cff00ccffSquare|r",
+        [5] = "|cffaabbccMoon|r",
+        [4] = "|cff00ff00Triangle|r",
+        [3] = "|cffff00ffDiamond|r",
+        [2] = "|cffffaa00Circle|r",
+        [1] = "|cffffff00Star|r",
+        [0] = "|cff888888Disabled (Ignore)|r"
+    }
+    -- Order: Skull down to 0
+    for i = 8, 0, -1 do
+        local capturedIcon = i 
+        local info = {}
+        info.text = iconNames[i]
+        info.func = function()
+            TankMark.selectedIcon = capturedIcon
+            if TankMark.iconBtn and TankMark.iconBtn.tex then
+                SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+                TankMark:UpdateClassButton() -- Update text color if ignored
+            end
+            CloseDropDownMenus()
+        end
+        info.checked = (TankMark.selectedIcon == i)
+        UIDropDownMenu_AddButton(info)
+    end
+end
+
 function TankMark:InitClassMenu()
     local info = {}
     
-    -- Option: Any Class (Clear)
+    -- 0. Ignore Option [NEW]
     info = {}
-    info.text = "|cffffffffAny Class (Kill)|r"
+    info.text = "|cff888888IGNORE (Do Not Mark)|r"
     info.func = function() 
         TankMark.selectedClass = nil
         TankMark:UpdateClassButton()
+        TankMark.classBtn:SetText("IGNORED")
+        TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
+        TankMark:ApplySmartDefaults("IGNORE")
+    end
+    UIDropDownMenu_AddButton(info)
+
+    -- 1. No CC Option
+    info = {}
+    info.text = "|cffffffffNo CC (Kill Target)|r"
+    info.func = function() 
+        TankMark.selectedClass = nil
+        TankMark:UpdateClassButton()
+        TankMark:ApplySmartDefaults("KILL")
     end
     UIDropDownMenu_AddButton(info)
     
-    -- List Classes
-    for _, class in _ipairs(CLASS_LIST) do
-        info = {}
-        info.text = class
-        info.func = function()
-            TankMark.selectedClass = class
-            TankMark:UpdateClassButton()
+    -- 2. Smart Recommendations (Based on Creature Type)
+    if TankMark.detectedCreatureType and CC_MAP[TankMark.detectedCreatureType] then
+        info = {}; info.text = "--- Recommended ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
+        
+        for _, class in _ipairs(CC_MAP[TankMark.detectedCreatureType]) do
+            local capturedClass = class 
+            info = {}
+            info.text = "|cff00ff00" .. capturedClass .. "|r"
+            info.func = function()
+                TankMark.selectedClass = capturedClass
+                TankMark:UpdateClassButton()
+                TankMark:ApplySmartDefaults(capturedClass)
+            end
+            UIDropDownMenu_AddButton(info)
         end
-        info.checked = (TankMark.selectedClass == class)
+    end
+    
+    -- 3. All Classes
+    info = {}; info.text = "--- All Classes ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
+    for _, class in _ipairs(ALL_CLASSES) do
+        local capturedClass = class 
+        info = {}
+        info.text = capturedClass
+        info.func = function()
+            TankMark.selectedClass = capturedClass
+            TankMark:UpdateClassButton()
+            TankMark:ApplySmartDefaults(capturedClass)
+        end
         UIDropDownMenu_AddButton(info)
     end
 end
 
 -- ==========================================================
--- 5. MAIN FRAME CONSTRUCTION
+-- 7. UI CONSTRUCTION
 -- ==========================================================
 
 function TankMark:CreateOptionsFrame()
@@ -636,331 +708,201 @@ function TankMark:CreateOptionsFrame()
     f:Hide()
 
     local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    t:SetPoint("TOP", 0, -15)
-    t:SetText("TankMark Configuration")
-    
-    local cb = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    cb:SetPoint("TOPRIGHT", -5, -5)
+    t:SetPoint("TOP", 0, -15); t:SetText("TankMark Configuration")
+    local cb = CreateFrame("Button", nil, f, "UIPanelCloseButton"); cb:SetPoint("TOPRIGHT", -5, -5)
 
-    -- === TAB 1 CONTAINER ===
+    -- === TAB 1 ===
     local t1 = CreateFrame("Frame", nil, f)
-    t1:SetPoint("TOPLEFT", 15, -40)
-    t1:SetPoint("BOTTOMRIGHT", -15, 50)
+    t1:SetPoint("TOPLEFT", 15, -40); t1:SetPoint("BOTTOMRIGHT", -15, 50)
     
-    -- ZONE DROPDOWN
+    -- Dropdown & Checkbox
     local drop = CreateFrame("Frame", "TMZoneDropDown", t1, "UIDropDownMenuTemplate")
-    drop:SetPoint("TOPLEFT", 0, -10)
-    UIDropDownMenu_SetWidth(150, drop)
+    drop:SetPoint("TOPLEFT", 0, -10); UIDropDownMenu_SetWidth(150, drop)
     UIDropDownMenu_Initialize(drop, function()
         local curr = GetRealZoneText()
-        local info = {}
-        info.text = curr
-        info.func = function() 
-            UIDropDownMenu_SetSelectedID(drop, this:GetID())
-            TankMark:UpdateMobList() 
-        end
+        local info = {}; info.text = curr
+        info.func = function() UIDropDownMenu_SetSelectedID(drop, this:GetID()); TankMark:UpdateMobList() end
         UIDropDownMenu_AddButton(info)
-        
         for zName, _ in _pairs(TankMarkDB.Zones) do
             if zName ~= curr then
-                info = {}
-                info.text = zName
-                info.func = function() 
-                    UIDropDownMenu_SetSelectedID(drop, this:GetID())
-                    TankMark:UpdateMobList() 
-                end
+                info = {}; info.text = zName
+                info.func = function() UIDropDownMenu_SetSelectedID(drop, this:GetID()); TankMark:UpdateMobList() end
                 UIDropDownMenu_AddButton(info)
             end
         end
     end)
-    UIDropDownMenu_SetText(GetRealZoneText(), drop) 
-    TankMark.zoneDropDown = drop
+    UIDropDownMenu_SetText(GetRealZoneText(), drop); TankMark.zoneDropDown = drop
 
-    -- [NEW] Manage Zones Checkbox
     local mzCheck = CreateFrame("CheckButton", "TM_ManageZonesCheck", t1, "UICheckButtonTemplate")
-    mzCheck:SetWidth(24); mzCheck:SetHeight(24)
-    mzCheck:SetPoint("LEFT", drop, "RIGHT", 10, 2)
+    mzCheck:SetWidth(24); mzCheck:SetHeight(24); mzCheck:SetPoint("LEFT", drop, "RIGHT", 10, 2)
     _G[mzCheck:GetName().."Text"]:SetText("Manage Zones")
-    mzCheck:SetScript("OnClick", function()
-        TankMark:ToggleZoneBrowser()
-        PlaySound("igMainMenuOptionCheckBoxOn")
-    end)
+    mzCheck:SetScript("OnClick", function() TankMark:ToggleZoneBrowser(); PlaySound("igMainMenuOptionCheckBoxOn") end)
     TankMark.zoneModeCheck = mzCheck
 
-    -- SCROLL LIST
+    -- Scroll List
     local sf = CreateFrame("ScrollFrame", "TankMarkScrollFrame", t1, "FauxScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 10, -50)
-    sf:SetWidth(380)
-    sf:SetHeight(200) 
-    
+    sf:SetPoint("TOPLEFT", 10, -50); sf:SetWidth(380); sf:SetHeight(200)
     local listBg = CreateFrame("Frame", nil, t1)
-    listBg:SetPoint("TOPLEFT", sf, -5, 5)
-    listBg:SetPoint("BOTTOMRIGHT", sf, 25, -5)
-    listBg:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 }
-    })
-    listBg:SetBackdropColor(0, 0, 0, 0.5)
-
-    sf:SetScript("OnVerticalScroll", function() 
-        FauxScrollFrame_OnVerticalScroll(22, function() TankMark:UpdateMobList() end) 
-    end)
+    listBg:SetPoint("TOPLEFT", sf, -5, 5); listBg:SetPoint("BOTTOMRIGHT", sf, 25, -5)
+    listBg:SetBackdrop({ bgFile="Interface\\Tooltips\\UI-Tooltip-Background", edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", tile=true, tileSize=16, edgeSize=16, insets={left=4, right=4, top=4, bottom=4} })
+    listBg:SetBackdropColor(0,0,0,0.5)
+    sf:SetScript("OnVerticalScroll", function() FauxScrollFrame_OnVerticalScroll(22, function() TankMark:UpdateMobList() end) end)
     TankMark.scrollFrame = sf
 
-    -- CREATE ROWS
+    -- Rows
     for i = 1, 9 do 
         local row = CreateFrame("Button", nil, t1) 
-        row:SetWidth(380)
-        row:SetHeight(22)
-        row:SetPoint("TOPLEFT", 10, -50 - ((i-1)*22))
-        
-        local icon = row:CreateTexture(nil, "ARTWORK")
-        icon:SetWidth(18); icon:SetHeight(18)
-        icon:SetPoint("LEFT", 0, 0)
-        row.icon = icon
-        
-        local txt = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        txt:SetPoint("LEFT", icon, "RIGHT", 5, 0)
-        row.text = txt
-        
-        local del = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        del:SetWidth(20); del:SetHeight(18)
-        del:SetPoint("RIGHT", -5, 0)
-        del:SetText("X")
-        row.del = del
-        
-        local editBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        editBtn:SetWidth(20); editBtn:SetHeight(18)
-        editBtn:SetPoint("RIGHT", del, "LEFT", -2, 0)
-        editBtn:SetText("E")
-        row.edit = editBtn
-        
-        row:Hide()
-        TankMark.mobRows[i] = row
+        row:SetWidth(380); row:SetHeight(22); row:SetPoint("TOPLEFT", 10, -50 - ((i-1)*22))
+        row.icon = row:CreateTexture(nil, "ARTWORK"); row.icon:SetWidth(18); row.icon:SetHeight(18); row.icon:SetPoint("LEFT", 0, 0)
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+        row.del = CreateFrame("Button", nil, row, "UIPanelButtonTemplate"); row.del:SetWidth(20); row.del:SetHeight(18); row.del:SetPoint("RIGHT", -5, 0); row.del:SetText("X")
+        row.edit = CreateFrame("Button", nil, row, "UIPanelButtonTemplate"); row.edit:SetWidth(20); row.edit:SetHeight(18); row.edit:SetPoint("RIGHT", row.del, "LEFT", -2, 0); row.edit:SetText("E")
+        row:Hide(); TankMark.mobRows[i] = row
     end
 
-    -- SEARCH BOX
+    -- Search
     local searchLabel = t1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 5, -8) 
-    searchLabel:SetText("Search:")
-
-    local sBox = TankMark:CreateEditBox(t1, "", 150)
-    sBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
-    sBox:SetScript("OnTextChanged", function() 
-        TankMark:UpdateMobList() 
-    end)
-    
-    local sClear = CreateFrame("Button", nil, sBox, "UIPanelCloseButton")
-    sClear:SetWidth(20); sClear:SetHeight(20)
-    sClear:SetPoint("LEFT", sBox, "RIGHT", 2, 0)
-    sClear:SetScript("OnClick", function() 
-        sBox:SetText("")
-        sBox:ClearFocus()
-        TankMark:UpdateMobList()
-    end)
+    searchLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 5, -8); searchLabel:SetText("Search:")
+    local sBox = TankMark:CreateEditBox(t1, "", 150); sBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
+    sBox:SetScript("OnTextChanged", function() TankMark:UpdateMobList() end)
     TankMark.searchBox = sBox
+    local sClear = CreateFrame("Button", nil, sBox, "UIPanelCloseButton"); sClear:SetWidth(20); sClear:SetHeight(20); sClear:SetPoint("LEFT", sBox, "RIGHT", 2, 0)
+    sClear:SetScript("OnClick", function() sBox:SetText(""); sBox:ClearFocus(); TankMark:UpdateMobList() end)
 
     -- ======================================================
-    -- DOUBLE-DECKER ADD/EDIT SECTION (v0.11 Final)
+    -- SMART ASSIGNMENT ROW (Refactored)
     -- ======================================================
     local addGroup = CreateFrame("Frame", nil, t1)
-    addGroup:SetPoint("BOTTOMLEFT", 10, 0)
-    addGroup:SetWidth(400) 
-    addGroup:SetHeight(90) 
-    
-    local div = addGroup:CreateTexture(nil, "ARTWORK")
-    div:SetHeight(1)
-    div:SetWidth(380) 
-    div:SetPoint("TOP", addGroup, "TOP", 0, 0) 
-    div:SetTexture(1, 1, 1)
-    div:SetAlpha(0.2)
+    addGroup:SetPoint("BOTTOMLEFT", 10, 0); addGroup:SetWidth(400); addGroup:SetHeight(90)
+    local div = addGroup:CreateTexture(nil, "ARTWORK"); div:SetHeight(1); div:SetWidth(380); div:SetPoint("TOP", 0, 0); div:SetTexture(1,1,1,0.2)
 
-    -- === ROW 1: Name & Target ===
+    -- [Row 1] Name & Target
+    local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 200)
+    nameBox:SetPoint("TOPLEFT", 0, -30); TankMark.editMob = nameBox
     
-    -- 1. Mob Name
-    local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 210)
-    nameBox:SetPoint("TOPLEFT", 0, -30) 
-    TankMark.editMob = nameBox 
+    -- [NEW] Disable Save if name empty
+    nameBox:SetScript("OnTextChanged", function()
+        local text = this:GetText()
+        if text and text ~= "" then
+            if TankMark.saveBtn then TankMark.saveBtn:Enable() end
+        else
+            if TankMark.saveBtn then TankMark.saveBtn:Disable() end
+        end
+    end)
     
-    -- 2. Target Button
     local targetBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    targetBtn:SetWidth(60); targetBtn:SetHeight(20)
-    targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0)
-    targetBtn:SetText("Target")
+    targetBtn:SetWidth(60); targetBtn:SetHeight(20); targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0); targetBtn:SetText("Target")
     targetBtn:SetScript("OnClick", function()
-        if UnitExists("target") then nameBox:SetText(UnitName("target")) end
+        if UnitExists("target") then 
+            nameBox:SetText(UnitName("target"))
+            -- SMART DETECTION
+            TankMark.detectedCreatureType = UnitCreatureType("target")
+            -- [NEW] Wake up buttons
+            if TankMark.lockBtn then TankMark.lockBtn:Enable() end
+            if TankMark.saveBtn then TankMark.saveBtn:Enable() end
+        end
     end)
     
-    -- === ROW 2: Prio, Icon, Class, Lock, Save ===
-    
-    -- 3. Priority Box
-    local prioBox = TankMark:CreateEditBox(addGroup, "Prio", 30)
-    prioBox:SetPoint("TOPLEFT", 0, -65) 
-    prioBox:SetText("1")
-    prioBox:SetMaxLetters(2)
-    prioBox:SetNumeric(true)
-    TankMark.editPrio = prioBox
-    
-    -- 4. Icon Selector
-    local iconSel = CreateFrame("Button", nil, addGroup)
-    iconSel:SetWidth(24); iconSel:SetHeight(24)
-    iconSel:SetPoint("LEFT", prioBox, "RIGHT", 10, 0)
-    local iconTex = iconSel:CreateTexture(nil, "ARTWORK")
-    iconTex:SetAllPoints()
-    iconSel.tex = iconTex 
-    iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
-    
-    iconSel:SetScript("OnClick", function()
-        TankMark.selectedIcon = TankMark.selectedIcon - 1
-        if TankMark.selectedIcon < 1 then TankMark.selectedIcon = 8 end
-        SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
-    end)
-    TankMark.iconBtn = iconSel
-
-    -- 5. Class Dropdown Button
+    -- [Row 2] Smart Controls
+    -- 1. Role/Class Dropdown
     local cBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    cBtn:SetWidth(80); cBtn:SetHeight(24)
-    cBtn:SetPoint("LEFT", iconSel, "RIGHT", 10, 0)
-    cBtn:SetText("Any Class")
-    
+    cBtn:SetWidth(100); cBtn:SetHeight(24); cBtn:SetPoint("TOPLEFT", 0, -65); cBtn:SetText("No CC (Kill)")
     local cDrop = CreateFrame("Frame", "TMClassDropDown", cBtn, "UIDropDownMenuTemplate")
     UIDropDownMenu_Initialize(cDrop, function() TankMark:InitClassMenu() end, "MENU")
-    TankMark.classDropDown = cDrop
-    
-    cBtn:SetScript("OnClick", function()
-        ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0)
-    end)
+    cBtn:SetScript("OnClick", function() ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0) end)
     TankMark.classBtn = cBtn
-
-    -- 6. Lock Checkbox
-    local lCheck = CreateFrame("CheckButton", nil, addGroup, "UICheckButtonTemplate")
-    lCheck:SetWidth(24); lCheck:SetHeight(24)
-    lCheck:SetPoint("LEFT", cBtn, "RIGHT", 5, 0)
     
-    lCheck:SetScript("OnEnter", function() 
-        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Lock GUID")
-        GameTooltip:AddLine("Check this to permanently assign this mark\nto this SPECIFIC creature instance.\n(Requires Target)", 1, 1, 1)
-        GameTooltip:Show()
+    -- 2. Icon Selector (Dropdown)
+    local iconSel = CreateFrame("Button", nil, addGroup)
+    iconSel:SetWidth(24); iconSel:SetHeight(24); iconSel:SetPoint("LEFT", cBtn, "RIGHT", 10, 0)
+    
+    local iconTex = iconSel:CreateTexture(nil, "ARTWORK"); iconTex:SetAllPoints(); iconSel.tex = iconTex
+    iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    SetIconTexture(iconTex, TankMark.selectedIcon)
+    
+    -- Hidden Dropdown Frame
+    local iconDrop = CreateFrame("Frame", "TMIconDropDown", iconSel, "UIDropDownMenuTemplate")
+    UIDropDownMenu_Initialize(iconDrop, function() TankMark:InitIconMenu() end, "MENU")
+    
+    iconSel:SetScript("OnClick", function()
+        ToggleDropDownMenu(1, nil, iconDrop, "cursor", 0, 0)
     end)
-    lCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    TankMark.lockCheck = lCheck
-
-    -- 7. Save Button
-    local addBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    addBtn:SetWidth(60); addBtn:SetHeight(24)
-    addBtn:SetPoint("LEFT", lCheck, "RIGHT", 5, 0)
-    addBtn:SetText("Save")
-    addBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
+    TankMark.iconBtn = iconSel
     
+    -- 3. Prio Box
+    local prioBox = TankMark:CreateEditBox(addGroup, "Prio", 25)
+    prioBox:SetPoint("LEFT", iconSel, "RIGHT", 10, 0); prioBox:SetText("1"); prioBox:SetNumeric(true)
+    TankMark.editPrio = prioBox
+    
+    -- 4. Lock Button (Toggle)
+    local lBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    lBtn:SetWidth(75); lBtn:SetHeight(24); lBtn:SetPoint("LEFT", prioBox, "RIGHT", 10, 0); lBtn:SetText("Lock Mark")
+    lBtn:SetScript("OnClick", function() TankMark:ToggleLockState() end)
+    lBtn:Disable() 
+    TankMark.lockBtn = lBtn
+    
+    -- 5. Save Button [NEW: Disabled Default]
+    local saveBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    saveBtn:SetWidth(50); saveBtn:SetHeight(24); saveBtn:SetPoint("LEFT", lBtn, "RIGHT", 5, 0); saveBtn:SetText("Save")
+    saveBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
+    saveBtn:Disable()
+    TankMark.saveBtn = saveBtn
+    
+    -- 6. Cancel Button
+    local cancelBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
+    cancelBtn:SetWidth(20); cancelBtn:SetHeight(24); cancelBtn:SetPoint("LEFT", saveBtn, "RIGHT", 2, 0); cancelBtn:SetText("X")
+    cancelBtn:SetScript("OnClick", function() TankMark:ResetEditor() end)
+    cancelBtn:Hide() 
+    TankMark.cancelBtn = cancelBtn
+
     TankMark.optionsFrame = f
     
-    -- === TAB 2 INIT ===
+    -- === TAB 2 (Profile) ===
     local t2 = CreateFrame("Frame", nil, f)
-    t2:SetPoint("TOPLEFT", 15, -40); t2:SetPoint("BOTTOMRIGHT", -15, 50)
-    t2:Hide()
-    TankMark.tab2 = t2
-    
-    local pZone = TankMark:CreateEditBox(t2, "Profile Zone", 200) 
-    pZone:SetPoint("TOPLEFT", t2, "TOPLEFT", 50, -30) 
-    pZone:SetScript("OnEnterPressed", function() this:ClearFocus(); TankMark:RefreshProfileUI() end)
-    TankMark.profileZone = pZone
-    
-    local pSave = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
-    pSave:SetWidth(100); pSave:SetHeight(30)
-    pSave:SetPoint("LEFT", pZone, "RIGHT", 10, 0)
-    pSave:SetText("Save Profile")
+    t2:SetPoint("TOPLEFT", 15, -40); t2:SetPoint("BOTTOMRIGHT", -15, 50); t2:Hide(); TankMark.tab2 = t2
+    local pZone = TankMark:CreateEditBox(t2, "Profile Zone", 200); pZone:SetPoint("TOPLEFT", 50, -30)
+    pZone:SetScript("OnEnterPressed", function() this:ClearFocus(); TankMark:RefreshProfileUI() end); TankMark.profileZone = pZone
+    local pSave = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate"); pSave:SetWidth(100); pSave:SetHeight(30); pSave:SetPoint("LEFT", pZone, "RIGHT", 10, 0); pSave:SetText("Save Profile")
     pSave:SetScript("OnClick", function() TankMark:SaveAllProfiles() end)
-    
-    local wipeProfBtn = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
-    wipeProfBtn:SetWidth(120); wipeProfBtn:SetHeight(22)
-    wipeProfBtn:SetPoint("BOTTOM", t2, "BOTTOM", 0, 10)
-    wipeProfBtn:SetText("|cffff0000Wipe Profile|r")
-    wipeProfBtn:SetScript("OnClick", function() TankMark:RequestWipeProfile() end)
+    local wipeProf = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate"); wipeProf:SetWidth(120); wipeProf:SetHeight(22); wipeProf:SetPoint("BOTTOM", 0, 10); wipeProf:SetText("|cffff0000Wipe Profile|r")
+    wipeProf:SetScript("OnClick", function() TankMark:RequestWipeProfile() end)
     
     local pY = -80; local pX = 20
     for i = 8, 1, -1 do
-        local row = CreateFrame("Frame", nil, t2)
-        row:SetWidth(200); row:SetHeight(30)
-        row:SetPoint("TOPLEFT", t2, "TOPLEFT", pX, pY)
-        
-        local ico = row:CreateTexture(nil, "ARTWORK")
-        ico:SetWidth(20); ico:SetHeight(20)
-        ico:SetPoint("LEFT", 0, 0)
-        ico:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        SetRaidTargetIconTexture(ico, i)
-        
-        local eb = TankMark:CreateEditBox(row, "", 90) 
-        eb:SetPoint("LEFT", ico, "RIGHT", 5, 0)
-        row.edit = eb
-        
-        local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        btn:SetWidth(50); btn:SetHeight(20)
-        btn:SetPoint("LEFT", eb, "RIGHT", 2, 0)
-        btn:SetText("Target")
-        btn:SetFont("Fonts\\FRIZQT__.TTF", 9)
-        btn:SetScript("OnClick", function()
-            if UnitExists("target") and UnitIsPlayer("target") then
-                eb:SetText(UnitName("target"))
-            end
-        end)
-        
+        local row = CreateFrame("Frame", nil, t2); row:SetWidth(200); row:SetHeight(30); row:SetPoint("TOPLEFT", pX, pY)
+        local ico = row:CreateTexture(nil, "ARTWORK"); ico:SetWidth(20); ico:SetHeight(20); ico:SetPoint("LEFT", 0, 0)
+        ico:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons"); SetRaidTargetIconTexture(ico, i)
+        local eb = TankMark:CreateEditBox(row, "", 90); eb:SetPoint("LEFT", ico, "RIGHT", 5, 0); row.edit = eb
+        local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate"); btn:SetWidth(50); btn:SetHeight(20); btn:SetPoint("LEFT", eb, "RIGHT", 2, 0); btn:SetText("Target"); btn:SetFont("Fonts\\FRIZQT__.TTF", 9)
+        btn:SetScript("OnClick", function() if UnitExists("target") and UnitIsPlayer("target") then eb:SetText(UnitName("target")) end end)
         TankMark.profileRows[i] = row
-        pY = pY - 40
-        if i == 5 then pY = -80; pX = 225 end 
+        pY = pY - 40; if i == 5 then pY = -80; pX = 225 end 
     end
 
-    -- === TABS ===
-    local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    tab1:SetWidth(120); tab1:SetHeight(30)
-    tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5) 
-    tab1:SetText("Mob Database")
+    -- Tabs & Master
+    TankMark.tab1 = t1
+    local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); tab1:SetWidth(120); tab1:SetHeight(30); tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5); tab1:SetText("Mob Database")
     tab1:SetScript("OnClick", function() TankMark.currentTab = 1; TankMark:UpdateTabs() end)
-    
-    local tab2 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    tab2:SetWidth(120); tab2:SetHeight(30)
-    tab2:SetPoint("LEFT", tab1, "RIGHT", 5, 0)
-    tab2:SetText("Team Profiles")
+    local tab2 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); tab2:SetWidth(120); tab2:SetHeight(30); tab2:SetPoint("LEFT", tab1, "RIGHT", 5, 0); tab2:SetText("Team Profiles")
     tab2:SetScript("OnClick", function() TankMark.currentTab = 2; TankMark:UpdateTabs() end)
     
-    TankMark.tab1 = t1 
+    local mc = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate"); mc:SetWidth(24); mc:SetHeight(24); mc:SetPoint("TOPLEFT", 15, -10)
+    _G[mc:GetName().."Text"]:SetText("Enable TankMark"); mc:SetChecked(TankMark.IsActive and 1 or nil)
+    mc:SetScript("OnClick", function() TankMark.IsActive = this:GetChecked() and true or false; TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r")) end)
     
-    -- Master Toggle
-    local masterCheck = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate")
-    masterCheck:SetWidth(24); masterCheck:SetHeight(24)
-    masterCheck:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -10)
-    _G[masterCheck:GetName().."Text"]:SetText("Enable TankMark")
-    masterCheck:SetChecked(TankMark.IsActive and 1 or nil)
-    masterCheck:SetScript("OnClick", function()
-        TankMark.IsActive = this:GetChecked() and true or false
-        TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-    end)
-    
-    TankMark:Print("TankMark v0.12-dev Options Loaded.")
+    TankMark:Print("TankMark v0.13-dev Options Loaded.")
 end
 
 function TankMark:ShowOptions()
     if not TankMark.optionsFrame then TankMark:CreateOptionsFrame() end
     TankMark.optionsFrame:Show()
     TankMark:ValidateDB()
-    
-    -- Safety: Clear focus from any hidden elements
     if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
     if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
-    
-    -- Ensure checkbox matches state on show
-    if TankMark.zoneModeCheck then 
-        TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
-    end
-    
+    if TankMark.zoneModeCheck then TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode) end
     local cz = GetRealZoneText()
     if cz and cz ~= "" then
-        if TankMark.editZone then TankMark.editZone:SetText(cz) end
         if TankMark.profileZone then TankMark.profileZone:SetText(cz) end
     end
-    
     TankMark:UpdateTabs()
 end

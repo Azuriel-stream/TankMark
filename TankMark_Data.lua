@@ -1,4 +1,4 @@
--- TankMark: v0.12 (Core Data & Events)
+-- TankMark: v0.13 (Core Data & Events)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -25,7 +25,7 @@ function TankMark:InitializeDB()
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
     if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    TankMark:Print("Database initialized (v0.12).")
+    TankMark:Print("Database initialized (v0.13).")
 end
 
 function TankMark:Print(msg)
