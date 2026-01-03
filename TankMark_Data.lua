@@ -1,4 +1,4 @@
--- TankMark: v0.13 (Core Data & Events)
+-- TankMark: v0.14 (Core Data & Events)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -25,7 +25,21 @@ function TankMark:InitializeDB()
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
     if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    TankMark:Print("Database initialized (v0.13).")
+    TankMark:Print("Database initialized (v0.14).")
+end
+
+-- [v0.14] Helper to safely get profile data (Migration Layer)
+function TankMark:GetProfileData(zone, iconID)
+    if not TankMarkDB.Profiles[zone] then return nil end
+    local data = TankMarkDB.Profiles[zone][iconID]
+    
+    -- Legacy Format: String -> Convert to Table
+    if type(data) == "string" then
+        return { tank = data, healers = "" }
+    elseif type(data) == "table" then
+        return data
+    end
+    return nil
 end
 
 function TankMark:Print(msg)
@@ -65,7 +79,9 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
 
     for _, playerName in ipairs(candidates) do
         local isAssigned = false
-        for _, assignedName in pairs(TankMark.sessionAssignments) do
+        for _, data in pairs(TankMark.sessionAssignments) do
+            -- v0.14: Check if assigned as tank (string or table)
+            local assignedName = (type(data) == "table") and data.tank or data
             if assignedName == playerName then 
                 isAssigned = true 
                 break 
