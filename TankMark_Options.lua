@@ -184,7 +184,7 @@ function TankMark:ToggleLockState()
             TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
             TankMark.lockBtn:LockHighlight() -- Visually depressed
         else
-            TankMark.lockBtn:SetText("Lock GUID")
+            TankMark.lockBtn:SetText("Lock Mark")
             TankMark.lockBtn:UnlockHighlight()
         end
     end
@@ -212,13 +212,16 @@ function TankMark:ResetEditor()
     
     -- Reset Lock Button
     if TankMark.lockBtn then
-        TankMark.lockBtn:SetText("Lock GUID")
+        TankMark.lockBtn:SetText("Lock Mark")
         TankMark.lockBtn:UnlockHighlight()
-        TankMark.lockBtn:Disable() -- Default disabled until target
+        TankMark.lockBtn:Disable() 
     end
     
-    -- Reset Save Button
-    if TankMark.saveBtn then TankMark.saveBtn:SetText("Save") end
+    -- Reset Save Button [NEW: Disable on Reset]
+    if TankMark.saveBtn then 
+        TankMark.saveBtn:SetText("Save") 
+        TankMark.saveBtn:Disable() 
+    end
     if TankMark.cancelBtn then TankMark.cancelBtn:Hide() end
 end
 
@@ -247,7 +250,7 @@ function TankMark:ToggleZoneBrowser()
     TankMark.isZoneListMode = not TankMark.isZoneListMode
     TankMark.lockViewZone = nil 
     
-    -- [FIX] Full Reset of Editor when switching views
+    -- Full Reset of Editor when switching views
     TankMark:ResetEditor()
     
     if TankMark.searchBox then TankMark.searchBox:SetText("") end
@@ -366,7 +369,10 @@ function TankMark:UpdateMobList()
                         -- Update Visuals
                         TankMark:UpdateClassButton()
                         if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        
+                        -- [NEW] Wake Up Save Button
                         TankMark.saveBtn:SetText("Update")
+                        TankMark.saveBtn:Enable()
                         TankMark.cancelBtn:Show()
                         
                         -- Disable Smart Features in Edit Mode
@@ -400,9 +406,12 @@ function TankMark:UpdateMobList()
                         
                         TankMark:UpdateClassButton()
                         if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        
+                        -- [NEW] Wake Up Save Button
                         TankMark.saveBtn:SetText("Update")
+                        TankMark.saveBtn:Enable()
                         TankMark.cancelBtn:Show()
-                        TankMark.lockBtn:Disable() -- Can't lock an abstract DB entry
+                        TankMark.lockBtn:Disable() 
                     end)
                 end
                 row:Show()
@@ -530,12 +539,13 @@ function TankMark:InitClassMenu()
         info = {}; info.text = "--- Recommended ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
         
         for _, class in _ipairs(CC_MAP[TankMark.detectedCreatureType]) do
+            local capturedClass = class -- [FIX] Capture variable for closure
             info = {}
-            info.text = "|cff00ff00" .. class .. "|r"
+            info.text = "|cff00ff00" .. capturedClass .. "|r"
             info.func = function()
-                TankMark.selectedClass = class
+                TankMark.selectedClass = capturedClass
                 TankMark:UpdateClassButton()
-                TankMark:ApplySmartDefaults(class)
+                TankMark:ApplySmartDefaults(capturedClass)
             end
             UIDropDownMenu_AddButton(info)
         end
@@ -544,13 +554,42 @@ function TankMark:InitClassMenu()
     -- 3. All Classes
     info = {}; info.text = "--- All Classes ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
     for _, class in _ipairs(ALL_CLASSES) do
+        local capturedClass = class -- [FIX] Capture variable for closure
         info = {}
-        info.text = class
+        info.text = capturedClass
         info.func = function()
-            TankMark.selectedClass = class
+            TankMark.selectedClass = capturedClass
             TankMark:UpdateClassButton()
-            TankMark:ApplySmartDefaults(class)
+            TankMark:ApplySmartDefaults(capturedClass)
         end
+        UIDropDownMenu_AddButton(info)
+    end
+end
+
+function TankMark:InitIconMenu()
+    local iconNames = {
+        [8] = "|cffffffffSkull|r",
+        [7] = "|cffff0000Cross|r",
+        [6] = "|cff00ccffSquare|r",
+        [5] = "|cffaabbccMoon|r",
+        [4] = "|cff00ff00Triangle|r",
+        [3] = "|cffff00ffDiamond|r",
+        [2] = "|cffffaa00Circle|r",
+        [1] = "|cffffff00Star|r"
+    }
+    -- Order: Skull down to Star
+    for i = 8, 1, -1 do
+        local capturedIcon = i -- [Fix] Capture variable for closure
+        local info = {}
+        info.text = iconNames[i]
+        info.func = function()
+            TankMark.selectedIcon = capturedIcon
+            if TankMark.iconBtn and TankMark.iconBtn.tex then
+                SetRaidTargetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+            end
+            CloseDropDownMenus()
+        end
+        info.checked = (TankMark.selectedIcon == i)
         UIDropDownMenu_AddButton(info)
     end
 end
@@ -652,6 +691,16 @@ function TankMark:CreateOptionsFrame()
     local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 200)
     nameBox:SetPoint("TOPLEFT", 0, -30); TankMark.editMob = nameBox
     
+    -- [NEW] Disable Save if name empty
+    nameBox:SetScript("OnTextChanged", function()
+        local text = this:GetText()
+        if text and text ~= "" then
+            if TankMark.saveBtn then TankMark.saveBtn:Enable() end
+        else
+            if TankMark.saveBtn then TankMark.saveBtn:Disable() end
+        end
+    end)
+    
     local targetBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
     targetBtn:SetWidth(60); targetBtn:SetHeight(20); targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0); targetBtn:SetText("Target")
     targetBtn:SetScript("OnClick", function()
@@ -660,9 +709,9 @@ function TankMark:CreateOptionsFrame()
             -- SMART DETECTION
             TankMark.detectedCreatureType = UnitCreatureType("target")
             TankMark:Print("Target Type: " .. (TankMark.detectedCreatureType or "Unknown"))
-            
-            -- Enable Lock Button since we have a target
+            -- [NEW] Wake up buttons
             if TankMark.lockBtn then TankMark.lockBtn:Enable() end
+            if TankMark.saveBtn then TankMark.saveBtn:Enable() end
         end
     end)
     
@@ -680,9 +729,10 @@ function TankMark:CreateOptionsFrame()
     iconSel:SetWidth(24); iconSel:SetHeight(24); iconSel:SetPoint("LEFT", cBtn, "RIGHT", 10, 0)
     local iconTex = iconSel:CreateTexture(nil, "ARTWORK"); iconTex:SetAllPoints(); iconSel.tex = iconTex
     iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons"); SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
+    local iconDrop = CreateFrame("Frame", "TMIconDropDown", iconSel, "UIDropDownMenuTemplate")
+    UIDropDownMenu_Initialize(iconDrop, function() TankMark:InitIconMenu() end, "MENU")
     iconSel:SetScript("OnClick", function()
-        TankMark.selectedIcon = TankMark.selectedIcon - 1; if TankMark.selectedIcon < 1 then TankMark.selectedIcon = 8 end
-        SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
+        ToggleDropDownMenu(1, nil, iconDrop, "cursor", 0, 0)
     end)
     TankMark.iconBtn = iconSel
     
@@ -693,22 +743,23 @@ function TankMark:CreateOptionsFrame()
     
     -- 4. Lock Button (Toggle)
     local lBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
-    lBtn:SetWidth(75); lBtn:SetHeight(24); lBtn:SetPoint("LEFT", prioBox, "RIGHT", 10, 0); lBtn:SetText("Lock GUID")
+    lBtn:SetWidth(75); lBtn:SetHeight(24); lBtn:SetPoint("LEFT", prioBox, "RIGHT", 10, 0); lBtn:SetText("Lock Mark")
     lBtn:SetScript("OnClick", function() TankMark:ToggleLockState() end)
-    lBtn:Disable() -- Disabled by default until Target
+    lBtn:Disable() 
     TankMark.lockBtn = lBtn
     
-    -- 5. Save Button
+    -- 5. Save Button [NEW: Disabled Default]
     local saveBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
     saveBtn:SetWidth(50); saveBtn:SetHeight(24); saveBtn:SetPoint("LEFT", lBtn, "RIGHT", 5, 0); saveBtn:SetText("Save")
     saveBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
+    saveBtn:Disable()
     TankMark.saveBtn = saveBtn
     
     -- 6. Cancel Button
     local cancelBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
     cancelBtn:SetWidth(20); cancelBtn:SetHeight(24); cancelBtn:SetPoint("LEFT", saveBtn, "RIGHT", 2, 0); cancelBtn:SetText("X")
     cancelBtn:SetScript("OnClick", function() TankMark:ResetEditor() end)
-    cancelBtn:Hide() -- Hidden by default
+    cancelBtn:Hide() 
     TankMark.cancelBtn = cancelBtn
 
     TankMark.optionsFrame = f
