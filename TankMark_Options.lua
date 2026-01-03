@@ -1,4 +1,4 @@
--- TankMark: v0.14-dev (TWA Integration & Healers)
+-- TankMark: v0.14 (TWA Integration & Healers)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -610,19 +610,44 @@ function TankMark:RefreshProfileUI()
     end
 end
 
-function TankMark:RequestWipeProfile()
+-- [v0.14] Formerly "Wipe" - Clears current UI fields for the selected zone
+function TankMark:RequestResetProfile()
     TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
     
     if zone and TankMarkDB.Profiles[zone] then
         TankMark.pendingWipeAction = function()
             TankMarkDB.Profiles[zone] = {}
-            TankMark:Print("Wiped team profile for zone: " .. zone)
+            TankMark:Print("Reset team profile values for: " .. zone)
             TankMark:RefreshProfileUI()
         end
-        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to WIPE the profile for: |cffff0000" .. zone .. "|r?")
+        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to RESET ALL VALUES for: |cffff0000" .. zone .. "|r?")
     else
-        TankMark:Print("No profile data to wipe.")
+        TankMark:Print("No profile data to reset.")
+    end
+end
+
+-- [v0.14] NEW - Completely removes the zone from the DB
+function TankMark:RequestDeleteProfile()
+    TankMark:ValidateDB()
+    local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+    
+    if zone and TankMarkDB.Profiles[zone] then
+        TankMark.pendingWipeAction = function()
+            TankMarkDB.Profiles[zone] = nil
+            TankMark:Print("Deleted profile for: |cffff0000" .. zone .. "|r")
+            
+            -- 1. Visually reset text to current zone
+            UIDropDownMenu_SetText(GetRealZoneText(), TankMark.profileZoneDropdown)
+            
+            -- 2. [FIX] Force internal selection to Index 1 (Current Zone is always #1 in our list)
+            UIDropDownMenu_SetSelectedID(TankMark.profileZoneDropdown, 1)
+            
+            TankMark:RefreshProfileUI()
+        end
+        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "DELETE ENTIRE PROFILE for:\n|cffff0000" .. zone .. "|r?\n(This removes it from the list)")
+    else
+        TankMark:Print("No profile data to delete.")
     end
 end
 
@@ -813,6 +838,7 @@ function TankMark:CreateOptionsFrame()
     local nameBox = TankMark:CreateEditBox(addGroup, "Mob Name", 200)
     nameBox:SetPoint("TOPLEFT", 0, -30); TankMark.editMob = nameBox
     
+    -- [NEW] Disable Save if name empty
     nameBox:SetScript("OnTextChanged", function()
         local text = this:GetText()
         if text and text ~= "" then
@@ -829,9 +855,10 @@ function TankMark:CreateOptionsFrame()
     targetBtn:SetScript("OnClick", function()
         if UnitExists("target") then 
             nameBox:SetText(UnitName("target"))
+            -- SMART DETECTION
             TankMark.detectedCreatureType = UnitCreatureType("target")
             
-            -- Capture Current Icon
+            -- [NEW] Capture Current Icon
             local currentIcon = GetRaidTargetIndex("target")
             if currentIcon then
                  TankMark.selectedIcon = currentIcon
@@ -840,6 +867,7 @@ function TankMark:CreateOptionsFrame()
                  end
             end
             
+            -- [NEW] Wake up buttons
             if TankMark.lockBtn then TankMark.lockBtn:Enable() end
             if TankMark.saveBtn then TankMark.saveBtn:Enable() end
         end
@@ -862,6 +890,7 @@ function TankMark:CreateOptionsFrame()
     iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
     SetIconTexture(iconTex, TankMark.selectedIcon)
     
+    -- Hidden Dropdown Frame
     local iconDrop = CreateFrame("Frame", "TMIconDropDown", iconSel, "UIDropDownMenuTemplate")
     UIDropDownMenu_Initialize(iconDrop, function() TankMark:InitIconMenu() end, "MENU")
     
@@ -882,7 +911,7 @@ function TankMark:CreateOptionsFrame()
     lBtn:Disable() 
     TankMark.lockBtn = lBtn
     
-    -- 5. Save Button
+    -- 5. Save Button [NEW: Disabled Default]
     local saveBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
     saveBtn:SetWidth(50); saveBtn:SetHeight(24); saveBtn:SetPoint("LEFT", lBtn, "RIGHT", 5, 0); saveBtn:SetText("Save")
     saveBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
@@ -921,12 +950,6 @@ function TankMark:CreateOptionsFrame()
     end)
     UIDropDownMenu_SetText(GetRealZoneText(), pDrop); TankMark.profileZoneDropdown = pDrop
 
-    local pSave = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate"); pSave:SetWidth(100); pSave:SetHeight(24); pSave:SetPoint("LEFT", pDrop, "RIGHT", 10, 2); pSave:SetText("Save Profile")
-    pSave:SetScript("OnClick", function() TankMark:SaveAllProfiles() end)
-    
-    local wipeProf = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate"); wipeProf:SetWidth(100); wipeProf:SetHeight(22); wipeProf:SetPoint("BOTTOM", 0, 10); wipeProf:SetText("|cffff0000Wipe Profile|r")
-    wipeProf:SetScript("OnClick", function() TankMark:RequestWipeProfile() end)
-    
     -- Headers
     local h1 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall"); h1:SetText("Tank"); h1:SetPoint("TOPLEFT", 50, -45)
     local h2 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall"); h2:SetText("Assigned Healers (Text)"); h2:SetPoint("TOPLEFT", 220, -45)
@@ -954,6 +977,29 @@ function TankMark:CreateOptionsFrame()
         pY = pY - 35
     end
 
+    -- BUTTON ROW (Bottom)
+    
+    -- 1. DELETE PROFILE (Left, Red)
+    local delProf = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
+    delProf:SetWidth(100); delProf:SetHeight(24)
+    delProf:SetPoint("BOTTOMLEFT", 20, 15) -- Pinned bottom-left
+    delProf:SetText("|cffff0000Delete Profile|r")
+    delProf:SetScript("OnClick", function() TankMark:RequestDeleteProfile() end)
+
+    -- 2. RESET PROFILE (Center, was Wipe)
+    local resetProf = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
+    resetProf:SetWidth(100); resetProf:SetHeight(24)
+    resetProf:SetPoint("BOTTOM", 0, 15) -- Pinned bottom-center
+    resetProf:SetText("Reset Profile")
+    resetProf:SetScript("OnClick", function() TankMark:RequestResetProfile() end)
+
+    -- 3. SAVE PROFILE (Right, Green-ish standard)
+    local pSave = CreateFrame("Button", nil, t2, "UIPanelButtonTemplate")
+    pSave:SetWidth(100); pSave:SetHeight(24)
+    pSave:SetPoint("BOTTOMRIGHT", -20, 15) -- Pinned bottom-right
+    pSave:SetText("Save Profile")
+    pSave:SetScript("OnClick", function() TankMark:SaveAllProfiles() end)
+
     -- Tabs & Master
     TankMark.tab1 = t1
     local tab1 = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); tab1:SetWidth(120); tab1:SetHeight(30); tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5); tab1:SetText("Mob Database")
@@ -965,7 +1011,7 @@ function TankMark:CreateOptionsFrame()
     _G[mc:GetName().."Text"]:SetText("Enable TankMark"); mc:SetChecked(TankMark.IsActive and 1 or nil)
     mc:SetScript("OnClick", function() TankMark.IsActive = this:GetChecked() and true or false; TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r")) end)
     
-    TankMark:Print("TankMark v0.14 Options Loaded.")
+    TankMark:Print("TankMark v0.14 Configuration Loaded.")
 end
 
 function TankMark:ShowOptions()

@@ -1,4 +1,4 @@
--- TankMark: v0.14-dev (Quick Wins: Perms, Target Icon, Normal Filter)
+-- TankMark: v0.14 (Hybrid Driver, TWA Sync & Normal Filter)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -850,7 +850,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitCombatLogParser()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell() 
-        TankMark:Print("TankMark v0.13 (Hybrid Driver + Ignore) Loaded.")
+        TankMark:Print("TankMark v0.14 (TWA Integration Active) Loaded.")
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         TankMark:HandleMouseover()
     elseif (event == "UNIT_HEALTH") then

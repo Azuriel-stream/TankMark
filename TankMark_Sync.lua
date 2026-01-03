@@ -5,7 +5,20 @@ if not TankMark then return end
 
 local SYNC_PREFIX = "TM_SYNC"
 local TWA_BW_PREFIX = "TWABW"
-local TWA_PREFIX = "TWA"
+
+-- ==========================================================
+-- LOCALIZATIONS (Performance & Constraints)
+-- ==========================================================
+local _strfind = string.find
+local _gsub = string.gsub
+local _sub = string.sub
+local _match = string.match
+local _gfind = string.gfind
+local _format = string.format
+local _tonumber = tonumber
+local _insert = table.insert
+local _remove = table.remove
+local _getn = table.getn
 
 -- ==========================================================
 -- HELPER: Permissions
@@ -39,44 +52,48 @@ TankMark.TWA_MarkMap = {
 
 function TankMark:HandleTWABW(msg, sender)
     -- Format: "BWSynch=Mark : Tank1 Tank2... || Healers: H1 H2..."
-    -- Check for prefix
-    local _, _, content = string.find(msg, "^BWSynch=(.*)")
+    
+    -- 1. Strip Prefix
+    local _, _, content = _strfind(msg, "^BWSynch=(.*)")
     if not content or content == "start" or content == "end" then return end
     
-    -- Parse Mark
-    local _, _, markName, rest = string.find(content, "^(.-) : (.*)")
+    -- 2. Parse Mark (Separator is " : ")
+    local _, _, markName, rest = _strfind(content, "^(.-) : (.*)")
     if not markName or not TankMark.TWA_MarkMap[markName] then return end
     
     local iconID = TankMark.TWA_MarkMap[markName]
     
-    -- Parse Tanks vs Healers
-    -- Split by " || Healers: "
-    local _, _, tankPart, healPart = string.find(rest, "(.*) || Healers: (.*)")
-    if not tankPart then 
-        tankPart = rest -- No healers?
-        healPart = "" 
+    -- 3. Parse Tanks vs Healers (Capture Method)
+    -- Pattern: Capture everything until double pipes, then capture everything after label
+    local _, _, tankPart, healPart = _strfind(rest, "^(.-)%s*[|][|]%s*Healers:%s*(.*)$")
+    
+    -- Fallback: If pattern didn't match, assume no healers
+    if not tankPart then
+        tankPart = rest
+        healPart = ""
     end
     
-    -- Clean Tanks
-    local tankStr = string.gsub(tankPart, "-", "") -- Remove placeholders
-    tankStr = string.gsub(tankStr, "%s+", " ") -- Normalize spaces
-    tankStr = string.gsub(tankStr, "^%s*(.-)%s*$", "%1") -- Trim
+    -- 4. Clean Tanks
+    local tankStr = _gsub(tankPart, "-", "") -- Remove TWA placeholders
+    tankStr = _gsub(tankStr, "[|]", "")      -- Remove any lingering pipes
+    tankStr = _gsub(tankStr, "%s+", " ")     -- Normalize spaces
+    tankStr = _gsub(tankStr, "^%s*(.-)%s*$", "%1") -- Trim
     
-    -- Clean Healers
+    -- 5. Clean Healers
     local healStr = ""
     if healPart then
-        healStr = string.gsub(healPart, "-", "")
-        healStr = string.gsub(healStr, "%s+", " ")
-        healStr = string.gsub(healStr, "^%s*(.-)%s*$", "%1")
+        healStr = _gsub(healPart, "-", "")
+        healStr = _gsub(healStr, "%s+", " ")
+        healStr = _gsub(healStr, "^%s*(.-)%s*$", "%1")
     end
     
-    -- Pick first valid tank for TankMark (we only support 1 main assignee per icon for logic)
+    -- Pick first valid tank name for TankMark automation
     local primaryTank = nil
-    for word in string.gfind(tankStr, "%S+") do
+    for word in _gfind(tankStr, "%S+") do
         if word ~= "" then primaryTank = word; break end
     end
     
-    -- Store
+    -- Store Data
     local zone = GetRealZoneText()
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
     
@@ -85,26 +102,22 @@ function TankMark:HandleTWABW(msg, sender)
         ["healers"] = (healStr ~= "") and healStr or nil
     }
     
-    -- Live Update
+    -- Live Update (only if in the correct zone)
     if zone == GetRealZoneText() and primaryTank then
         TankMark.sessionAssignments[iconID] = primaryTank
         TankMark.usedIcons[iconID] = true
         if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+    elseif zone == GetRealZoneText() and not primaryTank then
+        -- Clear live assignment if TWA sent empty
+        TankMark.sessionAssignments[iconID] = nil
+        TankMark.usedIcons[iconID] = nil
+        if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
     
+    -- Refresh UI
     if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
         TankMark:RefreshProfileUI()
     end
-end
-
--- ==========================================================
--- TWA NATIVE INTEGRATION (Fallback)
--- ==========================================================
-function TankMark:HandleTWA(msg, sender)
-    -- TWA Native packets are complex. We only sniff 'Force Sync' payloads if we can identify them.
-    -- This is highly experimental without specific opcodes.
-    -- For now, relying on TWABW is safer as it's plain text.
-    -- Placeholder for future expansion.
 end
 
 -- ==========================================================
@@ -123,17 +136,17 @@ function TankMark:HandleSync(prefix, msg, sender)
     if prefix ~= SYNC_PREFIX then return end
     if not TankMark:IsTrustedSender(sender) then return end
     
-    local dataType = string.sub(msg, 1, 1) -- 'M' or 'L'
-    local content = string.sub(msg, 3)     -- Strip prefix + separator
+    local dataType = _sub(msg, 1, 1) -- 'M' or 'L'
+    local content = _sub(msg, 3)     -- Strip prefix + separator
     
     if dataType == "M" then
         -- (Existing Mob Sync Code...)
-        local _, _, zone, mob, prio, mark, mType, mClass = string.find(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
+        local _, _, zone, mob, prio, mark, mType, mClass = _strfind(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
         if zone and mob then
             if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
             TankMarkDB.Zones[zone][mob] = { 
-                ["prio"] = tonumber(prio), 
-                ["mark"] = tonumber(mark), 
+                ["prio"] = _tonumber(prio), 
+                ["mark"] = _tonumber(mark), 
                 ["type"] = mType, 
                 ["class"] = (mClass ~= "NIL") and mClass or nil 
             }
@@ -141,11 +154,11 @@ function TankMark:HandleSync(prefix, msg, sender)
         
     elseif dataType == "L" then
         -- (Existing Lock Sync Code...)
-        local _, _, zone, guid, mark, name = string.find(content, "^(.-);(.-);(%d+);(.-)$")
+        local _, _, zone, guid, mark, name = _strfind(content, "^(.-);(.-);(%d+);(.-)$")
         if zone and guid then
             if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
             TankMarkDB.StaticGUIDs[zone][guid] = { 
-                ["mark"] = tonumber(mark), 
+                ["mark"] = _tonumber(mark), 
                 ["name"] = name 
             }
         end
@@ -153,7 +166,7 @@ function TankMark:HandleSync(prefix, msg, sender)
 end
 
 -- ==========================================================
--- BROADCAST (Sender) - Kept same as v0.13
+-- BROADCAST (Sender)
 -- ==========================================================
 TankMark.MsgQueue = {}
 TankMark.LastSendTime = 0
@@ -162,19 +175,19 @@ local throttleFrame = CreateFrame("Frame", "TankMarkThrottleFrame")
 throttleFrame:Hide()
 
 throttleFrame:SetScript("OnUpdate", function()
-    if table.getn(TankMark.MsgQueue) == 0 then
+    if _getn(TankMark.MsgQueue) == 0 then
         this:Hide(); return
     end
     local now = GetTime()
     if (now - TankMark.LastSendTime) >= THROTTLE_INTERVAL then
-        local msgData = table.remove(TankMark.MsgQueue, 1)
+        local msgData = _remove(TankMark.MsgQueue, 1)
         SendAddonMessage(msgData.prefix, msgData.text, msgData.channel)
         TankMark.LastSendTime = now
     end
 end)
 
 function TankMark:QueueMessage(prefix, text, channel)
-    table.insert(TankMark.MsgQueue, {prefix=prefix, text=text, channel=channel})
+    _insert(TankMark.MsgQueue, {prefix=prefix, text=text, channel=channel})
     throttleFrame:Show()
 end
 
