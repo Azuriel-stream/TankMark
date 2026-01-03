@@ -1,4 +1,4 @@
--- TankMark: v0.12-dev (Flight Recorder & Hybrid Driver)
+-- TankMark: v0.13-dev (Hybrid Driver & Ignore Logic)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -65,21 +65,11 @@ function TankMark:ScanForRangeSpell()
     end
 
     -- 2. Standard Client Path (Scan for Name -> Store Index)
-    -- Must use Names because SpellInfo(id) is not available on Standard.
     local longRangeSpells = {
-        ["Fireball"] = 35,
-        ["Frostbolt"] = 30,
-        ["Shadow Bolt"] = 30,
-        ["Wrath"] = 30,
-        ["Lightning Bolt"] = 30,
-        ["Starfire"] = 30,
-        ["Shoot"] = 30,
-        ["Shoot Bow"] = 30,
-        ["Shoot Gun"] = 30,
-        ["Shoot Crossbow"] = 30,
-        ["Hunter's Mark"] = 100, -- Detects if hunter
-        ["Mind Blast"] = 30,
-        ["Smite"] = 30
+        ["Fireball"] = 35, ["Frostbolt"] = 30, ["Shadow Bolt"] = 30,
+        ["Wrath"] = 30, ["Lightning Bolt"] = 30, ["Starfire"] = 30,
+        ["Shoot"] = 30, ["Shoot Bow"] = 30, ["Shoot Gun"] = 30, ["Shoot Crossbow"] = 30,
+        ["Hunter's Mark"] = 100, ["Mind Blast"] = 30, ["Smite"] = 30
     }
 
     local bestName = nil
@@ -115,13 +105,11 @@ end
 function TankMark:Driver_IsDistanceValid(unitOrGuid)
     -- 1. SuperWoW Logic (ID based)
     if TankMark.IsSuperWoW and TankMark.RangeSpellID and _IsSpellInRange then
-        -- SuperWoW allows passing ID directly
         local inRange = _IsSpellInRange(TankMark.RangeSpellID, unitOrGuid)
         if inRange == 1 then return true end
     
     -- 2. Standard Logic (Index based)
     elseif TankMark.RangeSpellIndex and _IsSpellInRange then
-        -- Standard 1.12 requires SpellBook Index
         local inRange = _IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid)
         if inRange == 1 then return true end
     end
@@ -140,7 +128,6 @@ end
 
 function TankMark:CanAutomate()
     if not TankMark.IsActive then return false end
-    
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
     
@@ -151,7 +138,6 @@ function TankMark:CanAutomate()
     elseif numParty > 0 then
         return IsPartyLeader()
     end
-    
     return false
 end
 
@@ -358,7 +344,7 @@ function TankMark:ProcessUnit(guid, mode)
     local cType = UnitCreatureType(guid)
     if cType == "Critter" or cType == "Non-combat Pet" then return end
 
-    -- [NEW] Recorder Hook
+    -- Recorder Hook
     if TankMark.IsRecorderActive then
         TankMark:RecordUnit(guid)
     end
@@ -383,7 +369,7 @@ function TankMark:ProcessUnit(guid, mode)
         if not TankMark:Driver_IsDistanceValid(guid) then return end
     end
 
-    -- 6. Logic: Static GUID Lock (Hybrid Reader: v0.11 & v0.12)
+    -- 6. Logic: Static GUID Lock
     if TankMarkDB.StaticGUIDs[zone] and TankMarkDB.StaticGUIDs[zone][guid] then
         local lockData = TankMarkDB.StaticGUIDs[zone][guid]
         local lockedIcon = nil
@@ -394,7 +380,7 @@ function TankMark:ProcessUnit(guid, mode)
             lockedIcon = lockData
         end
         
-        if lockedIcon then
+        if lockedIcon and lockedIcon > 0 then
             TankMark:Driver_ApplyMark(guid, lockedIcon)
             TankMark:RegisterMarkUsage(lockedIcon, _UnitName(guid), guid, (UnitPowerType(guid) == 0))
             return
@@ -452,6 +438,9 @@ function TankMark:RegisterMarkUsage(icon, name, guid, isCaster)
 end
 
 function TankMark:ProcessKnownMob(mobData, guid)
+    -- [NEW] IGNORE LOGIC: Mark 0 = Do Not Process
+    if mobData.mark == 0 then return end
+
     local iconToApply = nil
     
     if mobData.type == "KILL" then
@@ -598,7 +587,7 @@ function TankMark:HandleDeath(unitID)
 end
 
 -- ==========================================================
--- 6. SUPERWOW DRIVER INITIALIZATION
+-- SUPERWOW FEATURES
 -- ==========================================================
 
 function TankMark:InitDriver()
@@ -610,10 +599,6 @@ function TankMark:InitDriver()
         TankMark:Print("Standard Client: Hybrid features disabled. Falling back to v0.10 driver.")
     end
 end
-
--- ==========================================================
--- 7. SUPERWOW FEATURES
--- ==========================================================
 
 function TankMark:StartSuperScanner()
     local f = CreateFrame("Frame", "TMScannerFrame")
@@ -697,7 +682,7 @@ function TankMark:SmartDecideNextSkull()
 end
 
 -- ==========================================================
--- 8. COMMANDS & EVENTS
+-- COMMANDS & EVENTS
 -- ==========================================================
 
 function TankMark:GetAssigneeForMark(markID)
@@ -832,7 +817,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitCombatLogParser()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell() 
-        TankMark:Print("TankMark v0.12-dev (Hybrid Driver) Loaded.")
+        TankMark:Print("TankMark v0.13-dev (Hybrid Driver + Ignore) Loaded.")
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         TankMark:HandleMouseover()
     elseif (event == "UNIT_HEALTH") then
@@ -846,7 +831,6 @@ end)
 
 TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 
--- [FIX] CHANGED COMMAND FROM /tm TO /tmark
 SLASH_TANKMARK1 = "/tmark"
 SLASH_TANKMARK2 = "/tankmark"
 SlashCmdList["TANKMARK"] = function(msg) TankMark:SlashHandler(msg) end

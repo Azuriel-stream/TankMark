@@ -1,4 +1,4 @@
--- TankMark: v0.13-dev (Smart Assignment UI)
+-- TankMark: v0.13-dev (Smart Assignment UI & Ignore Logic)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -55,7 +55,8 @@ local CLASS_DEFAULTS = {
     ["ROGUE"]   = { icon = 1, prio = 3 }, -- Star (Sap)
     ["PRIEST"]  = { icon = 6, prio = 3 }, -- Square (Shackle)
     ["HUNTER"]  = { icon = 2, prio = 3 }, -- Circle (Trap)
-    ["KILL"]    = { icon = 8, prio = 1 }  -- Skull (No CC)
+    ["KILL"]    = { icon = 8, prio = 1 }, -- Skull (No CC)
+    ["IGNORE"]  = { icon = 0, prio = 9 }  -- [NEW] Ignore State
 }
 
 -- Maps Creature Type -> Valid CC Classes
@@ -85,6 +86,19 @@ local _getglobal = getglobal
 -- ==========================================================
 -- 1. HELPER FUNCTIONS
 -- ==========================================================
+
+-- [NEW] Helper to handle Icon 0 (Disabled) texture
+local function SetIconTexture(texture, iconID)
+    if not texture then return end
+    if iconID == 0 then
+        -- Show a red "X" (Pass) icon for ignored
+        texture:SetTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+        texture:SetTexCoord(0, 1, 0, 1)
+    else
+        texture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        SetRaidTargetIconTexture(texture, iconID)
+    end
+end
 
 function TankMark:CreateEditBox(parent, title, w)
     -- Manual construction for visual stability
@@ -154,6 +168,11 @@ function TankMark:UpdateClassButton()
         TankMark.classBtn:SetText("No CC (Kill)")
         TankMark.classBtn:SetTextColor(1, 0.82, 0) -- Gold for Standard
     end
+    -- [NEW] Special handling for Ignored
+    if TankMark.selectedIcon == 0 then
+        TankMark.classBtn:SetText("IGNORED")
+        TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5) -- Grey
+    end
 end
 
 function TankMark:ApplySmartDefaults(className)
@@ -162,7 +181,7 @@ function TankMark:ApplySmartDefaults(className)
     -- Update Icon
     TankMark.selectedIcon = defaults.icon
     if TankMark.iconBtn and TankMark.iconBtn.tex then
-        SetRaidTargetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+        SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
     end
     
     -- Update Prio
@@ -207,7 +226,7 @@ function TankMark:ResetEditor()
     -- Reset Icon to Skull
     TankMark.selectedIcon = 8
     if TankMark.iconBtn and TankMark.iconBtn.tex then
-        SetRaidTargetIconTexture(TankMark.iconBtn.tex, 8)
+        SetIconTexture(TankMark.iconBtn.tex, 8)
     end
     
     -- Reset Lock Button
@@ -217,7 +236,7 @@ function TankMark:ResetEditor()
         TankMark.lockBtn:Disable() 
     end
     
-    -- Reset Save Button [NEW: Disable on Reset]
+    -- Reset Save Button
     if TankMark.saveBtn then 
         TankMark.saveBtn:SetText("Save") 
         TankMark.saveBtn:Disable() 
@@ -353,8 +372,7 @@ function TankMark:UpdateMobList()
                         PlaySound("igMainMenuOptionCheckBoxOn")
                     end)
                 elseif data.type == "LOCK" then
-                    row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                    SetRaidTargetIconTexture(row.icon, data.mark); row.icon:Show()
+                    SetIconTexture(row.icon, data.mark); row.icon:Show()
                     row.text:SetText(data.name .. " |cff888888(" .. string.sub(data.guid, -6) .. ")|r")
                     row.del:Show(); row.del:SetText("X"); row.del:SetWidth(20)
                     row.del:SetScript("OnClick", function() TankMark:RequestDeleteLock(data.guid, data.name) end)
@@ -368,7 +386,7 @@ function TankMark:UpdateMobList()
                         
                         -- Update Visuals
                         TankMark:UpdateClassButton()
-                        if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        if TankMark.iconBtn then SetIconTexture(TankMark.iconBtn.tex, data.mark) end
                         
                         -- [NEW] Wake Up Save Button
                         TankMark.saveBtn:SetText("Update")
@@ -390,9 +408,9 @@ function TankMark:UpdateMobList()
                     row.edit:SetScript("OnClick", function() TankMark:ViewLocksForZone(data.label) end)
                 else
                     -- Standard Mob Entry
-                    row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-                    SetRaidTargetIconTexture(row.icon, data.mark); row.icon:Show()
+                    SetIconTexture(row.icon, data.mark); row.icon:Show()
                     local c = (data.type=="CC") and "|cff00ccff" or "|cffffffff"
+                    if data.mark == 0 then c = "|cff888888" end -- Grey for ignored
                     row.text:SetText("|cff888888["..data.prio.."]|r " .. c .. data.name .. "|r")
                     row.del:Show(); row.del:SetText("X"); row.del:SetWidth(20)
                     row.del:SetScript("OnClick", function() TankMark:RequestDeleteMob(zone, data.name) end)
@@ -405,7 +423,7 @@ function TankMark:UpdateMobList()
                         TankMark.selectedClass = data.class
                         
                         TankMark:UpdateClassButton()
-                        if TankMark.iconBtn then SetRaidTargetIconTexture(TankMark.iconBtn.tex, data.mark) end
+                        if TankMark.iconBtn then SetIconTexture(TankMark.iconBtn.tex, data.mark) end
                         
                         -- [NEW] Wake Up Save Button
                         TankMark.saveBtn:SetText("Update")
@@ -518,12 +536,111 @@ function TankMark:RequestDeleteZone(zoneName)
 end
 
 -- ==========================================================
--- 5. DROPDOWN INIT
+-- 5. PROFILE LOGIC (Restored)
 -- ==========================================================
+
+function TankMark:SaveAllProfiles()
+    TankMark:ValidateDB()
+    local zone = TankMark.profileZone:GetText()
+    if not zone or zone == "" then return end
+    
+    if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
+    
+    for i = 1, 8 do
+        if TankMark.profileRows[i] then
+            local text = TankMark.profileRows[i].edit:GetText()
+            TankMarkDB.Profiles[zone][i] = (text ~= "") and text or nil
+            
+            if zone == GetRealZoneText() then
+                TankMark.sessionAssignments[i] = (text ~= "") and text or nil
+                if TankMark.sessionAssignments[i] then
+                     TankMark.usedIcons[i] = true 
+                else
+                     TankMark.usedIcons[i] = nil
+                end
+            end
+        end
+    end
+    if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+    TankMark:Print("Profile saved and synced for: " .. zone)
+end
+
+function TankMark:RefreshProfileUI()
+    TankMark:ValidateDB()
+    local zone = TankMark.profileZone:GetText()
+    if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
+    local data = TankMarkDB.Profiles[zone]
+    for i = 1, 8 do
+        if TankMark.profileRows[i] then
+            TankMark.profileRows[i].edit:SetText(data[i] or "")
+        end
+    end
+end
+
+function TankMark:RequestWipeProfile()
+    TankMark:ValidateDB()
+    local zone = TankMark.profileZone:GetText()
+    if zone and zone ~= "" and TankMarkDB.Profiles[zone] then
+        TankMark.pendingWipeAction = function()
+            TankMarkDB.Profiles[zone] = {}
+            TankMark:Print("Wiped team profile for zone: " .. zone)
+            TankMark:RefreshProfileUI()
+        end
+        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to WIPE the profile for: |cffff0000" .. zone .. "|r?")
+    else
+        TankMark:Print("No profile data to wipe.")
+    end
+end
+
+-- ==========================================================
+-- 6. DROPDOWN INIT
+-- ==========================================================
+
+function TankMark:InitIconMenu()
+    local iconNames = {
+        [8] = "|cffffffffSkull|r",
+        [7] = "|cffff0000Cross|r",
+        [6] = "|cff00ccffSquare|r",
+        [5] = "|cffaabbccMoon|r",
+        [4] = "|cff00ff00Triangle|r",
+        [3] = "|cffff00ffDiamond|r",
+        [2] = "|cffffaa00Circle|r",
+        [1] = "|cffffff00Star|r",
+        [0] = "|cff888888Disabled (Ignore)|r"
+    }
+    -- Order: Skull down to 0
+    for i = 8, 0, -1 do
+        local capturedIcon = i 
+        local info = {}
+        info.text = iconNames[i]
+        info.func = function()
+            TankMark.selectedIcon = capturedIcon
+            if TankMark.iconBtn and TankMark.iconBtn.tex then
+                SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+                TankMark:UpdateClassButton() -- Update text color if ignored
+            end
+            CloseDropDownMenus()
+        end
+        info.checked = (TankMark.selectedIcon == i)
+        UIDropDownMenu_AddButton(info)
+    end
+end
 
 function TankMark:InitClassMenu()
     local info = {}
     
+    -- 0. Ignore Option [NEW]
+    info = {}
+    info.text = "|cff888888IGNORE (Do Not Mark)|r"
+    info.func = function() 
+        TankMark.selectedClass = nil
+        TankMark:UpdateClassButton()
+        TankMark.classBtn:SetText("IGNORED")
+        TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
+        TankMark:ApplySmartDefaults("IGNORE")
+    end
+    UIDropDownMenu_AddButton(info)
+
     -- 1. No CC Option
     info = {}
     info.text = "|cffffffffNo CC (Kill Target)|r"
@@ -539,7 +656,7 @@ function TankMark:InitClassMenu()
         info = {}; info.text = "--- Recommended ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
         
         for _, class in _ipairs(CC_MAP[TankMark.detectedCreatureType]) do
-            local capturedClass = class -- [FIX] Capture variable for closure
+            local capturedClass = class 
             info = {}
             info.text = "|cff00ff00" .. capturedClass .. "|r"
             info.func = function()
@@ -554,7 +671,7 @@ function TankMark:InitClassMenu()
     -- 3. All Classes
     info = {}; info.text = "--- All Classes ---"; info.isTitle = 1; UIDropDownMenu_AddButton(info)
     for _, class in _ipairs(ALL_CLASSES) do
-        local capturedClass = class -- [FIX] Capture variable for closure
+        local capturedClass = class 
         info = {}
         info.text = capturedClass
         info.func = function()
@@ -566,36 +683,8 @@ function TankMark:InitClassMenu()
     end
 end
 
-function TankMark:InitIconMenu()
-    local iconNames = {
-        [8] = "|cffffffffSkull|r",
-        [7] = "|cffff0000Cross|r",
-        [6] = "|cff00ccffSquare|r",
-        [5] = "|cffaabbccMoon|r",
-        [4] = "|cff00ff00Triangle|r",
-        [3] = "|cffff00ffDiamond|r",
-        [2] = "|cffffaa00Circle|r",
-        [1] = "|cffffff00Star|r"
-    }
-    -- Order: Skull down to Star
-    for i = 8, 1, -1 do
-        local capturedIcon = i -- [Fix] Capture variable for closure
-        local info = {}
-        info.text = iconNames[i]
-        info.func = function()
-            TankMark.selectedIcon = capturedIcon
-            if TankMark.iconBtn and TankMark.iconBtn.tex then
-                SetRaidTargetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
-            end
-            CloseDropDownMenus()
-        end
-        info.checked = (TankMark.selectedIcon == i)
-        UIDropDownMenu_AddButton(info)
-    end
-end
-
 -- ==========================================================
--- 6. UI CONSTRUCTION
+-- 7. UI CONSTRUCTION
 -- ==========================================================
 
 function TankMark:CreateOptionsFrame()
@@ -724,13 +813,18 @@ function TankMark:CreateOptionsFrame()
     cBtn:SetScript("OnClick", function() ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0) end)
     TankMark.classBtn = cBtn
     
-    -- 2. Icon Selector
+    -- 2. Icon Selector (Dropdown)
     local iconSel = CreateFrame("Button", nil, addGroup)
     iconSel:SetWidth(24); iconSel:SetHeight(24); iconSel:SetPoint("LEFT", cBtn, "RIGHT", 10, 0)
+    
     local iconTex = iconSel:CreateTexture(nil, "ARTWORK"); iconTex:SetAllPoints(); iconSel.tex = iconTex
-    iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons"); SetRaidTargetIconTexture(iconTex, TankMark.selectedIcon)
+    iconTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    SetIconTexture(iconTex, TankMark.selectedIcon)
+    
+    -- Hidden Dropdown Frame
     local iconDrop = CreateFrame("Frame", "TMIconDropDown", iconSel, "UIDropDownMenuTemplate")
     UIDropDownMenu_Initialize(iconDrop, function() TankMark:InitIconMenu() end, "MENU")
+    
     iconSel:SetScript("OnClick", function()
         ToggleDropDownMenu(1, nil, iconDrop, "cursor", 0, 0)
     end)
