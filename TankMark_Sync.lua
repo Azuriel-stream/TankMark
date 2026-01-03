@@ -1,4 +1,4 @@
--- TankMark: v0.12 (Full Data Sync)
+-- TankMark: v0.13-dev (Full Data Sync with Locks)
 -- File: TankMark_Sync.lua
 
 if not TankMark then return end
@@ -41,59 +41,61 @@ throttleFrame:SetScript("OnUpdate", function()
     if table.getn(TankMark.MsgQueue) == 0 then
         this:Hide(); return
     end
-
+    
     local now = GetTime()
     if (now - TankMark.LastSendTime) >= THROTTLE_INTERVAL then
         local msgData = table.remove(TankMark.MsgQueue, 1)
-        SendAddonMessage(msgData.prefix, msgData.payload, msgData.channel)
+        SendAddonMessage(msgData.prefix, msgData.text, msgData.channel)
         TankMark.LastSendTime = now
     end
 end)
 
-function TankMark:QueueMessage(prefix, payload, channel)
-    table.insert(TankMark.MsgQueue, {
-        ["prefix"] = prefix,
-        ["payload"] = payload,
-        ["channel"] = channel
-    })
-    if not throttleFrame:IsVisible() then throttleFrame:Show() end
+function TankMark:QueueMessage(prefix, text, channel)
+    table.insert(TankMark.MsgQueue, {prefix=prefix, text=text, channel=channel})
+    throttleFrame:Show()
 end
 
 -- ==========================================================
--- 1. SENDER (Broadcast)
+-- 1. BROADCAST (Sender)
 -- ==========================================================
 function TankMark:BroadcastZone()
+    if not TankMark:CanAutomate() then
+        TankMark:Print("Error: You must be Raid Leader/Assist to sync.")
+        return
+    end
+    
     local zone = GetRealZoneText()
-    local zoneTable = TankMarkDB.Zones[zone]
-    
-    if not zoneTable then
-        TankMark:Print("No data found for zone: " .. zone)
-        return
-    end
-    
-    local channel = "PARTY"
-    if UnitInRaid("player") then channel = "RAID"
-    elseif GetNumPartyMembers() == 0 then
-        TankMark:Print("You must be in a group to broadcast.")
-        return
-    end
-    
-    TankMark:Print("Queueing broadcast for: " .. zone .. "...")
-    
     local count = 0
-    for mobName, data in pairs(zoneTable) do
-        -- SAFETY: Handle nil values for Class
-        local safeClass = data.class or "NIL"
-        local safeType = data.type or "KILL"
-        
-        -- FORMAT: Zone;Mob;Prio;Mark;Type;Class
-        local payload = zone .. ";" .. mobName .. ";" .. data.prio .. ";" .. data.mark .. ";" .. safeType .. ";" .. safeClass
-        
-        TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
-        count = count + 1
+    local channel = "PARTY"
+    if GetNumRaidMembers() > 0 then channel = "RAID" end
+    
+    -- A. Broadcast Mobs (Prefix: M)
+    if TankMarkDB.Zones[zone] then
+        for mob, data in pairs(TankMarkDB.Zones[zone]) do
+            local safeClass = data.class or "NIL"
+            local safeType = data.type or "KILL"
+            
+            -- Payload: M;Zone;Mob;Prio;Mark;Type;Class
+            local payload = "M;" .. zone .. ";" .. mob .. ";" .. data.prio .. ";" .. data.mark .. ";" .. safeType .. ";" .. safeClass
+            TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
+            count = count + 1
+        end
     end
     
-    TankMark:Print("Queued " .. count .. " items. Sending over ~" .. math.ceil(count * THROTTLE_INTERVAL) .. "s.")
+    -- B. Broadcast Locks (Prefix: L)
+    if TankMarkDB.StaticGUIDs[zone] then
+        for guid, data in pairs(TankMarkDB.StaticGUIDs[zone]) do
+            local mark = (type(data) == "table") and data.mark or data
+            local name = (type(data) == "table") and data.name or "Unknown"
+            
+            -- Payload: L;Zone;GUID;Mark;Name
+            local payload = "L;" .. zone .. ";" .. guid .. ";" .. mark .. ";" .. name
+            TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
+            count = count + 1
+        end
+    end
+    
+    TankMark:Print("Sync: Queued " .. count .. " items (Mobs & Locks) for zone: " .. zone)
 end
 
 -- ==========================================================
@@ -105,28 +107,49 @@ function TankMark:HandleSync(prefix, msg, sender)
     
     if not TankMark:IsTrustedSender(sender) then return end
     
-    -- FORMAT: Zone;Mob;Prio;Mark;Type;Class
-    local zone, mob, prio, mark, mType, mClass = string.match(msg, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
+    local dataType = string.sub(msg, 1, 1) -- 'M' or 'L'
+    local content = string.sub(msg, 3)     -- Strip prefix + separator
     
-    if zone and mob and prio and mark then
-        prio = tonumber(prio)
-        mark = tonumber(mark)
+    if dataType == "M" then
+        -- FORMAT: Zone;Mob;Prio;Mark;Type;Class
+        local zone, mob, prio, mark, mType, mClass = string.match(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
         
-        -- Restore NIL class to actual nil
-        if mClass == "NIL" then mClass = nil end
-        if not mType or mType == "" then mType = "KILL" end
+        if zone and mob and prio and mark then
+            prio = tonumber(prio)
+            mark = tonumber(mark)
+            
+            if mClass == "NIL" then mClass = nil end
+            if not mType or mType == "" then mType = "KILL" end
+            
+            if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
+            
+            TankMarkDB.Zones[zone][mob] = { 
+                ["prio"] = prio, 
+                ["mark"] = mark, 
+                ["type"] = mType, 
+                ["class"] = mClass 
+            }
+        end
         
-        if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
+    elseif dataType == "L" then
+        -- FORMAT: Zone;GUID;Mark;Name
+        local zone, guid, mark, name = string.match(content, "^(.-);(.-);(%d+);(.-)$")
         
-        -- Save full data structure
-        TankMarkDB.Zones[zone][mob] = {
-            ["prio"] = prio,
-            ["mark"] = mark,
-            ["type"] = mType,
-            ["class"] = mClass
-        }
-        
-        -- Refresh UI if open
+        if zone and guid and mark then
+            mark = tonumber(mark)
+            
+            if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
+            
+            -- Save Lock
+            TankMarkDB.StaticGUIDs[zone][guid] = { 
+                ["mark"] = mark, 
+                ["name"] = name or "Synced Lock"
+            }
+        end
+    end
+    
+    -- Live UI Update
+    if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
         if TankMark.UpdateMobList then TankMark:UpdateMobList() end
     end
 end
