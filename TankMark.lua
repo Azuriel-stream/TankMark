@@ -47,7 +47,8 @@ TankMark.activeMobIsCaster = {}
 TankMark.sessionAssignments = {}
 TankMark.IsActive = true 
 TankMark.DeathPattern = nil 
-TankMark.RangeSpellID = nil 
+TankMark.RangeSpellID = nil     -- Stores ID for SuperWoW
+TankMark.RangeSpellIndex = nil  -- Stores Book Index for Standard
 TankMark.IsRecorderActive = false 
 
 -- ==========================================================
@@ -55,51 +56,77 @@ TankMark.IsRecorderActive = false
 -- ==========================================================
 
 function TankMark:ScanForRangeSpell()
+    -- 1. SuperWoW Path (Use Hex ID 16707)
     if TankMark.IsSuperWoW then
         TankMark.RangeSpellID = 16707
+        TankMark.RangeSpellIndex = nil
         TankMark:Print("Range Extension: Active (~40y).")
         return
     end
 
-    local classSpells = {
-        [1130] = 40, [116] = 30, [133] = 30, [686] = 30, 
-        [585] = 30, [8921] = 30, [403] = 30,
+    -- 2. Standard Client Path (Scan for Name -> Store Index)
+    -- Must use Names because SpellInfo(id) is not available on Standard.
+    local longRangeSpells = {
+        ["Fireball"] = 35,
+        ["Frostbolt"] = 30,
+        ["Shadow Bolt"] = 30,
+        ["Wrath"] = 30,
+        ["Lightning Bolt"] = 30,
+        ["Starfire"] = 30,
+        ["Shoot"] = 30,
+        ["Shoot Bow"] = 30,
+        ["Shoot Gun"] = 30,
+        ["Shoot Crossbow"] = 30,
+        ["Hunter's Mark"] = 100, -- Detects if hunter
+        ["Mind Blast"] = 30,
+        ["Smite"] = 30
     }
 
-    local bestID = nil
+    local bestName = nil
     local bestRange = 0
+    local bestIndex = nil
 
-    if SpellInfo then
-        local i = 1
-        while true do
-           local spellName, _ = GetSpellName(i, "spell")
-           if not spellName then break end
-           for id, range in _pairs(classSpells) do
-               local infoName = SpellInfo(id)
-               if infoName and spellName == infoName then
-                   if range > bestRange then
-                       bestRange = range; bestID = id
-                   end
-               end
+    local i = 1
+    while true do
+       local spellName, rank = GetSpellName(i, "spell")
+       if not spellName then break end
+       
+       if longRangeSpells[spellName] then
+           local range = longRangeSpells[spellName]
+           if range > bestRange then
+               bestRange = range
+               bestName = spellName
+               bestIndex = i
            end
-           i = i + 1
-        end
+       end
+       i = i + 1
     end
     
-    if bestID then
-        TankMark.RangeSpellID = bestID
-        TankMark:Print("Range Extension: Legacy Mode (~" .. bestRange .. "y).")
+    if bestIndex then
+        TankMark.RangeSpellIndex = bestIndex
+        TankMark.RangeSpellID = nil
+        TankMark:Print("Range Extension: Legacy Mode (" .. bestName .. " ~" .. bestRange .. "y).")
     else
+        TankMark.RangeSpellIndex = nil
         TankMark.RangeSpellID = nil
     end
 end
 
 function TankMark:Driver_IsDistanceValid(unitOrGuid)
-    if TankMark.RangeSpellID and _IsSpellInRange then
+    -- 1. SuperWoW Logic (ID based)
+    if TankMark.IsSuperWoW and TankMark.RangeSpellID and _IsSpellInRange then
+        -- SuperWoW allows passing ID directly
         local inRange = _IsSpellInRange(TankMark.RangeSpellID, unitOrGuid)
+        if inRange == 1 then return true end
+    
+    -- 2. Standard Logic (Index based)
+    elseif TankMark.RangeSpellIndex and _IsSpellInRange then
+        -- Standard 1.12 requires SpellBook Index
+        local inRange = _IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid)
         if inRange == 1 then return true end
     end
 
+    -- 3. Fallback (28 yards)
     if type(unitOrGuid) == "string" and not _strfind(unitOrGuid, "^0x") then
         return _CheckInteractDistance(unitOrGuid, 4)
     end
@@ -594,13 +621,20 @@ function TankMark:StartSuperScanner()
     TankMark.visibleTargets = {} 
 
     f:SetScript("OnUpdate", function()
-        if not TankMark:CanAutomate() and not TankMark.IsRecorderActive then return end
-        
+        -- [OPTIMIZATION] Throttle increased 0.25 -> 0.5s
         elapsed = elapsed + arg1
-        if elapsed < 0.25 then return end 
+        if elapsed < 0.5 then return end 
         elapsed = 0
+        
+        -- [OPTIMIZATION] Only run if active & in group (or recording)
+        if not TankMark.IsRecorderActive then
+            if not TankMark:CanAutomate() then return end
+            if GetNumRaidMembers() == 0 and GetNumPartyMembers() == 0 then return end
+        end
+        
         table_wipe(TankMark.visibleTargets) 
         
+        -- SuperWoW Feature: frame:GetName(1) -> GUID
         local frames = {WorldFrame:GetChildren()}
         for _, plate in _ipairs(frames) do
             if plate:IsVisible() and TankMark:IsNameplate(plate) then
