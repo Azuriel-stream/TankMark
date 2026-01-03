@@ -1,4 +1,4 @@
--- TankMark: v0.13-dev (Smart Assignment UI & Ignore Logic)
+-- TankMark: v0.14-dev (Smart Assignment UI & Ignore Logic)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -38,6 +38,7 @@ TankMark.lockViewZone = nil
 TankMark.scrollFrame = nil 
 TankMark.searchBox = nil 
 TankMark.zoneModeCheck = nil
+TankMark.normalsCheck = nil -- [v0.14]
 TankMark.editingLockGUID = nil
 
 -- Smart Logic State
@@ -801,11 +802,23 @@ function TankMark:CreateOptionsFrame()
     
     local targetBtn = CreateFrame("Button", nil, addGroup, "UIPanelButtonTemplate")
     targetBtn:SetWidth(60); targetBtn:SetHeight(20); targetBtn:SetPoint("LEFT", nameBox, "RIGHT", 5, 0); targetBtn:SetText("Target")
+    
+    -- [v0.14] TARGET BUTTON LOGIC (Enhanced)
     targetBtn:SetScript("OnClick", function()
         if UnitExists("target") then 
             nameBox:SetText(UnitName("target"))
             -- SMART DETECTION
             TankMark.detectedCreatureType = UnitCreatureType("target")
+            
+            -- [NEW] Capture Current Icon
+            local currentIcon = GetRaidTargetIndex("target")
+            if currentIcon then
+                 TankMark.selectedIcon = currentIcon
+                 if TankMark.iconBtn and TankMark.iconBtn.tex then
+                      SetIconTexture(TankMark.iconBtn.tex, currentIcon)
+                 end
+            end
+            
             -- [NEW] Wake up buttons
             if TankMark.lockBtn then TankMark.lockBtn:Enable() end
             if TankMark.saveBtn then TankMark.saveBtn:Enable() end
@@ -899,7 +912,13 @@ function TankMark:CreateOptionsFrame()
     _G[mc:GetName().."Text"]:SetText("Enable TankMark"); mc:SetChecked(TankMark.IsActive and 1 or nil)
     mc:SetScript("OnClick", function() TankMark.IsActive = this:GetChecked() and true or false; TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r")) end)
     
-    TankMark:Print("TankMark v0.13-dev Options Loaded.")
+    -- [v0.14] Normal Toggle Checkbox
+    local nc = CreateFrame("CheckButton", "TM_NormalsCheck", f, "UICheckButtonTemplate"); nc:SetWidth(24); nc:SetHeight(24); nc:SetPoint("TOPLEFT", 150, -10)
+    _G[nc:GetName().."Text"]:SetText("Mark Normal Mobs"); nc:SetChecked(TankMark.MarkNormals and 1 or nil)
+    nc:SetScript("OnClick", function() TankMark.MarkNormals = this:GetChecked() and true or false; TankMark:Print("Mark Normal Mobs: " .. (TankMark.MarkNormals and "ON" or "OFF")) end)
+    TankMark.normalsCheck = nc
+
+    TankMark:Print("TankMark v0.14-dev Options Loaded.")
 end
 
 function TankMark:ShowOptions()
@@ -909,6 +928,7 @@ function TankMark:ShowOptions()
     if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
     if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
     if TankMark.zoneModeCheck then TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode) end
+    if TankMark.normalsCheck then TankMark.normalsCheck:SetChecked(TankMark.MarkNormals) end
     local cz = GetRealZoneText()
     if cz and cz ~= "" then
         if TankMark.profileZone then TankMark.profileZone:SetText(cz) end
