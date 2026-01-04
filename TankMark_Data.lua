@@ -1,4 +1,4 @@
--- TankMark: v0.14 (Core Data & Events)
+-- TankMark: v0.15 (Ordered Profiles)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -11,6 +11,13 @@ TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
 
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
+local _insert = table.insert
+local _ipairs = ipairs
+local _pairs = pairs
+
 TankMark.sessionAssignments = {} 
 TankMark.runtimeCache = { classRoster = {} }
 
@@ -21,24 +28,31 @@ TankMark.MarkClassDefaults = {
 }
 
 function TankMark:InitializeDB()
+    -- 1. Mob Database (RETAINED)
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-    if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    TankMark:Print("Database initialized (v0.14).")
+    
+    -- 2. Profile Database (RESET for v0.15 Structure)
+    -- We assume any existing data is incompatible v0.14 data and ignore it.
+    -- Structure: TankMarkProfileDB[zone] = { {mark=8, tank="Name", ...}, {mark=7, ...} }
+    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+    
+    TankMark:Print("Database initialized (v0.15 Ordered Lists).")
 end
 
--- [v0.14] Helper to safely get profile data (Migration Layer)
+-- [v0.15] Adapter: Scans the ordered list to find data for a specific Icon ID
+-- This keeps current logic (TankMark.lua) working until Phase 3.
 function TankMark:GetProfileData(zone, iconID)
-    if not TankMarkDB.Profiles[zone] then return nil end
-    local data = TankMarkDB.Profiles[zone][iconID]
+    if not TankMarkProfileDB[zone] then return nil end
     
-    -- Legacy Format: String -> Convert to Table
-    if type(data) == "string" then
-        return { tank = data, healers = "" }
-    elseif type(data) == "table" then
-        return data
+    -- Scan the ordered array
+    for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+        if entry.mark == iconID then
+            return entry
+        end
     end
+    
     return nil
 end
 
@@ -57,7 +71,7 @@ function TankMark:UpdateRoster()
                 if not TankMark.runtimeCache.classRoster[classEng] then
                     TankMark.runtimeCache.classRoster[classEng] = {}
                 end
-                table.insert(TankMark.runtimeCache.classRoster[classEng], name)
+                _insert(TankMark.runtimeCache.classRoster[classEng], name)
             end
         end
     end
@@ -77,10 +91,9 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
     local candidates = TankMark.runtimeCache.classRoster[requiredClass]
     if not candidates then return nil end
 
-    for _, playerName in ipairs(candidates) do
+    for _, playerName in _ipairs(candidates) do
         local isAssigned = false
-        for _, data in pairs(TankMark.sessionAssignments) do
-            -- v0.14: Check if assigned as tank (string or table)
+        for _, data in _pairs(TankMark.sessionAssignments) do
             local assignedName = (type(data) == "table") and data.tank or data
             if assignedName == playerName then 
                 isAssigned = true 

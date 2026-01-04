@@ -1,4 +1,4 @@
--- TankMark: v0.14 (Hybrid Driver, TWA Sync & Normal Filter)
+-- TankMark: v0.15 (Ordered Logic Core - Full)
 -- File: TankMark.lua
 
 if not TankMark then
@@ -11,7 +11,6 @@ end
 local _strfind = string.find
 local _gsub = string.gsub
 local _lower = string.lower
-local _match = string.match
 local _format = string.format
 
 local _insert = table.insert
@@ -27,8 +26,9 @@ local _SetRaidTarget = SetRaidTarget
 local _UnitHealth = UnitHealth
 local _IsSpellInRange = IsSpellInRange
 local _CheckInteractDistance = CheckInteractDistance
-local _UnitClassification = UnitClassification -- [v0.14]
+local _UnitClassification = UnitClassification 
 local _getglobal = getglobal
+local _random = math.random
 
 -- Helper: Table Wipe for Lua 5.0 (Reduces Garbage)
 local function table_wipe(t)
@@ -46,8 +46,9 @@ TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
 TankMark.activeMobIsCaster = {}
 TankMark.sessionAssignments = {}
+TankMark.disabledMarks = {} -- [NEW] For HUD Toggles
 TankMark.IsActive = true 
-TankMark.MarkNormals = false -- [v0.14] Default: Do not mark normal mobs
+TankMark.MarkNormals = false 
 TankMark.DeathPattern = nil 
 TankMark.RangeSpellID = nil     
 TankMark.RangeSpellIndex = nil  
@@ -126,10 +127,9 @@ function TankMark:Driver_IsDistanceValid(unitOrGuid)
 end
 
 -- ==========================================================
--- PERMISSIONS
+-- PERMISSIONS & FAIL-SAFES
 -- ==========================================================
 
--- [v0.14] Helper to check Leader/Assist regardless of "IsActive" toggle
 function TankMark:HasPermissions()
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
@@ -146,7 +146,16 @@ end
 
 function TankMark:CanAutomate()
     if not TankMark.IsActive then return false end
-    return TankMark:HasPermissions()
+    if not TankMark:HasPermissions() then return false end
+    
+    -- [v0.15 STRICT MODE]
+    -- If Profile is empty, DO NOT AUTOMATE.
+    local zone = GetRealZoneText()
+    if not TankMarkProfileDB[zone] or _getn(TankMarkProfileDB[zone]) == 0 then
+        return false 
+    end
+    
+    return true
 end
 
 -- ==========================================================
@@ -226,7 +235,6 @@ function TankMark:UnmarkUnit(unit)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
--- [v0.14] Refactored: Separate Local Wipe from Server Wipe
 function TankMark:ClearAllMarks()
     -- 1. Always wipe Local State
     TankMark.usedIcons = {}
@@ -359,9 +367,7 @@ function TankMark:ProcessUnit(guid, mode)
 
     -- [v0.14] Normal/Trivial Mob Filter
     if not TankMark.MarkNormals then
-        -- [cite_start] SuperWoW allows passing GUID to UnitClassification [cite: 44]
         local cls = _UnitClassification(guid)
-        -- Fallback for standard clients (best effort if unit is mouseover)
         if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
             cls = _UnitClassification("mouseover")
         end
@@ -464,39 +470,45 @@ function TankMark:RegisterMarkUsage(icon, name, guid, isCaster)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
+-- [v0.15] Resource-Based Logic
 function TankMark:ProcessKnownMob(mobData, guid)
     -- [NEW] IGNORE LOGIC: Mark 0 = Do Not Process
     if mobData.mark == 0 then return end
 
     local iconToApply = nil
     
-    if mobData.type == "KILL" then
-        if not TankMark.usedIcons[mobData.mark] then
-            iconToApply = mobData.mark
-        elseif mobData.prio <= 2 then
-            local currentOwnerName = TankMark.activeMobNames[mobData.mark]
-            if currentOwnerName ~= mobData.name then
-                TankMark:EvictMarkOwner(mobData.mark)
-                iconToApply = mobData.mark
-            else
-                local fallbackOrder = {7, 2, 1, 3, 4, 6, 5} 
-                for _, iconID in _ipairs(fallbackOrder) do
-                    if not TankMark.usedIcons[iconID] then
-                        iconToApply = iconID; break
-                    end
-                end
-            end
-        else
-            iconToApply = TankMark:GetNextFreeKillIcon()
-        end
-    end
+    -- CHECK 1: If mark is disabled in HUD, try fallback to a tank mark
+    local isCCBlocked = (mobData.type == "CC" and TankMark.disabledMarks[mobData.mark])
     
-    if mobData.type == "CC" then
+    if mobData.type == "KILL" or isCCBlocked then
+        -- Priority 1: Use specific mark if free AND in profile
+        -- We check GetFreeTankIcon because it validates existence
         if not TankMark.usedIcons[mobData.mark] then
-            local assignedPlayer = TankMark:GetFirstAvailableBackup(mobData.class)
-            if assignedPlayer then
+             -- We need to check if this mark exists in the profile
+             local zone = GetRealZoneText()
+             local list = TankMarkProfileDB[zone]
+             if list then
+                 for _, entry in _ipairs(list) do
+                     if entry.mark == mobData.mark and entry.tank ~= "" then
+                         iconToApply = mobData.mark
+                         break
+                     end
+                 end
+             end
+        end
+        
+        -- Priority 2: Get next available from Ordered List
+        if not iconToApply then
+            iconToApply = TankMark:GetFreeTankIcon()
+        end
+    
+    elseif mobData.type == "CC" then
+        if not TankMark.usedIcons[mobData.mark] and not TankMark.disabledMarks[mobData.mark] then
+            -- Check if someone is assigned to this CC mark in the profile
+            local assignee = TankMark:GetAssigneeForMark(mobData.mark)
+            if assignee then
                  iconToApply = mobData.mark
-                 TankMark:AssignCC(iconToApply, assignedPlayer, mobData.type)
+                 TankMark:AssignCC(iconToApply, assignee, mobData.type)
             end
         end
     end
@@ -508,46 +520,55 @@ function TankMark:ProcessKnownMob(mobData, guid)
 end
 
 function TankMark:ProcessUnknownMob(guid)
-    local isCaster = (UnitPowerType(guid) == 0)
-    local iconToApply = nil
-    if isCaster then
-        local preferredIcons = {8, 7}
-        for _, iconID in _ipairs(preferredIcons) do
-            if not TankMark.usedIcons[iconID] then
-                iconToApply = iconID; break
-            end
-        end
-    end
-    if not iconToApply then iconToApply = TankMark:GetNextFreeKillIcon() end
+    -- [v0.15] Fallback: Only use marks available in Profile
+    local iconToApply = TankMark:GetFreeTankIcon()
     if iconToApply then
         TankMark:Driver_ApplyMark(guid, iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, _UnitName(guid), guid, isCaster)
+        TankMark:RegisterMarkUsage(iconToApply, _UnitName(guid), guid, (UnitPowerType(guid) == 0))
     end
 end
 
+-- [v0.15] UPDATED: Iterates Ordered Profile List Only
 function TankMark:GetFreeTankIcon()
     local zone = GetRealZoneText()
-    for i = 1, 8 do
-        if not TankMark.usedIcons[i] then
-            local assignedName = nil
-            if TankMarkDB.Profiles[zone] then assignedName = TankMarkDB.Profiles[zone][i] end
-            if assignedName and assignedName ~= "" then return i end
+    local list = TankMarkProfileDB[zone]
+    
+    if not list then return nil end
+    
+    -- Iterate Top-to-Bottom
+    for _, entry in _ipairs(list) do
+        local markID = entry.mark
+        local tankName = entry.tank
+        
+        if markID and not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+            if tankName and tankName ~= "" then
+                -- Check if player is actually here
+                local u = TankMark:FindUnitByName(tankName)
+                if u and not UnitIsDeadOrGhost(u) then
+                    return markID
+                end
+            end
         end
     end
     return nil
 end
 
-function TankMark:GetNextFreeKillIcon()
-    local killPriority = {8, 7, 2, 1, 3, 4, 6, 5}
-    for _, iconID in _ipairs(killPriority) do
-        if TankMark.usedIcons[iconID] then
-            if not TankMark:VerifyMarkExistence(iconID) then
-                TankMark.usedIcons[iconID] = nil
-                TankMark.activeMobNames[iconID] = nil
-                return iconID
-            end
-        else
-            return iconID
+function TankMark:FindUnitByName(name)
+    if UnitName("player") == name then return "player" end
+    for i=1,4 do if UnitName("party"..i) == name then return "party"..i end end
+    for i=1,40 do if UnitName("raid"..i) == name then return "raid"..i end end
+    return nil
+end
+
+function TankMark:GetAssigneeForMark(markID)
+    local zone = GetRealZoneText()
+    local list = TankMarkProfileDB[zone]
+    if not list then return nil end
+    
+    -- Lookup in Ordered List
+    for _, entry in _ipairs(list) do
+        if entry.mark == markID then
+            return entry.tank
         end
     end
     return nil
@@ -585,32 +606,40 @@ function TankMark:HandleDeath(unitID)
         return
     end
 
+    -- [v0.15] Player Death - Chain of Command
     local hp = _UnitHealth(unitID)
     if hp and hp > 0 then return end 
 
     local deadPlayerName = _UnitName(unitID)
     if not deadPlayerName then return end
 
-    local assignedIcon = nil
-    for icon, assignedTo in _pairs(TankMark.sessionAssignments) do
-        if assignedTo == deadPlayerName then
-            assignedIcon = icon; break
+    -- Find who died in our ordered list
+    local zone = GetRealZoneText()
+    local list = TankMarkProfileDB[zone]
+    if not list then return end
+    
+    local deadIndex = nil
+    for i, entry in _ipairs(list) do
+        if entry.tank == deadPlayerName then
+            deadIndex = i; break
         end
     end
-    if not assignedIcon then return end
-
-    if TankMark.usedIcons[assignedIcon] then
-        local _, classEng = UnitClass(unitID)
-        local backupPlayer = TankMark:GetFirstAvailableBackup(classEng)
-        if backupPlayer then
-            TankMark.sessionAssignments[assignedIcon] = backupPlayer
-            local markStr = TankMark:GetMarkString(assignedIcon)
-            local msg = "ALERT: " .. deadPlayerName .. " died! You are now assigned to " .. markStr .. "."
-            SendChatMessage(msg, "WHISPER", nil, backupPlayer)
-            TankMark:Print("Reassigned " .. markStr .. " to " .. backupPlayer)
-            if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+    
+    if deadIndex then
+        local deadMarkStr = TankMark:GetMarkString(list[deadIndex].mark)
+        
+        -- Find Next in Command (Next row in list)
+        local nextEntry = list[deadIndex + 1]
+        if nextEntry and nextEntry.tank and nextEntry.tank ~= "" then
+             -- Whisper the next tank
+             local msg = "ALERT: " .. deadPlayerName .. " ("..deadMarkStr..") has died! Take over!"
+             SendChatMessage(msg, "WHISPER", nil, nextEntry.tank)
+             TankMark:Print("Alerted " .. nextEntry.tank .. " to cover for " .. deadPlayerName)
         end
     end
+    
+    -- Legacy CC Backup Logic
+    -- (If we want to keep it, we can look up by class here, but strict resource mode implies we stick to the list)
 end
 
 -- ==========================================================
@@ -712,55 +741,8 @@ end
 -- COMMANDS & EVENTS
 -- ==========================================================
 
-function TankMark:GetAssigneeForMark(markID)
-    local zone = GetRealZoneText()
-    if TankMarkDB.Profiles[zone] and TankMarkDB.Profiles[zone][markID] then
-        local assignedName = TankMarkDB.Profiles[zone][markID]
-        if UnitInRaid("player") then
-            for i = 1, GetNumRaidMembers() do
-                if _UnitName("raid"..i) == assignedName then return assignedName end
-            end
-        else
-            if _UnitName("player") == assignedName then return assignedName end
-            for i = 1, GetNumPartyMembers() do
-                if _UnitName("party"..i) == assignedName then return assignedName end
-            end
-        end
-    end
-    local requiredClass = TankMark.MarkClassDefaults[markID]
-    if not requiredClass then return nil end 
-    local candidates = {}
-    local function IsPlayerBusy(name)
-        for otherMark, assignee in _pairs(TankMark.sessionAssignments) do
-            if assignee == name and otherMark ~= markID then return true end
-        end
-        return false
-    end
-    local function CheckUnit(unit)
-        local _, class = UnitClass(unit)
-        if class == requiredClass and not UnitIsDeadOrGhost(unit) then
-            local name = _UnitName(unit)
-            if name and not IsPlayerBusy(name) then _insert(candidates, name) end
-        end
-    end
-    if UnitInRaid("player") then
-        for i = 1, GetNumRaidMembers() do CheckUnit("raid"..i) end
-    else
-        local _, pClass = UnitClass("player")
-        if pClass == requiredClass then 
-            local name = _UnitName("player")
-            if name and not IsPlayerBusy(name) then _insert(candidates, name) end
-        end
-        for i = 1, GetNumPartyMembers() do CheckUnit("party"..i) end
-    end
-    if _getn(candidates) > 0 then
-        return candidates[math.random(_getn(candidates))]
-    end
-    return nil
-end
-
 function TankMark:SlashHandler(msg)
-    local cmd, args = _match(msg, "^(%S*)%s*(.*)$");
+    local _, _, cmd, args = _strfind(msg, "^(%S*)%s*(.*)$")
     cmd = _lower(cmd or "")
     local iconNames = {
         ["skull"] = 8, ["cross"] = 7, ["square"] = 6, ["moon"] = 5,
@@ -802,7 +784,9 @@ function TankMark:SlashHandler(msg)
             TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
         end
     elseif cmd == "assign" then
-        local markStr, targetPlayer = _match(args, "^(%S+)%s+(%S+)$")
+        -- [FIX] Lua 5.0 compatible parsing
+        local _, _, markStr, targetPlayer = _strfind(args, "^(%S+)%s+(%S+)$")
+        
         if markStr and targetPlayer then
             markStr = _lower(markStr)
             local iconID = tonumber(markStr) or iconNames[markStr]
@@ -827,16 +811,49 @@ function TankMark:SlashHandler(msg)
 end
 
 function TankMark:AnnounceAssignments()
+    local zone = GetRealZoneText()
+    local profile = TankMarkProfileDB[zone]
+    
+    if not profile or table.getn(profile) == 0 then
+        TankMark:Print("No profile assignments found for " .. zone .. ".")
+        return
+    end
+
     local channel = "SAY" 
     if GetNumRaidMembers() > 0 then channel = "RAID"
     elseif GetNumPartyMembers() > 0 then channel = "PARTY" end
-    SendChatMessage("TankMark Assignments:", channel)
-    for i = 8, 1, -1 do
-        local player = TankMark.sessionAssignments[i]
-        if player then
-             local markStr = TankMark:GetMarkString(i)
-             local msg = markStr .. " assigned to " .. player
-             SendChatMessage(msg, channel)
+    
+    -- Icon Name Map
+    -- Note: We only announce data available in the Static Profile.
+    
+    -- 1. Send Header
+    -- [FIX] Use '||' to escape the pipe character so it prints nicely without crashing.
+    SendChatMessage("== " .. zone .. " Assignments ==", channel)
+    SendChatMessage("Mark  ||  Tank  ||  Healers", channel)
+    
+    -- 2. Iterate Ordered Profile
+    for _, data in ipairs(profile) do
+        if data.mark and data.tank ~= "" then
+            -- Color Logic
+            local info = TankMark.MarkInfo[data.mark]
+            local markDisplay = ""
+            
+            if info then
+                markDisplay = info.color .. info.name .. "|r"
+            else
+                markDisplay = "Mark " .. data.mark
+            end
+            
+            -- [FIX] Use '||' for separators
+            local msg = markDisplay .. "  ||  " .. data.tank
+            
+            if data.healers and data.healers ~= "" then
+                msg = msg .. "  ||  " .. data.healers
+            else
+                msg = msg .. "  ||  -"
+            end
+            
+            SendChatMessage(msg, channel)
         end
     end
 end
@@ -850,7 +867,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitCombatLogParser()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell() 
-        TankMark:Print("TankMark v0.14 (TWA Integration Active) Loaded.")
+        TankMark:Print("TankMark v0.15 Loaded.")
     elseif (event == "UPDATE_MOUSEOVER_UNIT") then
         TankMark:HandleMouseover()
     elseif (event == "UNIT_HEALTH") then
