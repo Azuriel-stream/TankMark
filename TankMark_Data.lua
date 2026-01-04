@@ -28,19 +28,40 @@ TankMark.MarkClassDefaults = {
 }
 
 function TankMark:InitializeDB()
+    -- 1. Initialize Global DB (Mob Data)
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-    if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
-    TankMark:Print("Database initialized (v0.14).")
+    
+    -- 2. Initialize Local DB (Profiles)
+    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+    
+    -- 3. MIGRATION: Move old profiles to new DB
+    -- If the old Global DB has profiles, move them to the Local DB for this character
+    -- and then clear them from the Global DB so other alts start fresh (or migrate if they log in first).
+    if TankMarkDB.Profiles then
+        local count = 0
+        for zone, data in _pairs(TankMarkDB.Profiles) do
+            TankMarkProfileDB[zone] = data
+            count = count + 1
+        end
+        
+        -- Wipe the old table to complete migration
+        TankMarkDB.Profiles = nil
+        
+        if count > 0 then
+            TankMark:Print("Migrated " .. count .. " zone profiles to Character-Specific Storage.")
+        end
+    end
+    
+    TankMark:Print("Database initialized (v0.15 Split).")
 end
 
 -- [v0.14] Helper to safely get profile data (Migration Layer)
 function TankMark:GetProfileData(zone, iconID)
-    if not TankMarkDB.Profiles[zone] then return nil end
-    local data = TankMarkDB.Profiles[zone][iconID]
+    if not TankMarkProfileDB[zone] then return nil end -- Changed Source
+    local data = TankMarkProfileDB[zone][iconID]
     
-    -- Legacy Format: String -> Convert to Table
     if type(data) == "string" then
         return { tank = data, healers = "" }
     elseif type(data) == "table" then

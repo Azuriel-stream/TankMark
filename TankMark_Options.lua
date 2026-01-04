@@ -148,7 +148,7 @@ function TankMark:ValidateDB()
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-    if not TankMarkDB.Profiles then TankMarkDB.Profiles = {} end
+    if not TankMarkProfileDB then TankMarkProfileDB = {} end
 end
 
 function TankMark:UpdateTabs()
@@ -563,7 +563,7 @@ function TankMark:SaveAllProfiles()
     TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
     
-    if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
+    if not TankMarkProfileDB[zone] then TankMarkProfileDB[zone] = {} end
     
     for i = 1, 8 do
         if TankMark.profileRows[i] then
@@ -571,10 +571,10 @@ function TankMark:SaveAllProfiles()
             local healers = TankMark.profileRows[i].healEdit:GetText()
             
             if tank == "" and healers == "" then
-                TankMarkDB.Profiles[zone][i] = nil
+                TankMarkProfileDB[zone][i] = nil
             else
                 -- Save as Table { tank, healers }
-                TankMarkDB.Profiles[zone][i] = {
+                TankMarkProfileDB[zone][i] = {
                     ["tank"] = (tank ~= "") and tank or nil,
                     ["healers"] = (healers ~= "") and healers or nil
                 }
@@ -582,7 +582,7 @@ function TankMark:SaveAllProfiles()
             
             -- Sync to Live Session if current zone
             if zone == GetRealZoneText() then
-                local data = TankMarkDB.Profiles[zone][i]
+                local data = TankMarkProfileDB[zone][i]
                 if data and data.tank then
                     TankMark.sessionAssignments[i] = data.tank 
                     TankMark.usedIcons[i] = true 
@@ -601,7 +601,7 @@ function TankMark:RefreshProfileUI()
     TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
     
-    local data = TankMarkDB.Profiles[zone] or {}
+    local data = TankMarkProfileDB[zone] or {}
     
     for i = 1, 8 do
         if TankMark.profileRows[i] then
@@ -623,9 +623,9 @@ function TankMark:RequestResetProfile()
     TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
     
-    if zone and TankMarkDB.Profiles[zone] then
+    if zone and TankMarkProfileDB[zone] then
         TankMark.pendingWipeAction = function()
-            TankMarkDB.Profiles[zone] = {}
+            TankMarkProfileDB[zone] = {}
             TankMark:Print("Reset team profile values for: " .. zone)
             TankMark:RefreshProfileUI()
         end
@@ -640,9 +640,9 @@ function TankMark:RequestDeleteProfile()
     TankMark:ValidateDB()
     local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
     
-    if zone and TankMarkDB.Profiles[zone] then
+    if zone and TankMarkProfileDB[zone] then
         TankMark.pendingWipeAction = function()
-            TankMarkDB.Profiles[zone] = nil
+            TankMarkProfileDB[zone] = nil
             TankMark:Print("Deleted profile for: |cffff0000" .. zone .. "|r")
             
             -- 1. Visually reset text to current zone
@@ -948,7 +948,7 @@ function TankMark:CreateOptionsFrame()
         info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); TankMark:RefreshProfileUI() end
         UIDropDownMenu_AddButton(info)
         -- Add zones present in Profiles DB
-        for zName, _ in pairs(TankMarkDB.Profiles) do
+        for zName, _ in pairs(TankMarkProfileDB) do
             if zName ~= curr then
                 info = {}; info.text = zName
                 info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); TankMark:RefreshProfileUI() end

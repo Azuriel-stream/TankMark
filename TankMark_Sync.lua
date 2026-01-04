@@ -101,9 +101,9 @@ function TankMark:HandleTWABW(msg, sender)
     
     -- Store Data
     local zone = GetRealZoneText()
-    if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
+    if not TankMarkProfileDB[zone] then TankMarkProfileDB[zone] = {} end
     
-    TankMarkDB.Profiles[zone][iconID] = {
+    TankMarkProfileDB[zone][iconID] = {
         ["tank"] = primaryTank,
         ["healers"] = (healStr ~= "") and healStr or nil
     }
