@@ -721,9 +721,8 @@ end
 
 function TankMark:GetAssigneeForMark(markID)
     local zone = GetRealZoneText()
-    if TankMarkDB.Profiles[zone] and TankMarkDB.Profiles[zone][markID] then
-        -- [FIX] Logic Breakdown: Separate Table vs String
-        local profileEntry = TankMarkDB.Profiles[zone][markID]
+    if TankMarkProfileDB[zone] and TankMarkProfileDB[zone][markID] then
+        local profileEntry = TankMarkProfileDB[zone][markID]
         local assignedName = nil
         
         if type(profileEntry) == "table" then
@@ -733,6 +732,7 @@ function TankMark:GetAssigneeForMark(markID)
         end
 
         if assignedName and assignedName ~= "" then
+            -- (Keep existing logic for checking Raid/Party members...)
             if UnitInRaid("player") then
                 for i = 1, GetNumRaidMembers() do
                     if _UnitName("raid"..i) == assignedName then return assignedName end
