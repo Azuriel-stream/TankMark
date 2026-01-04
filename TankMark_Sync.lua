@@ -1,4 +1,4 @@
--- TankMark: v0.14 (Full Data Sync + TWA Integration)
+-- TankMark: v0.14-dev (Full Data Sync + TWA Integration + DEBUG)
 -- File: TankMark_Sync.lua
 
 if not TankMark then return end
@@ -51,18 +51,36 @@ TankMark.TWA_MarkMap = {
 }
 
 function TankMark:HandleTWABW(msg, sender)
-    -- Format: "BWSynch=Mark : Tank1 Tank2... || Healers: H1 H2..."
-    
+    -- [DEBUG] 1. Incoming Message (Enclosed in brackets to see whitespace)
+    local safeMsg = _gsub(msg, "|", "||")
+    TankMark:Print("DEBUG: TWA Msg: [" .. safeMsg .. "]") 
+
     -- 1. Strip Prefix
+    -- Pattern: BWSynch=...
     local _, _, content = _strfind(msg, "^BWSynch=(.*)")
     if not content or content == "start" or content == "end" then return end
     
-    -- 2. Parse Mark (Separator is " : ")
-    local _, _, markName, rest = _strfind(content, "^(.-) : (.*)")
-    if not markName or not TankMark.TWA_MarkMap[markName] then return end
+    -- 2. Parse Mark (Robust Whitespace)
+    -- Old Pattern: "^(.-) : (.*)" -> Failed on double spaces
+    -- New Pattern: "^%s*(.-)%s*:%s*(.*)"
+    -- Explanation: Trim leading spaces, Capture Name, Trim spaces around colon, Capture Rest
+    local _, _, markName, rest = _strfind(content, "^%s*(.-)%s*:%s*(.*)")
+    
+    if not markName then
+        TankMark:Print("DEBUG: Failed to parse structure of: [" .. content .. "]")
+        return
+    end
+
+    -- Check if it's a valid Mark (Ignore "BOSS" or "Left", etc.)
+    if not TankMark.TWA_MarkMap[markName] then 
+        -- Valid parse, but not a Mark we care about. Fail silently or debug info.
+        -- TankMark:Print("DEBUG: Ignored unknown label: [" .. markName .. "]")
+        return 
+    end
     
     local iconID = TankMark.TWA_MarkMap[markName]
-    
+    -- TankMark:Print("DEBUG: Mark Found: [" .. markName .. "] (ID: " .. iconID .. ")")
+
     -- 3. Parse Tanks vs Healers (Capture Method)
     -- Pattern: Capture everything until double pipes, then capture everything after label
     local _, _, tankPart, healPart = _strfind(rest, "^(.-)%s*[|][|]%s*Healers:%s*(.*)$")
@@ -71,10 +89,14 @@ function TankMark:HandleTWABW(msg, sender)
     if not tankPart then
         tankPart = rest
         healPart = ""
+        -- TankMark:Print("DEBUG: No Healer separator found. All assigned to Tank.")
     end
     
+    -- [DEBUG] Raw Parts
+    -- TankMark:Print("DEBUG: Raw Tank Part: [" .. (tankPart or "nil") .. "]")
+    
     -- 4. Clean Tanks
-    local tankStr = _gsub(tankPart, "-", "") -- Remove TWA placeholders
+    local tankStr = _gsub(tankPart, "-", "") -- Remove placeholders
     tankStr = _gsub(tankStr, "[|]", "")      -- Remove any lingering pipes
     tankStr = _gsub(tankStr, "%s+", " ")     -- Normalize spaces
     tankStr = _gsub(tankStr, "^%s*(.-)%s*$", "%1") -- Trim
@@ -87,12 +109,15 @@ function TankMark:HandleTWABW(msg, sender)
         healStr = _gsub(healStr, "^%s*(.-)%s*$", "%1")
     end
     
-    -- Pick first valid tank name for TankMark automation
+    -- Pick first valid tank name
     local primaryTank = nil
     for word in _gfind(tankStr, "%S+") do
         if word ~= "" then primaryTank = word; break end
     end
     
+    -- [DEBUG] Final Data
+    TankMark:Print("DEBUG: Saving [" .. markName .. "] -> Tank: [" .. (primaryTank or "nil") .. "] Healers: [" .. healStr .. "]")
+
     -- Store Data
     local zone = GetRealZoneText()
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
@@ -102,15 +127,16 @@ function TankMark:HandleTWABW(msg, sender)
         ["healers"] = (healStr ~= "") and healStr or nil
     }
     
-    -- Live Update (only if in the correct zone)
-    if zone == GetRealZoneText() and primaryTank then
-        TankMark.sessionAssignments[iconID] = primaryTank
-        TankMark.usedIcons[iconID] = true
-        if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-    elseif zone == GetRealZoneText() and not primaryTank then
-        -- Clear live assignment if TWA sent empty
-        TankMark.sessionAssignments[iconID] = nil
-        TankMark.usedIcons[iconID] = nil
+    -- Live Update
+    if zone == GetRealZoneText() then
+        if primaryTank then
+            TankMark.sessionAssignments[iconID] = primaryTank
+            TankMark.usedIcons[iconID] = true
+        else
+            -- Clear if TWA sent empty/nil
+            TankMark.sessionAssignments[iconID] = nil
+            TankMark.usedIcons[iconID] = nil
+        end
         if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
     
