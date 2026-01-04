@@ -1,4 +1,4 @@
--- TankMark: v0.15-dev (Ordered Profiles)
+-- TankMark: v0.15 (Ordered Profiles)
 -- File: TankMark_Data.lua
 
 if not TankMark then
