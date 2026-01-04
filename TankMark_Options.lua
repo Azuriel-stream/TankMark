@@ -48,6 +48,11 @@ TankMark.detectedCreatureType = nil
 TankMark.isLockActive = false
 
 -- ==========================================================
+-- LOCALIZATIONS (Performance & Constraints)
+-- ==========================================================
+local _gsub = string.gsub
+
+-- ==========================================================
 -- SMART MAPPINGS
 -- ==========================================================
 -- Maps Class -> { Default Icon, Default Prio }
@@ -301,7 +306,7 @@ end
 function TankMark:UpdateMobList()
     if not TankMark.optionsFrame or not TankMark.optionsFrame:IsVisible() then return end
     TankMark:ValidateDB()
-    local db = TankMarkDB -- [FIX] Localized DB
+    local db = TankMarkDB 
 
     local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or GetRealZoneText()
     local listData = {}
@@ -468,7 +473,10 @@ function TankMark:SaveFormData()
         return
     end
     
-    local mob = TankMark.editMob:GetText()
+    -- [FIX] Sanitize input using localized _gsub
+    local rawMob = TankMark.editMob:GetText()
+    local mob = _gsub(rawMob, ";", "")
+    
     local prio = tonumber(TankMark.editPrio:GetText()) or 1
     local icon = TankMark.selectedIcon
     local classReq = TankMark.selectedClass 
