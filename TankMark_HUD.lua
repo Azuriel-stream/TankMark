@@ -1,4 +1,4 @@
--- TankMark: v0.14 (HUD & Context Menu)
+-- TankMark: v0.15 (HUD & Context Menu)
 -- File: TankMark_HUD.lua
 
 if not TankMark then return end
@@ -19,13 +19,12 @@ function TankMark:InitMenu()
     info.isTitle = 1
     UIDropDownMenu_AddButton(info, 1)
     
-    -- Master Toggle (Enable/Disable)
+    -- Master Toggle
     info = {}
     info.text = "Enable Auto-Marking"
     info.checked = TankMark.IsActive
     info.func = function() 
         TankMark.IsActive = not TankMark.IsActive
-        -- Refresh the menu to show new check state
         CloseDropDownMenus()
         ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
         TankMark:Print("Auto-Marking is now: " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
@@ -38,6 +37,16 @@ function TankMark:InitMenu()
     info.isTitle = 1
     UIDropDownMenu_AddButton(info, 1)
     
+    -- Enable All
+    info = {}
+    info.text = "Enable All Marks"
+    info.func = function() 
+        TankMark.disabledMarks = {} 
+        TankMark:UpdateHUD() 
+    end
+    info.notCheckable = 1
+    UIDropDownMenu_AddButton(info, 1)
+
     -- Announce
     info = {}
     info.text = "Announce Assignments"
@@ -65,7 +74,7 @@ function TankMark:InitMenu()
     info.isTitle = 1
     UIDropDownMenu_AddButton(info, 1)
 
-    -- Unmark Target (New)
+    -- Unmark Target
     info = {}
     info.text = "Unmark Current Target"
     info.func = function() SetRaidTarget("target", 0) end
@@ -111,7 +120,6 @@ function TankMark:CreateHUD()
     f:SetScript("OnDragStart", function() this:StartMoving() end)
     f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
     
-    -- Right Click Handler
     f:SetScript("OnMouseUp", function()
         if arg1 == "RightButton" then
             ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
@@ -123,8 +131,9 @@ function TankMark:CreateHUD()
     f.header:SetText("TankMark HUD")
 
     for i = 8, 1, -1 do
-        local row = CreateFrame("Frame", nil, f)
+        local row = CreateFrame("Button", nil, f) 
         row:SetWidth(180); row:SetHeight(20)
+        row:SetID(i) 
         
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetWidth(16); row.icon:SetHeight(16)
@@ -136,6 +145,12 @@ function TankMark:CreateHUD()
         row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
         row.text:SetText("")
         
+        row:EnableMouse(true)
+        row:RegisterForClicks("LeftButtonUp")
+        row:SetScript("OnClick", function() 
+            TankMark:ToggleMarkState(this:GetID()) 
+        end)
+        
         row:Hide() 
         TankMark.hudRows[i] = row
     end
@@ -145,18 +160,61 @@ function TankMark:CreateHUD()
 end
 
 -- ==========================================================
--- 3. UPDATE LOGIC
+-- 3. TOGGLE & UPDATE LOGIC
 -- ==========================================================
+
+function TankMark:ToggleMarkState(iconID)
+    TankMark.disabledMarks[iconID] = not TankMark.disabledMarks[iconID]
+    TankMark:UpdateHUD()
+end
+
 function TankMark:UpdateHUD()
     if not TankMark.hudFrame then TankMark:CreateHUD() end
     
     local activeRows = 0
     local lastVisibleRow = nil 
+    local zone = GetRealZoneText()
     
+    local renderList = {}
+    local added = {} -- Tracks if mark exists in Profile
+    
+    -- 1. Build List from Profile
+    if TankMarkProfileDB and TankMarkProfileDB[zone] then
+        for _, entry in ipairs(TankMarkProfileDB[zone]) do
+            if entry.mark then
+                table.insert(renderList, entry.mark)
+                added[entry.mark] = true
+            end
+        end
+    end
+    
+    -- 2. Empty Profile Warning
+    if table.getn(renderList) == 0 then
+        local warningRow = TankMark.hudRows[8] 
+        warningRow.icon:SetTexture(nil) 
+        warningRow.text:SetText("|cffff0000NO PROFILE LOADED|r")
+        warningRow:ClearAllPoints()
+        warningRow:SetPoint("TOPLEFT", TankMark.hudFrame, "TOPLEFT", 10, -25)
+        warningRow:Show()
+        for i = 7, 1, -1 do TankMark.hudRows[i]:Hide() end
+        TankMark.hudFrame:Show()
+        TankMark.hudFrame:SetHeight(50)
+        return
+    end
+    
+    -- 3. Add Leftovers (Standard desc order)
     for i = 8, 1, -1 do
+        if not added[i] then
+            table.insert(renderList, i)
+        end
+    end
+    
+    -- 4. Render Loop
+    for _, i in ipairs(renderList) do
         local row = TankMark.hudRows[i]
         local assignedPlayer = TankMark.sessionAssignments[i]
         local activeMob = TankMark.activeMobNames[i]
+        
         local textToShow = nil
         
         if assignedPlayer then
@@ -165,7 +223,42 @@ function TankMark:UpdateHUD()
             textToShow = "|cffffffff" .. activeMob .. "|r"
         end
         
-        if textToShow then
+        -- [FIX] Logic Check:
+        -- Show row if:
+        -- A. It is part of the Profile (added[i]) -> Show even if empty
+        -- B. It has an active assignment/mob (hasText)
+        -- C. It is disabled (to allow re-enabling)
+        
+        local isProfileMark = added[i]
+        local hasAssignment = (textToShow ~= nil)
+        local isDisabled = TankMark.disabledMarks[i]
+        
+        -- Apply Visual Disable (Dimming)
+        if isDisabled then
+            row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+            SetRaidTargetIconTexture(row.icon, i)
+            row.icon:SetVertexColor(0.3, 0.3, 0.3)
+            
+            if textToShow then
+                local plainText = string.gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
+                plainText = string.gsub(plainText, "|r", "")
+                textToShow = "|cff888888" .. plainText .. " (OFF)|r"
+            else
+                textToShow = "|cff888888(Disabled)|r"
+            end
+        else
+            row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+            SetRaidTargetIconTexture(row.icon, i)
+            row.icon:SetVertexColor(1, 1, 1)
+        end
+        
+        -- Display Decision
+        if isProfileMark or hasAssignment or isDisabled then
+            -- [FIX] If from profile but empty, show placeholder
+            if not textToShow then 
+                textToShow = "|cff888888(Free)|r" 
+            end
+            
             row.text:SetText(textToShow)
             row:ClearAllPoints()
             if not lastVisibleRow then

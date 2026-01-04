@@ -1,4 +1,4 @@
--- TankMark: v0.15-dev (Ordered Profile UI - Final Polish)
+-- TankMark: v0.15 (Ordered Profile UI - Final Polish)
 -- File: TankMark_Options.lua
 
 if not TankMark then return end
@@ -155,6 +155,9 @@ function TankMark:UpdateTabs()
         if TankMark.tab2 then TankMark.tab2:Show() end
         TankMark:LoadProfileToCache() 
         TankMark:UpdateProfileList() 
+        
+        -- [NEW] Auto-show HUD when viewing Team Profiles
+        if TankMark.UpdateHUD then TankMark:UpdateHUD() end
     end
 end
 
@@ -552,6 +555,31 @@ function TankMark:SaveProfileCache()
     TankMark:UpdateProfileList()
 end
 
+-- [ADDED] Function to Wipe the Profile
+function TankMark:RequestResetProfile()
+    TankMark:ValidateDB()
+    local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+    
+    if zone and TankMarkProfileDB[zone] then
+        TankMark.pendingWipeAction = function()
+            TankMarkProfileDB[zone] = {}
+            TankMark:LoadProfileToCache()
+            TankMark:UpdateProfileList()
+            
+            if zone == GetRealZoneText() then
+                TankMark.sessionAssignments = {}
+                TankMark.usedIcons = {}
+                if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+            end
+            
+            TankMark:Print("Reset (Cleared) team profile for: " .. zone)
+        end
+        StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Are you sure you want to CLEAR the profile for: |cffff0000" .. zone .. "|r?")
+    else
+        TankMark:Print("No profile data to reset.")
+    end
+end
+
 function TankMark:Profile_AddRow()
     _insert(TankMark.profileCache, { mark=8, tank="", healers="" })
     TankMark:UpdateProfileList()
@@ -605,7 +633,6 @@ function TankMark:UpdateProfileList()
     local numItems = _getn(list)
     local MAX_ROWS = 6 
     
-    -- [FIX] Tuned Height 270 (Sweet Spot)
     FauxScrollFrame_Update(TankMark.profileScroll, numItems, MAX_ROWS, 44) 
     local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
     
@@ -911,7 +938,8 @@ function TankMark:CreateOptionsFrame()
     
     local resetPBtn = CreateFrame("Button", "TMProfileResetBtn", t2, "UIPanelButtonTemplate")
     resetPBtn:SetWidth(100); resetPBtn:SetHeight(24); resetPBtn:SetPoint("RIGHT", savePBtn, "LEFT", -10, 0); resetPBtn:SetText("Reset")
-    resetPBtn:SetScript("OnClick", function() TankMark:LoadProfileToCache(); TankMark:UpdateProfileList() end)
+    -- [FIX] Reset Button Call
+    resetPBtn:SetScript("OnClick", function() TankMark:RequestResetProfile() end)
 
     TankMark.tab1 = t1
     local tab1 = CreateFrame("Button", "TMTab1", f, "UIPanelButtonTemplate"); tab1:SetWidth(120); tab1:SetHeight(30); tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5); tab1:SetText("Mob Database")
