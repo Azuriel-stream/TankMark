@@ -11,6 +11,13 @@ TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
 
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
+local _insert = table.insert
+local _ipairs = ipairs
+local _pairs = pairs
+
 TankMark.sessionAssignments = {} 
 TankMark.runtimeCache = { classRoster = {} }
 
@@ -57,7 +64,7 @@ function TankMark:UpdateRoster()
                 if not TankMark.runtimeCache.classRoster[classEng] then
                     TankMark.runtimeCache.classRoster[classEng] = {}
                 end
-                table.insert(TankMark.runtimeCache.classRoster[classEng], name)
+                _insert(TankMark.runtimeCache.classRoster[classEng], name)
             end
         end
     end
@@ -77,9 +84,9 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
     local candidates = TankMark.runtimeCache.classRoster[requiredClass]
     if not candidates then return nil end
 
-    for _, playerName in ipairs(candidates) do
+    for _, playerName in _ipairs(candidates) do
         local isAssigned = false
-        for _, data in pairs(TankMark.sessionAssignments) do
+        for _, data in _pairs(TankMark.sessionAssignments) do
             -- v0.14: Check if assigned as tank (string or table)
             local assignedName = (type(data) == "table") and data.tank or data
             if assignedName == playerName then 

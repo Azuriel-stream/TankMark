@@ -19,6 +19,7 @@ local _tonumber = tonumber
 local _insert = table.insert
 local _remove = table.remove
 local _getn = table.getn
+local _pairs = pairs -- [ADDED]
 
 -- ==========================================================
 -- HELPER: Permissions
@@ -51,35 +52,22 @@ TankMark.TWA_MarkMap = {
 }
 
 function TankMark:HandleTWABW(msg, sender)
-    -- [DEBUG] 1. Incoming Message (Enclosed in brackets to see whitespace)
-    local safeMsg = _gsub(msg, "|", "||")
-    TankMark:Print("DEBUG: TWA Msg: [" .. safeMsg .. "]") 
-
     -- 1. Strip Prefix
     -- Pattern: BWSynch=...
     local _, _, content = _strfind(msg, "^BWSynch=(.*)")
     if not content or content == "start" or content == "end" then return end
     
     -- 2. Parse Mark (Robust Whitespace)
-    -- Old Pattern: "^(.-) : (.*)" -> Failed on double spaces
-    -- New Pattern: "^%s*(.-)%s*:%s*(.*)"
-    -- Explanation: Trim leading spaces, Capture Name, Trim spaces around colon, Capture Rest
     local _, _, markName, rest = _strfind(content, "^%s*(.-)%s*:%s*(.*)")
     
-    if not markName then
-        TankMark:Print("DEBUG: Failed to parse structure of: [" .. content .. "]")
-        return
-    end
+    if not markName then return end
 
     -- Check if it's a valid Mark (Ignore "BOSS" or "Left", etc.)
     if not TankMark.TWA_MarkMap[markName] then 
-        -- Valid parse, but not a Mark we care about. Fail silently or debug info.
-        -- TankMark:Print("DEBUG: Ignored unknown label: [" .. markName .. "]")
         return 
     end
     
     local iconID = TankMark.TWA_MarkMap[markName]
-    -- TankMark:Print("DEBUG: Mark Found: [" .. markName .. "] (ID: " .. iconID .. ")")
 
     -- 3. Parse Tanks vs Healers (Capture Method)
     -- Pattern: Capture everything until double pipes, then capture everything after label
@@ -89,11 +77,7 @@ function TankMark:HandleTWABW(msg, sender)
     if not tankPart then
         tankPart = rest
         healPart = ""
-        -- TankMark:Print("DEBUG: No Healer separator found. All assigned to Tank.")
     end
-    
-    -- [DEBUG] Raw Parts
-    -- TankMark:Print("DEBUG: Raw Tank Part: [" .. (tankPart or "nil") .. "]")
     
     -- 4. Clean Tanks
     local tankStr = _gsub(tankPart, "-", "") -- Remove placeholders
@@ -115,9 +99,6 @@ function TankMark:HandleTWABW(msg, sender)
         if word ~= "" then primaryTank = word; break end
     end
     
-    -- [DEBUG] Final Data
-    TankMark:Print("DEBUG: Saving [" .. markName .. "] -> Tank: [" .. (primaryTank or "nil") .. "] Healers: [" .. healStr .. "]")
-
     -- Store Data
     local zone = GetRealZoneText()
     if not TankMarkDB.Profiles[zone] then TankMarkDB.Profiles[zone] = {} end
@@ -230,7 +211,7 @@ function TankMark:BroadcastZone()
     
     -- A. Broadcast Mobs (Prefix: M)
     if TankMarkDB.Zones[zone] then
-        for mob, data in pairs(TankMarkDB.Zones[zone]) do
+        for mob, data in _pairs(TankMarkDB.Zones[zone]) do
             local safeClass = data.class or "NIL"
             local safeType = data.type or "KILL"
             local payload = "M;" .. zone .. ";" .. mob .. ";" .. data.prio .. ";" .. data.mark .. ";" .. safeType .. ";" .. safeClass
@@ -241,7 +222,7 @@ function TankMark:BroadcastZone()
     
     -- B. Broadcast Locks (Prefix: L)
     if TankMarkDB.StaticGUIDs[zone] then
-        for guid, data in pairs(TankMarkDB.StaticGUIDs[zone]) do
+        for guid, data in _pairs(TankMarkDB.StaticGUIDs[zone]) do
             local mark = (type(data) == "table") and data.mark or data
             local name = (type(data) == "table") and data.name or "Unknown"
             local payload = "L;" .. zone .. ";" .. guid .. ";" .. mark .. ";" .. name

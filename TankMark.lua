@@ -11,13 +11,16 @@ end
 local _strfind = string.find
 local _gsub = string.gsub
 local _lower = string.lower
-local _match = string.match
+local _strfind = string.find
+-- local _match = string.match
 local _format = string.format
 
 local _insert = table.insert
 local _pairs = pairs
 local _ipairs = ipairs
 local _getn = table.getn
+
+local _random = math.random
 
 local _UnitExists = UnitExists
 local _UnitIsDead = UnitIsDead
@@ -27,7 +30,7 @@ local _SetRaidTarget = SetRaidTarget
 local _UnitHealth = UnitHealth
 local _IsSpellInRange = IsSpellInRange
 local _CheckInteractDistance = CheckInteractDistance
-local _UnitClassification = UnitClassification -- [v0.14]
+local _UnitClassification = UnitClassification 
 local _getglobal = getglobal
 
 -- Helper: Table Wipe for Lua 5.0 (Reduces Garbage)
@@ -47,7 +50,7 @@ TankMark.activeGUIDs = {}
 TankMark.activeMobIsCaster = {}
 TankMark.sessionAssignments = {}
 TankMark.IsActive = true 
-TankMark.MarkNormals = false -- [v0.14] Default: Do not mark normal mobs
+TankMark.MarkNormals = false 
 TankMark.DeathPattern = nil 
 TankMark.RangeSpellID = nil     
 TankMark.RangeSpellIndex = nil  
@@ -129,7 +132,6 @@ end
 -- PERMISSIONS
 -- ==========================================================
 
--- [v0.14] Helper to check Leader/Assist regardless of "IsActive" toggle
 function TankMark:HasPermissions()
     local numRaid = GetNumRaidMembers()
     local numParty = GetNumPartyMembers()
@@ -226,7 +228,6 @@ function TankMark:UnmarkUnit(unit)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
--- [v0.14] Refactored: Separate Local Wipe from Server Wipe
 function TankMark:ClearAllMarks()
     -- 1. Always wipe Local State
     TankMark.usedIcons = {}
@@ -359,9 +360,7 @@ function TankMark:ProcessUnit(guid, mode)
 
     -- [v0.14] Normal/Trivial Mob Filter
     if not TankMark.MarkNormals then
-        -- [cite_start] SuperWoW allows passing GUID to UnitClassification [cite: 44]
         local cls = _UnitClassification(guid)
-        -- Fallback for standard clients (best effort if unit is mouseover)
         if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
             cls = _UnitClassification("mouseover")
         end
@@ -530,7 +529,15 @@ function TankMark:GetFreeTankIcon()
     for i = 1, 8 do
         if not TankMark.usedIcons[i] then
             local assignedName = nil
-            if TankMarkDB.Profiles[zone] then assignedName = TankMarkDB.Profiles[zone][i] end
+            if TankMarkDB.Profiles[zone] then 
+                -- [FIX] Handle new table format
+                local entry = TankMarkDB.Profiles[zone][i]
+                if type(entry) == "table" then
+                    assignedName = entry.tank
+                elseif type(entry) == "string" then
+                    assignedName = entry
+                end
+            end
             if assignedName and assignedName ~= "" then return i end
         end
     end
@@ -715,18 +722,30 @@ end
 function TankMark:GetAssigneeForMark(markID)
     local zone = GetRealZoneText()
     if TankMarkDB.Profiles[zone] and TankMarkDB.Profiles[zone][markID] then
-        local assignedName = TankMarkDB.Profiles[zone][markID]
-        if UnitInRaid("player") then
-            for i = 1, GetNumRaidMembers() do
-                if _UnitName("raid"..i) == assignedName then return assignedName end
-            end
-        else
-            if _UnitName("player") == assignedName then return assignedName end
-            for i = 1, GetNumPartyMembers() do
-                if _UnitName("party"..i) == assignedName then return assignedName end
+        -- [FIX] Logic Breakdown: Separate Table vs String
+        local profileEntry = TankMarkDB.Profiles[zone][markID]
+        local assignedName = nil
+        
+        if type(profileEntry) == "table" then
+            assignedName = profileEntry.tank
+        elseif type(profileEntry) == "string" then
+            assignedName = profileEntry
+        end
+
+        if assignedName and assignedName ~= "" then
+            if UnitInRaid("player") then
+                for i = 1, GetNumRaidMembers() do
+                    if _UnitName("raid"..i) == assignedName then return assignedName end
+                end
+            else
+                if _UnitName("player") == assignedName then return assignedName end
+                for i = 1, GetNumPartyMembers() do
+                    if _UnitName("party"..i) == assignedName then return assignedName end
+                end
             end
         end
     end
+
     local requiredClass = TankMark.MarkClassDefaults[markID]
     if not requiredClass then return nil end 
     local candidates = {}
@@ -754,13 +773,16 @@ function TankMark:GetAssigneeForMark(markID)
         for i = 1, GetNumPartyMembers() do CheckUnit("party"..i) end
     end
     if _getn(candidates) > 0 then
-        return candidates[math.random(_getn(candidates))]
+        return candidates[_random(_getn(candidates))] -- [FIX] Localized math.random
     end
     return nil
 end
 
 function TankMark:SlashHandler(msg)
-    local cmd, args = _match(msg, "^(%S*)%s*(.*)$");
+    -- [FIX] Use string.find instead of string.match for Lua 5.0
+    -- find returns: start, end, capture1, capture2...
+    local _, _, cmd, args = _strfind(msg, "^(%S*)%s*(.*)$")
+    
     cmd = _lower(cmd or "")
     local iconNames = {
         ["skull"] = 8, ["cross"] = 7, ["square"] = 6, ["moon"] = 5,
@@ -802,7 +824,9 @@ function TankMark:SlashHandler(msg)
             TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
         end
     elseif cmd == "assign" then
-        local markStr, targetPlayer = _match(args, "^(%S+)%s+(%S+)$")
+        -- [FIX] Lua 5.0 compatible parsing
+        local _, _, markStr, targetPlayer = _strfind(args, "^(%S+)%s+(%S+)$")
+        
         if markStr and targetPlayer then
             markStr = _lower(markStr)
             local iconID = tonumber(markStr) or iconNames[markStr]
