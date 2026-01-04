@@ -1,4 +1,4 @@
--- TankMark: v0.14 (Core Data & Events)
+-- TankMark: v0.15-dev (Ordered Profiles)
 -- File: TankMark_Data.lua
 
 if not TankMark then
@@ -28,45 +28,31 @@ TankMark.MarkClassDefaults = {
 }
 
 function TankMark:InitializeDB()
-    -- 1. Initialize Global DB (Mob Data)
+    -- 1. Mob Database (RETAINED)
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
     if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
     
-    -- 2. Initialize Local DB (Profiles)
+    -- 2. Profile Database (RESET for v0.15 Structure)
+    -- We assume any existing data is incompatible v0.14 data and ignore it.
+    -- Structure: TankMarkProfileDB[zone] = { {mark=8, tank="Name", ...}, {mark=7, ...} }
     if not TankMarkProfileDB then TankMarkProfileDB = {} end
     
-    -- 3. MIGRATION: Move old profiles to new DB
-    -- If the old Global DB has profiles, move them to the Local DB for this character
-    -- and then clear them from the Global DB so other alts start fresh (or migrate if they log in first).
-    if TankMarkDB.Profiles then
-        local count = 0
-        for zone, data in _pairs(TankMarkDB.Profiles) do
-            TankMarkProfileDB[zone] = data
-            count = count + 1
-        end
-        
-        -- Wipe the old table to complete migration
-        TankMarkDB.Profiles = nil
-        
-        if count > 0 then
-            TankMark:Print("Migrated " .. count .. " zone profiles to Character-Specific Storage.")
-        end
-    end
-    
-    TankMark:Print("Database initialized (v0.15 Split).")
+    TankMark:Print("Database initialized (v0.15 Ordered Lists).")
 end
 
--- [v0.14] Helper to safely get profile data (Migration Layer)
+-- [v0.15] Adapter: Scans the ordered list to find data for a specific Icon ID
+-- This keeps current logic (TankMark.lua) working until Phase 3.
 function TankMark:GetProfileData(zone, iconID)
-    if not TankMarkProfileDB[zone] then return nil end -- Changed Source
-    local data = TankMarkProfileDB[zone][iconID]
+    if not TankMarkProfileDB[zone] then return nil end
     
-    if type(data) == "string" then
-        return { tank = data, healers = "" }
-    elseif type(data) == "table" then
-        return data
+    -- Scan the ordered array
+    for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+        if entry.mark == iconID then
+            return entry
+        end
     end
+    
     return nil
 end
 
@@ -108,7 +94,6 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
     for _, playerName in _ipairs(candidates) do
         local isAssigned = false
         for _, data in _pairs(TankMark.sessionAssignments) do
-            -- v0.14: Check if assigned as tank (string or table)
             local assignedName = (type(data) == "table") and data.tank or data
             if assignedName == playerName then 
                 isAssigned = true 
