@@ -1,107 +1,161 @@
--- TankMark: v0.15 (HUD & Context Menu)
+-- TankMark: v0.16-dev (HUD & Context Menu)
 -- File: TankMark_HUD.lua
 
 if not TankMark then return end
 
+-- Localizations
+local _pairs = pairs
+local _ipairs = ipairs
+local _insert = table.insert
+local _sort = table.sort
+
+-- UI State
 TankMark.hudFrame = nil
 TankMark.hudRows = {}
 TankMark.menuFrame = nil
+TankMark.clickedIconID = nil -- Tracks which row was right-clicked
 
 -- ==========================================================
--- 1. MENU INITIALIZATION
+-- 1. MENUS (Global & Context)
 -- ==========================================================
-function TankMark:InitMenu()
+
+function TankMark:InitGlobalMenu()
     local info = {}
     
     -- Header
-    info = {}
-    info.text = "TankMark Actions"
-    info.isTitle = 1
-    UIDropDownMenu_AddButton(info, 1)
+    info = { text = "TankMark Actions", isTitle = 1, notCheckable = 1 }
+    UIDropDownMenu_AddButton(info)
     
     -- Master Toggle
-    info = {}
-    info.text = "Enable Auto-Marking"
-    info.checked = TankMark.IsActive
-    info.func = function() 
-        TankMark.IsActive = not TankMark.IsActive
-        CloseDropDownMenus()
-        ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
-        TankMark:Print("Auto-Marking is now: " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+    info = { 
+        text = "Enable Auto-Marking",
+        checked = TankMark.IsActive,
+        func = function() 
+            TankMark.IsActive = not TankMark.IsActive
+            CloseDropDownMenus()
+            TankMark:Print("Auto-Marking is now: " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        end
+    }
+    UIDropDownMenu_AddButton(info)
+
+    -- Actions
+    info = { text = "Enable All Marks", notCheckable = 1, func = function() TankMark.disabledMarks = {}; TankMark:UpdateHUD() end }
+    UIDropDownMenu_AddButton(info)
+
+    info = { text = "Announce Assignments", notCheckable = 1, func = function() TankMark:AnnounceAssignments() end }
+    UIDropDownMenu_AddButton(info)
+    
+    info = { text = "Sync Zone Data", notCheckable = 1, func = function() TankMark:BroadcastZone() end }
+    UIDropDownMenu_AddButton(info)
+    
+    info = { text = "Open Configuration", notCheckable = 1, func = function() TankMark:ShowOptions() end }
+    UIDropDownMenu_AddButton(info)
+    
+    -- Reset
+    info = { text = "|cffff0000Reset Session|r", notCheckable = 1, func = function() TankMark:ResetSession() end }
+    UIDropDownMenu_AddButton(info)
+    
+    info = { text = "Close", notCheckable = 1, func = function() CloseDropDownMenus() end }
+    UIDropDownMenu_AddButton(info)
+end
+
+function TankMark:InitRowMenu()
+    local iconID = TankMark.clickedIconID
+    if not iconID then return end
+    
+    local markName = TankMark.MarkInfo[iconID].color .. TankMark.MarkInfo[iconID].name .. "|r"
+    local info = { text = markName .. " Options", isTitle = 1, notCheckable = 1 }
+    UIDropDownMenu_AddButton(info)
+    
+    -- 1. Assign Target
+    local targetName = UnitName("target")
+    local canAssign = (targetName and UnitIsPlayer("target"))
+    local assignText = "Assign Target"
+    if canAssign then assignText = assignText .. " |cff00ff00(" .. targetName .. ")|r" end
+    
+    info = {
+        text = assignText,
+        notCheckable = 1,
+        disabled = not canAssign,
+        func = function()
+            TankMark:SetProfileAssignment(iconID, targetName)
+            CloseDropDownMenus()
+        end
+    }
+    UIDropDownMenu_AddButton(info)
+    
+    -- 2. Clear Assignment
+    info = {
+        text = "Clear Assignment (Free)",
+        notCheckable = 1,
+        func = function()
+            TankMark:SetProfileAssignment(iconID, "")
+            CloseDropDownMenus()
+        end
+    }
+    UIDropDownMenu_AddButton(info)
+    
+    -- 3. Disable Toggle
+    local isDisabled = TankMark.disabledMarks[iconID]
+    info = {
+        text = isDisabled and "Enable Mark" or "Disable Mark",
+        notCheckable = 1,
+        func = function()
+            TankMark:ToggleMarkState(iconID)
+            CloseDropDownMenus() -- Close to show update
+        end
+    }
+    UIDropDownMenu_AddButton(info)
+    
+    info = { text = "Cancel", notCheckable = 1, func = function() CloseDropDownMenus() end }
+    UIDropDownMenu_AddButton(info)
+end
+
+-- Helper to write directly to DB from HUD
+function TankMark:SetProfileAssignment(iconID, playerName)
+    local zone = GetRealZoneText()
+    if not TankMarkProfileDB[zone] then TankMarkProfileDB[zone] = {} end
+    local list = TankMarkProfileDB[zone]
+    
+    -- 1. Find existing entry or create new
+    local found = false
+    for _, entry in _ipairs(list) do
+        if entry.mark == iconID then
+            entry.tank = playerName
+            found = true
+            break
+        end
     end
-    UIDropDownMenu_AddButton(info, 1)
-
-    -- Separator
-    info = {}
-    info.text = ""
-    info.isTitle = 1
-    UIDropDownMenu_AddButton(info, 1)
     
-    -- Enable All
-    info = {}
-    info.text = "Enable All Marks"
-    info.func = function() 
-        TankMark.disabledMarks = {} 
-        TankMark:UpdateHUD() 
+    if not found then
+        _insert(list, { mark = iconID, tank = playerName, healers = "" })
+        -- Sort new list by ID desc (Skull first)
+        _sort(list, function(a,b) return a.mark > b.mark end)
     end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
-
-    -- Announce
-    info = {}
-    info.text = "Announce Assignments"
-    info.func = function() TankMark:AnnounceAssignments() end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
     
-    -- Sync
-    info = {}
-    info.text = "Sync Zone Data"
-    info.func = function() TankMark:BroadcastZone() end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
+    -- 2. Update Live Session
+    if playerName and playerName ~= "" then
+        TankMark.sessionAssignments[iconID] = playerName
+        TankMark.usedIcons[iconID] = true
+        TankMark:Print("Assigned " .. playerName .. " to " .. TankMark:GetMarkString(iconID))
+    else
+        -- If clearing, we remove the name but keep the 'used' status if it's currently on a mob
+        TankMark.sessionAssignments[iconID] = nil
+        TankMark:Print("Cleared assignment for " .. TankMark:GetMarkString(iconID))
+    end
     
-    -- Config
-    info = {}
-    info.text = "Open Configuration"
-    info.func = function() TankMark:ShowOptions() end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
-    
-    -- Separator
-    info = {}
-    info.text = ""
-    info.isTitle = 1
-    UIDropDownMenu_AddButton(info, 1)
-
-    -- Unmark Target
-    info = {}
-    info.text = "Unmark Current Target"
-    info.func = function() SetRaidTarget("target", 0) end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
-    
-    -- Reset Session
-    info = {}
-    info.text = "|cffff0000Reset Session|r"
-    info.func = function() TankMark:ResetSession() end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
-    
-    -- Close
-    info = {}
-    info.text = "Close Menu"
-    info.func = function() CloseDropDownMenus() end
-    info.notCheckable = 1
-    UIDropDownMenu_AddButton(info, 1)
+    -- 3. Refresh UI
+    TankMark:UpdateHUD()
+    -- Refresh Config Tab 2 if it's open
+    if TankMark.UpdateProfileList then TankMark:LoadProfileToCache(); TankMark:UpdateProfileList() end
 end
 
 -- ==========================================================
 -- 2. FRAME CREATION
 -- ==========================================================
 function TankMark:CreateHUD()
+    -- Single Menu Frame used for both contexts (re-initialized on click)
     TankMark.menuFrame = CreateFrame("Frame", "TankMarkHUDMenu", UIParent, "UIDropDownMenuTemplate")
-    UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitMenu() end, "MENU")
 
     local f = CreateFrame("Frame", "TankMarkHUD", UIParent)
     f:SetWidth(200); f:SetHeight(150)
@@ -120,8 +174,10 @@ function TankMark:CreateHUD()
     f:SetScript("OnDragStart", function() this:StartMoving() end)
     f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
     
+    -- Right-Click on Background -> Global Menu
     f:SetScript("OnMouseUp", function()
         if arg1 == "RightButton" then
+            UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitGlobalMenu() end, "MENU")
             ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
         end
     end)
@@ -146,9 +202,17 @@ function TankMark:CreateHUD()
         row.text:SetText("")
         
         row:EnableMouse(true)
-        row:RegisterForClicks("LeftButtonUp")
-        row:SetScript("OnClick", function() 
-            TankMark:ToggleMarkState(this:GetID()) 
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp") -- [UPDATED] Listen for Right Click
+        
+        row:SetScript("OnClick", function()
+            if arg1 == "LeftButton" then
+                TankMark:ToggleMarkState(this:GetID())
+            elseif arg1 == "RightButton" then
+                -- Open Row Context Menu
+                TankMark.clickedIconID = this:GetID()
+                UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitRowMenu() end, "MENU")
+                ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
+            end
         end)
         
         row:Hide() 
@@ -180,9 +244,9 @@ function TankMark:UpdateHUD()
     
     -- 1. Build List from Profile
     if TankMarkProfileDB and TankMarkProfileDB[zone] then
-        for _, entry in ipairs(TankMarkProfileDB[zone]) do
+        for _, entry in _ipairs(TankMarkProfileDB[zone]) do
             if entry.mark then
-                table.insert(renderList, entry.mark)
+                _insert(renderList, entry.mark)
                 added[entry.mark] = true
             end
         end
@@ -205,12 +269,12 @@ function TankMark:UpdateHUD()
     -- 3. Add Leftovers (Standard desc order)
     for i = 8, 1, -1 do
         if not added[i] then
-            table.insert(renderList, i)
+            _insert(renderList, i)
         end
     end
     
     -- 4. Render Loop
-    for _, i in ipairs(renderList) do
+    for _, i in _ipairs(renderList) do
         local row = TankMark.hudRows[i]
         local assignedPlayer = TankMark.sessionAssignments[i]
         local activeMob = TankMark.activeMobNames[i]
@@ -222,12 +286,6 @@ function TankMark:UpdateHUD()
         elseif activeMob then
             textToShow = "|cffffffff" .. activeMob .. "|r"
         end
-        
-        -- [FIX] Logic Check:
-        -- Show row if:
-        -- A. It is part of the Profile (added[i]) -> Show even if empty
-        -- B. It has an active assignment/mob (hasText)
-        -- C. It is disabled (to allow re-enabling)
         
         local isProfileMark = added[i]
         local hasAssignment = (textToShow ~= nil)
@@ -254,7 +312,6 @@ function TankMark:UpdateHUD()
         
         -- Display Decision
         if isProfileMark or hasAssignment or isDisabled then
-            -- [FIX] If from profile but empty, show placeholder
             if not textToShow then 
                 textToShow = "|cff888888(Free)|r" 
             end
