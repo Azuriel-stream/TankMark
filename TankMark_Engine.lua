@@ -299,7 +299,7 @@ function TankMark:HandleCombatLog(msg)
             if name == deadMobName then
                 if not TankMark:VerifyMarkExistence(iconID) then
                     TankMark:EvictMarkOwner(iconID)
-                    if TankMark.IsSuperWoW and iconID == 8 then TankMark:SmartDecideNextSkull() end
+                    if TankMark.IsSuperWoW and iconID == 8 then TankMark:ReviewSkullState() end
                     return 
                 end
             end
@@ -315,7 +315,7 @@ function TankMark:HandleDeath(unitID)
         local hp = UnitHealth(unitID)
         if icon and hp and hp <= 0 then
             TankMark:EvictMarkOwner(icon)
-            if TankMark.IsSuperWoW and icon == 8 then TankMark:SmartDecideNextSkull() end
+            if TankMark.IsSuperWoW and icon == 8 then TankMark:ReviewSkullState() end
         end
         return
     end
@@ -379,10 +379,20 @@ function TankMark:EvictMarkOwner(iconID)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
-function TankMark:SmartDecideNextSkull()
+function TankMark:ReviewSkullState()
+    -- 1. Identify Current Skull
+    local skullGUID = nil
     for guid, mark in _pairs(TankMark.activeGUIDs) do
-        if mark == 7 and TankMark.visibleTargets[guid] then
-             if not UnitIsDead(guid) then
+        if mark == 8 then skullGUID = guid; break end
+    end
+    
+    -- 2. Logic: Promote Cross to Skull (Instant Priority)
+    for guid, mark in _pairs(TankMark.activeGUIDs) do
+        if mark == 7 and TankMark.visibleTargets[guid] and not UnitIsDead(guid) then
+             -- If we have a Cross, and Skull is missing OR Cross is the candidate
+             -- We force the swap to Cross immediately (Chain of Command)
+             if not skullGUID or skullGUID ~= guid then
+                 if skullGUID then TankMark:EvictMarkOwner(8) end
                  TankMark:Driver_ApplyMark(guid, 8)
                  TankMark:EvictMarkOwner(7)
                  TankMark:RegisterMarkUsage(8, UnitName(guid), guid, false)
@@ -391,6 +401,8 @@ function TankMark:SmartDecideNextSkull()
              end
         end
     end
+
+    -- 3. Find Best 'Lowest HP' Candidate
     local bestGUID = nil
     local lowestHP = 999999
     local zone = GetRealZoneText()
@@ -399,7 +411,9 @@ function TankMark:SmartDecideNextSkull()
     
     for guid, _ in _pairs(TankMark.visibleTargets) do
         local currentMark = GetRaidTargetIndex(guid)
-        if not UnitIsDead(guid) and (not currentMark or currentMark <= 6) then
+        -- Candidate must be alive, and either Unmarked, or marked with Low Prio (<=6)
+        -- We do NOT want to steal Cross(7) here, that is handled above.
+        if not UnitIsDead(guid) and (not currentMark or currentMark <= 6 or guid == skullGUID) then
             local name = UnitName(guid)
             if name and TankMarkDB.Zones[zone][name] then
                 local data = TankMarkDB.Zones[zone][name]
@@ -414,13 +428,34 @@ function TankMark:SmartDecideNextSkull()
         end
     end
     
+    -- 4. Decision: Swap or Keep?
     if bestGUID then
-        local oldMark = GetRaidTargetIndex(bestGUID)
-        if oldMark then TankMark:EvictMarkOwner(oldMark) end
-        TankMark:Driver_ApplyMark(bestGUID, 8)
-        local name = UnitName(bestGUID)
-        TankMark:RegisterMarkUsage(8, name, bestGUID, false)
-        TankMark:Print("Auto-Assigned SKULL to " .. name .. " (Lowest HP).")
+        local shouldSwap = false
+        
+        if not skullGUID then
+            -- Case A: No Skull exists. Assign immediately.
+            shouldSwap = true
+        elseif bestGUID ~= skullGUID then
+            -- Case B: Skull exists, but we found a better target.
+            -- [THRESHOLD LOGIC] Only swap if Candidate is < 90% of Current Skull HP
+            local currentHP = UnitHealth(skullGUID) or 1
+            local candidateHP = UnitHealth(bestGUID)
+            
+            if currentHP > 0 and candidateHP < (currentHP * 0.90) then
+                shouldSwap = true
+            end
+        end
+        
+        if shouldSwap then
+            if skullGUID then TankMark:EvictMarkOwner(8) end
+            local oldMark = GetRaidTargetIndex(bestGUID)
+            if oldMark then TankMark:EvictMarkOwner(oldMark) end
+            
+            TankMark:Driver_ApplyMark(bestGUID, 8)
+            TankMark:RegisterMarkUsage(8, UnitName(bestGUID), bestGUID, false)
+            -- Optional: Reduce spam by only printing if it was a swap
+            TankMark:Print("Smart-Assigned SKULL to " .. UnitName(bestGUID))
+        end
     end
 end
 

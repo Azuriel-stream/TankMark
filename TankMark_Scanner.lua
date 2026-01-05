@@ -64,6 +64,9 @@ function TankMark:StartSuperScanner()
                 end
             end
         end
+        if TankMark.IsSuperWoW and TankMark.ReviewSkullState then
+             TankMark:ReviewSkullState()
+        end
     end)
 end
 
