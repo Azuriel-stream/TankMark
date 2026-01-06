@@ -1,4 +1,4 @@
--- TankMark: v0.16-dev (Core Logic Engine)
+-- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Engine.lua
 
 if not TankMark then return end
@@ -379,6 +379,7 @@ function TankMark:EvictMarkOwner(iconID)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
+-- [REVISED] Cascading Priority Logic (Prio 1 > Prio 2 > ...)
 function TankMark:ReviewSkullState()
     -- 1. Identify Current Skull
     local skullGUID = nil
@@ -389,10 +390,8 @@ function TankMark:ReviewSkullState()
     -- 2. Logic: Promote Cross to Skull (Instant Priority)
     for guid, mark in _pairs(TankMark.activeGUIDs) do
         if mark == 7 and TankMark.visibleTargets[guid] and not UnitIsDead(guid) then
-             -- If we have a Cross, and Skull is missing OR Cross is the candidate
-             -- We force the swap to Cross immediately (Chain of Command)
-             if not skullGUID or skullGUID ~= guid then
-                 if skullGUID then TankMark:EvictMarkOwner(8) end
+             -- [FIXED] Only promote Cross if Skull is ACTUALLY MISSING.
+             if not skullGUID then
                  TankMark:Driver_ApplyMark(guid, 8)
                  TankMark:EvictMarkOwner(7)
                  TankMark:RegisterMarkUsage(8, UnitName(guid), guid, false)
@@ -402,25 +401,35 @@ function TankMark:ReviewSkullState()
         end
     end
 
-    -- 3. Find Best 'Lowest HP' Candidate
+    -- 3. Find Best Candidate (Cascading Priority)
     local bestGUID = nil
     local lowestHP = 999999
-    local zone = GetRealZoneText()
+    local bestPrio = 99 -- Start with worst possible priority
     
+    local zone = GetRealZoneText()
     if not TankMarkDB.Zones[zone] then return end
     
     for guid, _ in _pairs(TankMark.visibleTargets) do
         local currentMark = GetRaidTargetIndex(guid)
-        -- Candidate must be alive, and either Unmarked, or marked with Low Prio (<=6)
-        -- We do NOT want to steal Cross(7) here, that is handled above.
+        
+        -- Candidate Check: Alive, and (Unmarked OR Low Mark OR is Current Skull)
         if not UnitIsDead(guid) and (not currentMark or currentMark <= 6 or guid == skullGUID) then
             local name = UnitName(guid)
             if name and TankMarkDB.Zones[zone][name] then
                 local data = TankMarkDB.Zones[zone][name]
-                if data.prio == 1 then
-                    local hp = UnitHealth(guid)
-                    if hp and hp < lowestHP and hp > 0 then
-                        lowestHP = hp
+                local mobPrio = data.prio or 99
+                local mobHP = UnitHealth(guid)
+                
+                -- LOGIC UPDATE: Switch to better Priority Tier immediately
+                if mobPrio < bestPrio then
+                    bestPrio = mobPrio
+                    lowestHP = mobHP
+                    bestGUID = guid
+                    
+                -- If Same Priority Tier, check HP
+                elseif mobPrio == bestPrio then
+                    if mobHP and mobHP < lowestHP and mobHP > 0 then
+                        lowestHP = mobHP
                         bestGUID = guid
                     end
                 end
@@ -433,16 +442,25 @@ function TankMark:ReviewSkullState()
         local shouldSwap = false
         
         if not skullGUID then
-            -- Case A: No Skull exists. Assign immediately.
             shouldSwap = true
         elseif bestGUID ~= skullGUID then
-            -- Case B: Skull exists, but we found a better target.
-            -- [THRESHOLD LOGIC] Only swap if Candidate is < 90% of Current Skull HP
-            local currentHP = UnitHealth(skullGUID) or 1
-            local candidateHP = UnitHealth(bestGUID)
+            -- Compare Candidate against Current Skull
+            local currentSkullName = UnitName(skullGUID)
+            local currentSkullPrio = 99
+            if currentSkullName and TankMarkDB.Zones[zone][currentSkullName] then
+                currentSkullPrio = TankMarkDB.Zones[zone][currentSkullName].prio or 99
+            end
             
-            if currentHP > 0 and candidateHP < (currentHP * 0.90) then
+            if bestPrio < currentSkullPrio then
+                -- Always swap if we found a higher priority target
                 shouldSwap = true
+            elseif bestPrio == currentSkullPrio then
+                -- If same priority, use Hysteresis (10% HP threshold)
+                local currentHP = UnitHealth(skullGUID) or 1
+                local candidateHP = UnitHealth(bestGUID)
+                if currentHP > 0 and candidateHP < (currentHP * 0.90) then
+                    shouldSwap = true
+                end
             end
         end
         
@@ -453,8 +471,6 @@ function TankMark:ReviewSkullState()
             
             TankMark:Driver_ApplyMark(bestGUID, 8)
             TankMark:RegisterMarkUsage(8, UnitName(bestGUID), bestGUID, false)
-            -- Optional: Reduce spam by only printing if it was a swap
-            TankMark:Print("Smart-Assigned SKULL to " .. UnitName(bestGUID))
         end
     end
 end
