@@ -1,24 +1,36 @@
-# TankMark (v0.16)
+# TankMark (v0.17)
 
 **TankMark** is an intelligent raid marking automation addon for Vanilla WoW (1.12.1). It automates the assignment of Raid Targets based on a priority system and includes tools for data collection and team coordination.
 
-> **🚀 New in v0.16:** Modular Architecture, Context-Sensitive HUD, and Sticky Skull Logic.
+> **🚀 New in v0.17:** Performance Optimization, Enhanced Stability, and Sync Data Validation.
 
 ## ✨ Key Features
 
-### 🖱️ HUD Context Menus (New!)
+### ⚡ Performance Improvements (New!)
+Significant optimization for high-density combat scenarios.
+* **Zone Caching System:** Reduces API overhead by ~50+ calls per combat pull.
+* **Automatic UI Refresh:** Config panels now auto-update zone dropdowns after teleports.
+* **Configurable Scanner Throttle:** Fine-tune nameplate scan intervals for performance tuning.
+
+### 🛡️ Enhanced Stability (New!)
+Bulletproof data integrity and error handling.
+* **Sync Data Validation:** Incoming sync messages are now validated to prevent database corruption.
+* **Wildcard Safety:** Fixed edge-case nil errors with empty tank assignments in profiles.
+* **State Synchronization:** Profile cache pre-loads before tab switches to eliminate stale data display.
+
+### 🖱️ HUD Context Menus
 The HUD is now a fully interactive Command Center.
 * **Right-Click Any Row:** Instantly access management options for that specific mark.
     * **Assign Target:** Links the mark to your current target immediately.
     * **Clear:** Frees the mark for auto-assignment.
     * **Disable/Enable:** Toggles the mark's usage status.
 
-### 💀 Sticky Skull Logic (New!)
+### 💀 Sticky Skull Logic
 Smarter combat tracking prevents the "disco ball" effect during AoE pulls.
 * **10% HP Threshold:** The Skull mark will no longer jitter rapidly between mobs with similar health. It only swaps if a new target is significantly lower (10% difference) or the current Skull dies.
 * **SuperWoW Integration:** Uses `RAW_COMBATLOG` events (if available) for precise death tracking, ensuring the mark only moves when the specific GUID dies.
 
-### 🃏 Wildcard Profiles (New!)
+### 🃏 Wildcard Profiles
 More flexible team assignments.
 * **Empty Slots = Wildcards:** If you leave the "Assigned Tank" field **blank** in your Team Profile, TankMark treats that mark as a "Wildcard."
 * **Auto-Fill:** The engine will use these Wildcard marks to auto-mark mobs even if no specific player is defined for them.
@@ -57,6 +69,7 @@ More flexible team assignments.
 | `/tmark reset` | **Wipes** all marks and assignments (HUD & In-Game). |
 | `/tmark on` / `/tmark off` | Toggle automation. |
 | `/tmark assign [mark] [player]` | Manually assign a player to a mark via command line. |
+| `/tmark zone` | Displays current zone and driver mode (debug). |
 
 ---
 
@@ -74,3 +87,12 @@ Assign specific players to marks for any zone.
 * **TWA Sync:** Assignments are imported automatically if the RL broadcasts via BigWigs/TWAssignments.
 * **Manual:** Type names into the **Tank** or **Healers** boxes and click Save.
 * **Management:** Use the **Right-Click Context Menu** on the HUD to manage these on the fly.
+
+---
+
+## 🔄 Version History
+
+* **v0.17** - Performance optimization, sync validation, zone caching
+* **v0.16** - Modular architecture, HUD context menus, wildcard profiles
+* **v0.15** - Ordered profile lists, TWA integration
+* **v0.14** - Team profile system, sticky skull logic
