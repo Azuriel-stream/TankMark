@@ -1,4 +1,4 @@
--- TankMark: v0.16-dev (Config Tab 2: Team Profiles)
+-- TankMark: v0.17-dev (Config Tab 2: Team Profiles)
 -- File: TankMark_Config_Profiles.lua
 
 if not TankMark then return end
@@ -43,13 +43,12 @@ function TankMark:SaveProfileCache()
     TankMarkProfileDB[zone] = {}
     
     for i, entry in _ipairs(TankMark.profileCache) do
-        if entry.tank ~= "" or entry.healers ~= "" then
-            _insert(TankMarkProfileDB[zone], {
-                mark = entry.mark,
-                tank = entry.tank,
-                healers = entry.healers
-            })
-        end
+        -- [FIX] Removed filter. Save ALL rows, even if empty (Wildcards).
+        _insert(TankMarkProfileDB[zone], {
+            mark = entry.mark,
+            tank = entry.tank,
+            healers = entry.healers
+        })
     end
     
     if zone == GetRealZoneText() then

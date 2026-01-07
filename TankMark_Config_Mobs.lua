@@ -1,5 +1,6 @@
--- TankMark: v0.16-dev (Config Tab 1: Mob Database)
+-- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Config_Mobs.lua
+-- [PHASE 3] Removed unused localization, modernized global access
 
 if not TankMark then return end
 
@@ -12,21 +13,20 @@ local _getn = table.getn
 local _lower = string.lower
 local _strfind = string.find
 local _gsub = string.gsub
-local _getglobal = getglobal
 
 -- State
-TankMark.mobRows = {} 
-TankMark.selectedIcon = 8 
+TankMark.mobRows = {}
+TankMark.selectedIcon = 8
 TankMark.selectedClass = nil
-TankMark.isZoneListMode = false 
-TankMark.lockViewZone = nil 
+TankMark.isZoneListMode = false
+TankMark.lockViewZone = nil
 TankMark.editingLockGUID = nil
 TankMark.detectedCreatureType = nil
 TankMark.isLockActive = false
 
 -- UI References
-TankMark.scrollFrame = nil 
-TankMark.searchBox = nil 
+TankMark.scrollFrame = nil
+TankMark.searchBox = nil
 TankMark.zoneDropDown = nil
 TankMark.zoneModeCheck = nil
 TankMark.editMob = nil
@@ -39,145 +39,153 @@ TankMark.iconBtn = nil
 
 -- Logic Constants
 local CLASS_DEFAULTS = {
-    ["MAGE"]    = { icon = 5, prio = 3 },
-    ["WARLOCK"] = { icon = 3, prio = 3 },
-    ["DRUID"]   = { icon = 4, prio = 3 },
-    ["ROGUE"]   = { icon = 1, prio = 3 },
-    ["PRIEST"]  = { icon = 6, prio = 3 },
-    ["HUNTER"]  = { icon = 2, prio = 3 },
-    ["KILL"]    = { icon = 8, prio = 1 },
-    ["IGNORE"]  = { icon = 0, prio = 9 }
+	["MAGE"] = { icon = 5, prio = 3 },
+	["WARLOCK"] = { icon = 3, prio = 3 },
+	["DRUID"] = { icon = 4, prio = 3 },
+	["ROGUE"] = { icon = 1, prio = 3 },
+	["PRIEST"] = { icon = 6, prio = 3 },
+	["HUNTER"] = { icon = 2, prio = 3 },
+	["KILL"] = { icon = 8, prio = 1 },
+	["IGNORE"] = { icon = 0, prio = 9 }
 }
 
 local CC_MAP = {
-    ["Humanoid"]  = { "MAGE", "ROGUE", "WARLOCK", "PRIEST" },
-    ["Beast"]     = { "MAGE", "DRUID", "HUNTER" },
-    ["Elemental"] = { "WARLOCK" },
-    ["Demon"]     = { "WARLOCK" },
-    ["Undead"]    = { "PRIEST" },
-    ["Dragonkin"] = { "DRUID" }
+	["Humanoid"] = { "MAGE", "ROGUE", "WARLOCK", "PRIEST" },
+	["Beast"] = { "MAGE", "DRUID", "HUNTER" },
+	["Elemental"] = { "WARLOCK" },
+	["Demon"] = { "WARLOCK" },
+	["Undead"] = { "PRIEST" },
+	["Dragonkin"] = { "DRUID" }
 }
+
 local ALL_CLASSES = { "MAGE", "WARLOCK", "DRUID", "ROGUE", "PRIEST", "HUNTER", "WARRIOR", "SHAMAN", "PALADIN" }
 
 -- ==========================================================
 -- LOGIC & HELPERS
 -- ==========================================================
-
 function TankMark:UpdateClassButton()
-    if not TankMark.classBtn then return end
-    if TankMark.selectedClass then
-        TankMark.classBtn:SetText(TankMark.selectedClass)
-        TankMark.classBtn:SetTextColor(0, 1, 0)
-    else
-        TankMark.classBtn:SetText("No CC (Kill)")
-        TankMark.classBtn:SetTextColor(1, 0.82, 0)
-    end
-    if TankMark.selectedIcon == 0 then
-        TankMark.classBtn:SetText("IGNORED")
-        TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
-    end
+	if not TankMark.classBtn then return end
+	
+	if TankMark.selectedClass then
+		TankMark.classBtn:SetText(TankMark.selectedClass)
+		TankMark.classBtn:SetTextColor(0, 1, 0)
+	else
+		TankMark.classBtn:SetText("No CC (Kill)")
+		TankMark.classBtn:SetTextColor(1, 0.82, 0)
+	end
+	
+	if TankMark.selectedIcon == 0 then
+		TankMark.classBtn:SetText("IGNORED")
+		TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
+	end
 end
 
 function TankMark:ApplySmartDefaults(className)
-    local defaults = className and CLASS_DEFAULTS[className] or CLASS_DEFAULTS["KILL"]
-    TankMark.selectedIcon = defaults.icon
-    if TankMark.iconBtn and TankMark.iconBtn.tex then
-        TankMark:SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
-    end
-    if TankMark.editPrio then
-        TankMark.editPrio:SetText(tostring(defaults.prio))
-    end
+	local defaults = className and CLASS_DEFAULTS[className] or CLASS_DEFAULTS["KILL"]
+	TankMark.selectedIcon = defaults.icon
+	
+	if TankMark.iconBtn and TankMark.iconBtn.tex then
+		TankMark:SetIconTexture(TankMark.iconBtn.tex, TankMark.selectedIcon)
+	end
+	
+	if TankMark.editPrio then
+		TankMark.editPrio:SetText(tostring(defaults.prio))
+	end
 end
 
 function TankMark:ToggleLockState()
-    if not UnitExists("target") and not TankMark.editingLockGUID then 
-        TankMark:Print("Error: You must target a mob to lock it.")
-        return 
-    end
-    
-    TankMark.isLockActive = not TankMark.isLockActive
-    
-    if TankMark.lockBtn then
-        if TankMark.isLockActive then
-            TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
-            TankMark.lockBtn:LockHighlight()
-        else
-            TankMark.lockBtn:SetText("Lock Mark")
-            TankMark.lockBtn:UnlockHighlight()
-        end
-    end
+	if not UnitExists("target") and not TankMark.editingLockGUID then
+		TankMark:Print("|cffff0000Error:|r You must target a mob to lock it.")
+		return
+	end
+	
+	TankMark.isLockActive = not TankMark.isLockActive
+	
+	if TankMark.lockBtn then
+		if TankMark.isLockActive then
+			TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
+			TankMark.lockBtn:LockHighlight()
+		else
+			TankMark.lockBtn:SetText("Lock Mark")
+			TankMark.lockBtn:UnlockHighlight()
+		end
+	end
 end
 
 function TankMark:ResetEditor()
-    if TankMark.editMob then TankMark.editMob:SetText("") end
-    if TankMark.editPrio then TankMark.editPrio:SetText("1") end
-    
-    TankMark.editingLockGUID = nil
-    TankMark.detectedCreatureType = nil
-    TankMark.isLockActive = false
-    
-    TankMark.selectedClass = nil
-    TankMark:UpdateClassButton()
-    
-    TankMark.selectedIcon = 8
-    if TankMark.iconBtn and TankMark.iconBtn.tex then
-        TankMark:SetIconTexture(TankMark.iconBtn.tex, 8)
-    end
-    
-    if TankMark.lockBtn then
-        TankMark.lockBtn:SetText("Lock Mark")
-        TankMark.lockBtn:UnlockHighlight()
-        TankMark.lockBtn:Disable() 
-    end
-    
-    if TankMark.saveBtn then 
-        TankMark.saveBtn:SetText("Save") 
-        TankMark.saveBtn:Disable() 
-    end
-    if TankMark.cancelBtn then TankMark.cancelBtn:Hide() end
+	if TankMark.editMob then TankMark.editMob:SetText("") end
+	if TankMark.editPrio then TankMark.editPrio:SetText("1") end
+	
+	TankMark.editingLockGUID = nil
+	TankMark.detectedCreatureType = nil
+	TankMark.isLockActive = false
+	TankMark.selectedClass = nil
+	TankMark:UpdateClassButton()
+	TankMark.selectedIcon = 8
+	
+	if TankMark.iconBtn and TankMark.iconBtn.tex then
+		TankMark:SetIconTexture(TankMark.iconBtn.tex, 8)
+	end
+	
+	if TankMark.lockBtn then
+		TankMark.lockBtn:SetText("Lock Mark")
+		TankMark.lockBtn:UnlockHighlight()
+		TankMark.lockBtn:Disable()
+	end
+	
+	if TankMark.saveBtn then
+		TankMark.saveBtn:SetText("Save")
+		TankMark.saveBtn:Disable()
+	end
+	
+	if TankMark.cancelBtn then TankMark.cancelBtn:Hide() end
 end
 
 function TankMark:SetDropdownState(enabled)
-    if not TankMark.zoneDropDown then return end
-    local name = TankMark.zoneDropDown:GetName()
-    local btn = _getglobal(name.."Button")
-    local txt = _getglobal(name.."Text")
-    
-    if enabled then
-        if btn then btn:Enable(); btn:Show() end
-        TankMark.zoneDropDown:EnableMouse(true)
-        if txt then txt:SetVertexColor(1, 1, 1) end 
-    else
-        if btn then btn:Disable() end
-        TankMark.zoneDropDown:EnableMouse(false)
-        if txt then txt:SetVertexColor(0.5, 0.5, 0.5) end 
-    end
+	if not TankMark.zoneDropDown then return end
+	
+	local name = TankMark.zoneDropDown:GetName()
+	-- [PHASE 3] Replaced getglobal() with _G[] syntax (more idiomatic in Lua 5.0)
+	local btn = _G[name.."Button"]
+	local txt = _G[name.."Text"]
+	
+	if enabled then
+		if btn then btn:Enable(); btn:Show() end
+		TankMark.zoneDropDown:EnableMouse(true)
+		if txt then txt:SetVertexColor(1, 1, 1) end
+	else
+		if btn then btn:Disable() end
+		TankMark.zoneDropDown:EnableMouse(false)
+		if txt then txt:SetVertexColor(0.5, 0.5, 0.5) end
+	end
 end
 
 function TankMark:ToggleZoneBrowser()
-    TankMark.isZoneListMode = not TankMark.isZoneListMode
-    TankMark.lockViewZone = nil 
-    TankMark:ResetEditor()
-    if TankMark.searchBox then TankMark.searchBox:SetText("") end
-    
-    if TankMark.isZoneListMode then
-         TankMark:SetDropdownState(false)
-         UIDropDownMenu_SetText("Manage Saved Zones", TankMark.zoneDropDown)
-    else
-         TankMark:SetDropdownState(true)
-         UIDropDownMenu_SetText(GetRealZoneText(), TankMark.zoneDropDown)
-    end
-    
-    if TankMark.zoneModeCheck then 
-        TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
-    end
-    TankMark:UpdateMobList()
+	TankMark.isZoneListMode = not TankMark.isZoneListMode
+	TankMark.lockViewZone = nil
+	TankMark:ResetEditor()
+	
+	if TankMark.searchBox then TankMark.searchBox:SetText("") end
+	
+	if TankMark.isZoneListMode then
+		TankMark:SetDropdownState(false)
+		UIDropDownMenu_SetText("Manage Saved Zones", TankMark.zoneDropDown)
+	else
+		TankMark:SetDropdownState(true)
+		UIDropDownMenu_SetText(GetRealZoneText(), TankMark.zoneDropDown)
+	end
+	
+	if TankMark.zoneModeCheck then
+		TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode)
+	end
+	
+	TankMark:UpdateMobList()
 end
 
 function TankMark:ViewLocksForZone(zoneName)
-    TankMark.lockViewZone = zoneName
-    TankMark:ResetEditor()
-    TankMark:UpdateMobList()
+	TankMark.lockViewZone = zoneName
+	TankMark:ResetEditor()
+	TankMark:UpdateMobList()
 end
 
 function TankMark:UpdateMobList()
