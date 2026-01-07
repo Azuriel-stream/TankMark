@@ -1,6 +1,6 @@
 -- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Engine.lua
--- [PHASE 1 FIX] Added nil-safety check in HandleDeath for Wildcard profiles
+-- [PHASE 2] Replaced GetRealZoneText() with cached zone lookups
 
 if not TankMark then return end
 
@@ -48,7 +48,7 @@ end
 function TankMark:CanAutomate()
 	if not TankMark.IsActive then return false end
 	if not TankMark:HasPermissions() then return false end
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	if not TankMarkProfileDB[zone] or _getn(TankMarkProfileDB[zone]) == 0 then
 		return false
 	end
@@ -100,7 +100,7 @@ function TankMark:ProcessUnit(guid, mode)
 	end
 	
 	-- 2. Check Database Existence
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	local dbExists = (TankMarkDB.Zones[zone] or TankMarkDB.StaticGUIDs[zone])
 	
 	-- [FIX] Allow FORCE mode to proceed even if DB is empty for this zone
@@ -162,7 +162,7 @@ function TankMark:ProcessKnownMob(mobData, guid)
 	if mobData.type == "KILL" or isCCBlocked then
 		-- Priority 1: Use specific mark if free AND in profile
 		if not TankMark.usedIcons[mobData.mark] then
-			local zone = GetRealZoneText()
+			local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 			local list = TankMarkProfileDB[zone]
 			if list then
 				for _, entry in _ipairs(list) do
@@ -222,7 +222,7 @@ function TankMark:RecordUnit(guid)
 	local name = UnitName(guid)
 	if not name then return end
 	
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
 	
 	if not TankMarkDB.Zones[zone][name] then
@@ -238,7 +238,7 @@ end
 -- ASSIGNMENT HELPERS
 -- ==========================================================
 function TankMark:GetFreeTankIcon()
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	local list = TankMarkProfileDB[zone]
 	if not list then return nil end
 	
@@ -269,7 +269,7 @@ function TankMark:FindUnitByName(name)
 end
 
 function TankMark:GetAssigneeForMark(markID)
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	local list = TankMarkProfileDB[zone]
 	if not list then return nil end
 	
@@ -329,7 +329,7 @@ function TankMark:HandleDeath(unitID)
 	local deadPlayerName = UnitName(unitID)
 	if not deadPlayerName then return end
 	
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	local list = TankMarkProfileDB[zone]
 	if not list then return end
 	
@@ -420,7 +420,7 @@ function TankMark:ReviewSkullState()
 	local bestGUID = nil
 	local lowestHP = 999999
 	local bestPrio = 99 -- Start with worst possible priority
-	local zone = GetRealZoneText()
+	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
 	if not TankMarkDB.Zones[zone] then return end
 	
 	for guid, _ in _pairs(TankMark.visibleTargets) do

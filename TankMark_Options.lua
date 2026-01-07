@@ -1,6 +1,6 @@
--- TankMark: v0.16-dev (Main Options Container)
+-- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Options.lua
--- [PHASE 1 FIX] Added profile cache refresh on ShowOptions to prevent stale data
+-- [PHASE 2] Use cached zone lookups
 
 if not TankMark then return end
 
@@ -131,9 +131,11 @@ function TankMark:ShowOptions()
 	if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
 	if TankMark.zoneModeCheck then TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode) end
 	
-	local cz = GetRealZoneText()
-    if TankMark.zoneDropDown then UIDropDownMenu_SetText(cz, TankMark.zoneDropDown) end  -- Mob Database
-    if TankMark.profileZoneDropdown then UIDropDownMenu_SetText(cz, TankMark.profileZoneDropdown) end  -- Profile
+	-- [PHASE 1 FIX REVISION] Update BOTH zone dropdowns to current zone
+	-- [PHASE 2] Use cached zone
+	local cz = TankMark:GetCachedZone()
+	if TankMark.zoneDropDown then UIDropDownMenu_SetText(cz, TankMark.zoneDropDown) end  -- Mob Database
+	if TankMark.profileZoneDropdown then UIDropDownMenu_SetText(cz, TankMark.profileZoneDropdown) end  -- Profile
 	
 	TankMark:UpdateTabs()
 end

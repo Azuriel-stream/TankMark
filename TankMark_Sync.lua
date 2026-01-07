@@ -1,6 +1,6 @@
 -- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Sync.lua
--- [PHASE 1 FIX] Added sync data validation to prevent DB corruption
+-- [PHASE 2] Standardized error message formatting
 
 if not TankMark then return end
 
@@ -208,7 +208,8 @@ end
 
 function TankMark:BroadcastZone()
 	if not TankMark:CanAutomate() then
-		TankMark:Print("Error: You must be Raid Leader/Assist to sync.")
+		-- [PHASE 2] Standardized error format
+		TankMark:Print("|cffff0000Error:|r You must be Raid Leader/Assist to sync.")
 		return
 	end
 	
