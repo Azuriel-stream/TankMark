@@ -1,6 +1,6 @@
 -- TankMark: v0.17-dev (Release Candidate)
 -- File: TankMark_Options.lua
--- [PHASE 2] Use cached zone lookups
+-- [PHASE 3] Removed debug print and unused localization
 
 if not TankMark then return end
 
@@ -113,6 +113,7 @@ function TankMark:CreateOptionsFrame()
 	end)
 	
 	TankMark.optionsFrame = f
+	-- [PHASE 3] Removed debug print that fired on first config open
 end
 
 function TankMark:ShowOptions()
