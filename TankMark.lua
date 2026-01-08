@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark.lua
 -- [PHASE 2] Added zone caching, localization fixes, and standardized error messages
 
@@ -68,7 +68,7 @@ TankMark:SetScript("OnEvent", function()
 		TankMark:InitDriver()
 		TankMark:ScanForRangeSpell()
 		
-		TankMark:Print("TankMark v0.17-dev Loaded.")
+		TankMark:Print("TankMark v0.18-dev Loaded.")
 	
 	-- [PHASE 2] Zone change handler
 	elseif (event == "ZONE_CHANGED_NEW_AREA") then
