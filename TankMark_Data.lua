@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark_Data.lua
 -- [PHASE 3] Removed unused MarkClassDefaults
 
@@ -39,7 +39,7 @@ function TankMark:InitializeDB()
 	-- Structure: TankMarkProfileDB[zone] = { {mark=8, tank="Name", ...}, {mark=7, ...} }
 	if not TankMarkProfileDB then TankMarkProfileDB = {} end
 	
-	TankMark:Print("Database initialized (v0.17 Ordered Lists).")
+	TankMark:Print("Database initialized (v0.18 Ordered Lists).")
 end
 
 -- [v0.15] Adapter: Scans the ordered list to find data for a specific Icon ID

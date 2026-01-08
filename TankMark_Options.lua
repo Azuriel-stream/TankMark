@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark_Options.lua
 -- [PHASE 3] Removed debug print and unused localization
 

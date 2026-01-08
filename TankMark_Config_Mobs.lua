@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark_Config_Mobs.lua
 -- [PHASE 3] Removed unused localization, modernized global access
 

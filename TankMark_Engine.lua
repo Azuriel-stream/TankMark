@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark_Engine.lua
 -- [PHASE 2] Replaced GetRealZoneText() with cached zone lookups
 
@@ -222,17 +222,21 @@ function TankMark:RecordUnit(guid)
 	local name = UnitName(guid)
 	if not name then return end
 	
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
 	
 	if not TankMarkDB.Zones[zone][name] then
 		TankMarkDB.Zones[zone][name] = {
-			["prio"] = 1, ["mark"] = 8, ["type"] = "KILL", ["class"] = nil
+			["prio"] = 5,  -- [v0.18] Middle baseline - user adjusts per pack context
+			["mark"] = 8, 
+			["type"] = "KILL", 
+			["class"] = nil
 		}
-		TankMark:Print("Recorder: Captured [" .. name .. "]")
+		TankMark:Print("Recorder: Captured [" .. name .. "] (P5 - adjust as needed)")
 		if TankMark.UpdateMobList then TankMark:UpdateMobList() end
 	end
 end
+
 
 -- ==========================================================
 -- ASSIGNMENT HELPERS
