@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Config Tab 2: Team Profiles)
+-- TankMark: v0.18-dev (Config Tab 2: Team Profiles)
 -- File: TankMark_Config_Profiles.lua
 
 if not TankMark then return end
