@@ -1,4 +1,4 @@
--- TankMark: v0.17-dev (Release Candidate)
+-- TankMark: v0.18-dev (Release Candidate)
 -- File: TankMark_Scanner.lua
 -- [PHASE 2] Made scanner throttle interval configurable
 
