@@ -282,10 +282,17 @@ function TankMark:UpdateHUD()
 		local textToShow = nil
 		
 		if assignedPlayer then
-			textToShow = "|cff00ff00" .. assignedPlayer .. "|r"
+			-- Apply roster validation
+			local isInRaid = TankMark:IsPlayerInRaid(assignedPlayer)
+			if isInRaid then
+				textToShow = "|cff00ff00" .. assignedPlayer .. "|r"
+			else
+				textToShow = "|cffff0000" .. assignedPlayer .. "|r"
+			end
 		elseif activeMob then
 			textToShow = "|cffffffff" .. activeMob .. "|r"
 		end
+
 		
 		local isProfileMark = added[i]
 		local hasAssignment = (textToShow ~= nil)
