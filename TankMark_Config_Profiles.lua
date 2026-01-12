@@ -15,6 +15,7 @@ local _ipairs = ipairs
 local _insert = table.insert
 local _remove = table.remove
 local _getn = table.getn
+local _strfind = string.find
 
 -- ==========================================================
 -- STATE
@@ -24,6 +25,7 @@ TankMark.profileRows = {}
 TankMark.profileScroll = nil
 TankMark.profileZoneDropdown = nil
 TankMark.profileCache = {}
+TankMark.profileAddBtn = nil
 
 -- ==========================================================
 -- PROFILE TEMPLATES
@@ -38,7 +40,7 @@ TankMarkProfileTemplates = {
 		{mark = 4, tank = "", healers = ""},
 		{mark = 3, tank = "", healers = ""},
 		{mark = 2, tank = "", healers = ""},
-		{mark = 1, tank = "", healers = ""}
+		{mark = 1, tank = ""}
 	},
 	["Priority 5-Tank"] = {
 		{mark = 8, tank = "", healers = ""},
@@ -157,6 +159,50 @@ function TankMark:ProfileMoveRow(index, direction)
 end
 
 -- ==========================================================
+-- HEALER ASSIGNMENT HELPER
+-- ==========================================================
+
+function TankMark:AddHealerToRow(rowIndex)
+	if not rowIndex or not TankMark.profileCache[rowIndex] then return end
+	
+	if not UnitExists("target") then
+		TankMark:Print("|cffffaa00Notice:|r No target selected.")
+		return
+	end
+	
+	if not UnitIsPlayer("target") then
+		TankMark:Print("|cffffaa00Notice:|r Target must be a player.")
+		return
+	end
+	
+	local healerName = UnitName("target")
+	if not healerName then return end
+	
+	local currentHealers = TankMark.profileCache[rowIndex].healers or ""
+	
+	-- Check if healer already in list
+	if currentHealers ~= "" then
+		local healerList = {}
+		for name in string.gfind(currentHealers, "[^ ]+") do
+			_insert(healerList, name)
+			if name == healerName then
+				TankMark:Print("|cffffaa00Notice:|r " .. healerName .. " is already in the healer list.")
+				return
+			end
+		end
+		-- Append new healer
+		TankMark.profileCache[rowIndex].healers = currentHealers .. " " .. healerName
+	else
+		-- First healer
+		TankMark.profileCache[rowIndex].healers = healerName
+	end
+	
+	-- Update UI
+	TankMark:UpdateProfileList()
+	TankMark:Print("|cff00ff00Added:|r " .. healerName .. " as healer")
+end
+
+-- ==========================================================
 -- TEMPLATE SYSTEM
 -- ==========================================================
 
@@ -164,11 +210,11 @@ function TankMark:ShowTemplateMenu()
 	local templateDrop = CreateFrame("Frame", "TMTemplateDropDown", UIParent, "UIDropDownMenuTemplate")
 	UIDropDownMenu_Initialize(templateDrop, function()
 		for templateName, _ in _pairs(TankMarkProfileTemplates) do
-			local capturedTemplate = templateName  -- Closure capture
+			local capturedTemplate = templateName
 			local info = {}
 			info.text = templateName
 			info.func = function()
-				TankMark:LoadTemplate(capturedTemplate)  -- Use captured variable
+				TankMark:LoadTemplate(capturedTemplate)
 				CloseDropDownMenus()
 			end
 			UIDropDownMenu_AddButton(info)
@@ -176,7 +222,6 @@ function TankMark:ShowTemplateMenu()
 	end)
 	ToggleDropDownMenu(1, nil, templateDrop, "cursor", 0, 0)
 end
-
 
 function TankMark:LoadTemplate(templateName)
 	local template = TankMarkProfileTemplates[templateName]
@@ -232,7 +277,7 @@ function TankMark:ShowCopyProfileDialog()
 	local copyDrop = CreateFrame("Frame", "TMCopyProfileDropDown", UIParent, "UIDropDownMenuTemplate")
 	UIDropDownMenu_Initialize(copyDrop, function()
 		for _, zoneName in _ipairs(sourceZones) do
-			local capturedZone = zoneName  -- Closure capture
+			local capturedZone = zoneName
 			local info = {}
 			info.text = zoneName .. " |cff888888(" .. _getn(TankMarkProfileDB[zoneName]) .. " marks)|r"
 			info.func = function()
@@ -281,7 +326,6 @@ function TankMark:CopyProfileFrom(sourceZone, targetZone)
 	TankMark:Print("|cff00ff00Copied:|r " .. _getn(TankMark.profileCache) .. " marks from '" .. sourceZone .. "'")
 end
 
-
 -- ==========================================================
 -- UI LOGIC
 -- ==========================================================
@@ -299,6 +343,7 @@ function TankMark:InitProfileIconMenu(parentFrame, dataIndex)
 		[2] = "Circle",
 		[1] = "Star"
 	}
+	
 	for i = 8, 1, -1 do
 		local capturedIcon = i
 		info = {}
@@ -335,15 +380,34 @@ function TankMark:UpdateProfileList()
 			row.tankEdit:SetText(data.tank or "")
 			row.healEdit:SetText(data.healers or "")
 			
-            -- Apply roster validation color to tank name
-            if data.tank and data.tank ~= "" then
-                if TankMark:IsPlayerInRaid(data.tank) then
-                    row.tankEdit:SetTextColor(1, 1, 1) -- White (in raid)
-                else
-                    row.tankEdit:SetTextColor(1, 0, 0) -- Red (not in raid)
+			-- Apply roster validation color to tank name
+			if data.tank and data.tank ~= "" then
+				if TankMark:IsPlayerInRaid(data.tank) then
+					row.tankEdit:SetTextColor(1, 1, 1) -- White (in raid)
+				else
+					row.tankEdit:SetTextColor(1, 0, 0) -- Red (not in raid)
+				end
+			else
+				row.tankEdit:SetTextColor(0.7, 0.7, 0.7) -- Gray (empty)
+			end
+			
+            -- Show/hide warning icon for offline healers
+            if row.warnIcon then
+                local showWarning = false
+                if data.healers and data.healers ~= "" then
+                    for healerName in string.gfind(data.healers, "[^ ]+") do
+                        if not TankMark:IsPlayerInRaid(healerName) then
+                            showWarning = true
+                            break
+                        end
+                    end
                 end
-            else
-                row.tankEdit:SetTextColor(0.7, 0.7, 0.7) -- Gray (empty)
+                
+                if showWarning then
+                    row.warnIcon:Show()
+                else
+                    row.warnIcon:Hide()
+                end
             end
 
 			-- Disable Up button for first row, Down for last row
@@ -368,6 +432,15 @@ function TankMark:UpdateProfileList()
 	for i = MAX_ROWS + 1, 8 do
 		if TankMark.profileRows[i] then
 			TankMark.profileRows[i]:Hide()
+		end
+	end
+	
+	-- Update "Add Mark" button state (8 mark limit)
+	if TankMark.profileAddBtn then
+		if numItems >= 8 then
+			TankMark.profileAddBtn:Disable()
+		else
+			TankMark.profileAddBtn:Enable()
 		end
 	end
 end
@@ -490,9 +563,9 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end)
 		
-		-- Target Button
+		-- Tank Target Button
 		local tbtn = CreateFrame("Button", "TMProfileRowTarget"..i, row, "UIPanelButtonTemplate")
-		tbtn:SetWidth(30)
+		tbtn:SetWidth(20)
 		tbtn:SetHeight(20)
 		tbtn:SetPoint("LEFT", teb, "RIGHT", 2, 0)
 		tbtn:SetText("T")
@@ -502,15 +575,74 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end)
 		
-		-- Healer Edit Box
-		local heb = TankMark:CreateEditBox(row, "", 120)
-		heb:SetPoint("LEFT", tbtn, "RIGHT", 10, 0)
-		row.healEdit = heb
-		heb:SetScript("OnTextChanged", function()
-			if row.index and TankMark.profileCache[row.index] then
-				TankMark.profileCache[row.index].healers = this:GetText()
-			end
-		end)
+        -- Healer Edit Box
+        local heb = TankMark:CreateEditBox(row, "", 100)
+        heb:SetPoint("LEFT", tbtn, "RIGHT", 5, 0)
+        row.healEdit = heb
+        heb:SetScript("OnTextChanged", function()
+            if row.index and TankMark.profileCache[row.index] then
+                TankMark.profileCache[row.index].healers = this:GetText()
+                -- Trigger update to refresh warning icon
+                TankMark:UpdateProfileList()
+            end
+        end)
+
+        -- Healer Target Button
+        local hbtn = CreateFrame("Button", "TMProfileRowHealerTarget"..i, row, "UIPanelButtonTemplate")
+        hbtn:SetWidth(20)
+        hbtn:SetHeight(20)
+        hbtn:SetPoint("LEFT", heb, "RIGHT", 2, 0)
+        hbtn:SetText("T")
+        hbtn:SetScript("OnClick", function()
+            TankMark:AddHealerToRow(row.index)
+        end)
+
+        -- Warning Icon (for offline healers)
+        local warnIcon = CreateFrame("Frame", "TMProfileRowWarning"..i, row)
+        warnIcon:SetWidth(22)
+        warnIcon:SetHeight(22)
+        warnIcon:SetPoint("LEFT", hbtn, "RIGHT", 3, 0)
+
+        local warnTex = warnIcon:CreateTexture(nil, "ARTWORK")
+        warnTex:SetTexture("Interface\\DialogFrame\\DialogAlertIcon")
+        warnTex:SetAllPoints()
+        warnIcon.texture = warnTex
+
+        warnIcon:EnableMouse(true)
+        warnIcon:SetScript("OnEnter", function()
+            if not row.index or not TankMark.profileCache[row.index] then return end
+            local healers = TankMark.profileCache[row.index].healers
+            if not healers or healers == "" then return end
+            
+            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Healer Status:", 1, 1, 1)
+            GameTooltip:AddLine(" ", 1, 1, 1) -- Spacing
+            
+            local hasOffline = false
+            for healerName in string.gfind(healers, "[^ ]+") do
+                local isOnline = TankMark:IsPlayerInRaid(healerName)
+                if isOnline then
+                    GameTooltip:AddLine(healerName .. " [Online]", 0, 1, 0)
+                else
+                    GameTooltip:AddLine(healerName .. " [OFFLINE]", 1, 0, 0)
+                    hasOffline = true
+                end
+            end
+            
+            if hasOffline then
+                GameTooltip:AddLine(" ", 1, 1, 1)
+                GameTooltip:AddLine("Offline healers won't trigger alerts", 1, 0.82, 0, 1)
+            end
+            
+            GameTooltip:Show()
+        end)
+
+        warnIcon:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+
+        warnIcon:Hide()
+        row.warnIcon = warnIcon
 		
 		-- Up Button
 		local up = CreateFrame("Button", "TMProfileRowUp"..i, row, "UIPanelButtonTemplate")
@@ -557,6 +689,7 @@ function TankMark:CreateProfileTab(parent)
 	addBtn:SetScript("OnClick", function()
 		TankMark:ProfileAddRow()
 	end)
+	TankMark.profileAddBtn = addBtn
 	
 	local templateBtn = CreateFrame("Button", "TMProfileTemplateBtn", t2, "UIPanelButtonTemplate")
 	templateBtn:SetWidth(100)
