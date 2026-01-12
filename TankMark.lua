@@ -75,11 +75,19 @@ TankMark:SetScript("OnEvent", function()
 		TankMark:Print("TankMark v0.19-dev loaded.")
 	
 	elseif (event == "ZONE_CHANGED_NEW_AREA") then
+		local oldZone = TankMark.currentZone
 		TankMark.currentZone = GetRealZoneText()
 		
 		-- [v0.19] Load zone data for new zone
 		if TankMark.LoadZoneData then
 			TankMark:LoadZoneData(TankMark.currentZone)
+		end
+		
+		-- Disable Flight Recorder on zone change (safety)
+		if TankMark.IsRecorderActive then
+			TankMark.IsRecorderActive = false
+			TankMark:Print("|cffffaa00Flight Recorder:|r Auto-disabled (zone changed from '" .. (oldZone or "Unknown") .. "' to '" .. TankMark.currentZone .. "')")
+			TankMark:Print("Use '/tmark recorder start' to re-enable for new zone.")
 		end
 		
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
@@ -138,8 +146,16 @@ function TankMark:SlashHandler(msg)
 	
 	elseif cmd == "recorder" then
 		if args == "start" then
+			local zone = TankMark:GetCachedZone()
+			
+			-- Create zone if it doesn't exist
+			if not TankMarkDB.Zones[zone] then
+				TankMarkDB.Zones[zone] = {}
+				TankMark:Print("|cff00ff00Created:|r New zone '" .. zone .. "'")
+			end
+			
 			TankMark.IsRecorderActive = true
-			TankMark:Print("Flight Recorder: |cff00ff00ENABLED|r. Adding new mobs to DB.")
+			TankMark:Print("Flight Recorder: |cff00ff00ENABLED|r for '" .. zone .. "'. Mouseover mobs to record.")
 		elseif args == "stop" then
 			TankMark.IsRecorderActive = false
 			TankMark:Print("Flight Recorder: |cffff0000DISABLED|r.")

@@ -237,29 +237,42 @@ function TankMark:RegisterMarkUsage(icon, name, guid, isCaster)
 end
 
 function TankMark:RecordUnit(guid)
-	local name = UnitName(guid)
-	if not name then return end
-	
-	local zone = TankMark:GetCachedZone()
-	if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
-	
-	if not TankMarkDB.Zones[zone][name] then
-		TankMarkDB.Zones[zone][name] = {
-			["prio"] = 5,
-			["mark"] = 8,
-			["type"] = "KILL",
-			["class"] = nil
-		}
-		
-		TankMark:Print("Recorder: Captured [" .. name .. "] (P5 - adjust as needed)")
-		
-		-- [v0.19] Also add to activeDB for immediate use
-		if TankMark.activeDB then
-			TankMark.activeDB[name] = TankMarkDB.Zones[zone][name]
-		end
-		
-		if TankMark.UpdateMobList then TankMark:UpdateMobList() end
-	end
+    local name = UnitName(guid)
+    if not name then return end
+    
+    local zone = TankMark:GetCachedZone()
+    
+    -- Safety: Ensure zone exists (should already exist from recorder start)
+    if not TankMarkDB.Zones[zone] then
+        TankMarkDB.Zones[zone] = {}
+        TankMark:Print("|cffffaa00Warning:|r Zone '" .. zone .. "' created on-the-fly during recording.")
+    end
+    
+    -- Check if mob already exists
+    if TankMarkDB.Zones[zone][name] then
+        -- Mob already recorded, skip silently
+        return
+    end
+    
+    -- Record new mob
+    TankMarkDB.Zones[zone][name] = {
+        prio = 5,
+        mark = 8,
+        type = "KILL",
+        class = nil
+    }
+    
+    TankMark:Print("|cff00ff00Recorded:|r " .. name .. " |cff888888(P5, Mark: Skull)|r")
+    
+    -- [v0.19] Also add to activeDB for immediate use
+    if TankMark.activeDB then
+        TankMark.activeDB[name] = TankMarkDB.Zones[zone][name]
+    end
+    
+    -- Refresh mob list if config window is open
+    if TankMark.UpdateMobList then 
+        TankMark:UpdateMobList() 
+    end
 end
 
 -- ==========================================================
