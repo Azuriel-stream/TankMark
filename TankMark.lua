@@ -1,6 +1,6 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19
 -- File: TankMark.lua
--- [PHASE 2] Added zone caching, localization fixes, and standardized error messages
+-- [v0.19] Added snapshot triggers and zone data loading
 
 if not TankMark then
 	TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -13,12 +13,11 @@ local _strfind = string.find
 local _lower = string.lower
 local _pairs = pairs
 local _ipairs = ipairs
-local _getn = table.getn  -- [PHASE 2] Added localization
+local _getn = table.getn
 
 -- ==========================================================
 -- ZONE CACHING
 -- ==========================================================
--- [PHASE 2] Cache zone to reduce API calls
 TankMark.currentZone = nil
 
 function TankMark:GetCachedZone()
@@ -56,8 +55,13 @@ TankMark:SetScript("OnEvent", function()
 	elseif (event == "PLAYER_LOGIN") then
 		math.randomseed(time())
 		
-		-- [PHASE 2] Initialize zone cache
+		-- Initialize zone cache
 		TankMark.currentZone = GetRealZoneText()
+		
+		-- [v0.19] Load zone data (merge defaults + user DB)
+		if TankMark.LoadZoneData then
+			TankMark:LoadZoneData(TankMark.currentZone)
+		end
 		
 		if TankMark.UpdateRoster then TankMark:UpdateRoster() end
 		
@@ -68,18 +72,41 @@ TankMark:SetScript("OnEvent", function()
 		TankMark:InitDriver()
 		TankMark:ScanForRangeSpell()
 		
-		TankMark:Print("TankMark v0.18-dev Loaded.")
+		TankMark:Print("TankMark v0.19 loaded.")
 	
-	-- [PHASE 2] Zone change handler
 	elseif (event == "ZONE_CHANGED_NEW_AREA") then
+		local oldZone = TankMark.currentZone
 		TankMark.currentZone = GetRealZoneText()
-	
+		
+		-- [v0.19] Load zone data for new zone
+		if TankMark.LoadZoneData then
+			TankMark:LoadZoneData(TankMark.currentZone)
+		end
+		
+		-- Disable Flight Recorder on zone change (safety)
+		if TankMark.IsRecorderActive then
+			TankMark.IsRecorderActive = false
+			TankMark:Print("|cffffaa00Flight Recorder:|r Auto-disabled (zone changed from '" .. (oldZone or "Unknown") .. "' to '" .. TankMark.currentZone .. "')")
+			TankMark:Print("Use '/tmark recorder start' to re-enable for new zone.")
+		end
+		
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
 		TankMark:HandleMouseover()
 	
 	elseif (event == "UNIT_HEALTH") then
 		TankMark:HandleDeath(arg1)
 	
+	elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
+		-- Update HUD colors when roster changes
+		if TankMark.UpdateHUD then
+			TankMark:UpdateHUD()
+		end
+		
+		-- Update Profile tab colors if visible
+		if TankMark.UpdateProfileList and TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
+			TankMark:UpdateProfileList()
+		end
+
 	elseif (event == "CHAT_MSG_COMBAT_HOSTILE_DEATH") then
 		TankMark:HandleCombatLog(arg1)
 	
@@ -90,11 +117,13 @@ end)
 
 TankMark:RegisterEvent("ADDON_LOADED")
 TankMark:RegisterEvent("PLAYER_LOGIN")
-TankMark:RegisterEvent("ZONE_CHANGED_NEW_AREA")  -- [PHASE 2] Added event
+TankMark:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
 TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
+TankMark:RegisterEvent("RAID_ROSTER_UPDATE")
+TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
 
 -- ==========================================================
 -- COMMANDS
@@ -130,8 +159,16 @@ function TankMark:SlashHandler(msg)
 	
 	elseif cmd == "recorder" then
 		if args == "start" then
+			local zone = TankMark:GetCachedZone()
+			
+			-- Create zone if it doesn't exist
+			if not TankMarkDB.Zones[zone] then
+				TankMarkDB.Zones[zone] = {}
+				TankMark:Print("|cff00ff00Created:|r New zone '" .. zone .. "'")
+			end
+			
 			TankMark.IsRecorderActive = true
-			TankMark:Print("Flight Recorder: |cff00ff00ENABLED|r. Adding new mobs to DB.")
+			TankMark:Print("Flight Recorder: |cff00ff00ENABLED|r for '" .. zone .. "'. Mouseover mobs to record.")
 		elseif args == "stop" then
 			TankMark.IsRecorderActive = false
 			TankMark:Print("Flight Recorder: |cffff0000DISABLED|r.")
@@ -140,7 +177,7 @@ function TankMark:SlashHandler(msg)
 		end
 	
 	elseif cmd == "zone" or cmd == "debug" then
-		local currentZone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+		local currentZone = TankMark:GetCachedZone()
 		TankMark:Print("Current Zone: " .. currentZone)
 		TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
 		if TankMark.IsSuperWoW then
@@ -160,7 +197,6 @@ function TankMark:SlashHandler(msg)
 				TankMark:Print("Manually assigned " .. TankMark:GetMarkString(iconID) .. " to " .. targetPlayer)
 				if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 			else
-				-- [PHASE 2] Standardized error format
 				TankMark:Print("|cffff0000Error:|r Invalid mark.")
 			end
 		else
@@ -173,16 +209,67 @@ function TankMark:SlashHandler(msg)
 	elseif cmd == "sync" or cmd == "share" then
 		if TankMark.BroadcastZone then TankMark:BroadcastZone() end
 	
+	elseif cmd == "debugprofiles" then
+		TankMark:Print("=== Profile Database Debug ===")
+		if not TankMarkProfileDB then
+			TankMark:Print("TankMarkProfileDB is NIL!")
+		else
+			local count = 0
+			for zoneName, profile in pairs(TankMarkProfileDB) do
+				count = count + 1
+				local entries = table.getn(profile)
+				TankMark:Print(count .. ". '" .. zoneName .. "' - " .. entries .. " marks")
+			end
+			if count == 0 then
+				TankMark:Print("Database is EMPTY")
+			end
+		end
 	else
 		TankMark:Print("Commands: /tmark reset, /tmark on, /tmark off, /tmark assign, /tmark recorder")
 	end
 end
 
+-- ==========================================================
+-- ROSTER VALIDATION
+-- ==========================================================
+
+function TankMark:IsPlayerInRaid(playerName)
+	if not playerName or playerName == "" then return true end
+	
+	-- Check player
+	if UnitName("player") == playerName then return true end
+	
+	-- Check raid
+	local numRaid = GetNumRaidMembers()
+	if numRaid > 0 then
+		for i = 1, 40 do
+			if UnitName("raid"..i) == playerName then
+				return true
+			end
+		end
+		return false
+	end
+	
+	-- Check party
+	local numParty = GetNumPartyMembers()
+	if numParty > 0 then
+		for i = 1, 4 do
+			if UnitName("party"..i) == playerName then
+				return true
+			end
+		end
+		return false
+	end
+	
+	-- Solo - always valid (can't check)
+	return true
+end
+
 function TankMark:AnnounceAssignments()
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	local profile = TankMarkProfileDB[zone]
 	
-	if not profile or _getn(profile) == 0 then  -- [PHASE 2] Use localized _getn
+	if not profile or _getn(profile) == 0 then
 		TankMark:Print("No profile assignments found for " .. zone .. ".")
 		return
 	end
@@ -194,7 +281,7 @@ function TankMark:AnnounceAssignments()
 	SendChatMessage("== " .. zone .. " Assignments ==", channel)
 	SendChatMessage("Mark || Tank || Healers", channel)
 	
-	for _, data in _ipairs(profile) do  -- [PHASE 2] Fixed ipairs → _ipairs
+	for _, data in _ipairs(profile) do
 		if data.mark and data.tank ~= "" then
 			local info = TankMark.MarkInfo[data.mark]
 			local markDisplay = ""
