@@ -1,4 +1,4 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev (Release Candidate)
 -- File: TankMark_Config_Mobs.lua
 -- [PHASE 3] Removed unused localization, modernized global access
 
@@ -475,8 +475,9 @@ end
 -- ==========================================================
 
 function TankMark:CreateMobTab(parent)
-    local t1 = CreateFrame("Frame", nil, parent)
-    t1:SetPoint("TOPLEFT", 15, -40); t1:SetPoint("BOTTOMRIGHT", -15, 50)
+	local t1 = CreateFrame("Frame", nil, parent)
+	t1:SetPoint("TOPLEFT", parent, "TOPLEFT", 15, -40)
+	t1:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -15, 50)
     
     local drop = CreateFrame("Frame", "TMZoneDropDown", t1, "UIDropDownMenuTemplate")
     drop:SetPoint("TOPLEFT", 0, -10); UIDropDownMenu_SetWidth(150, drop)

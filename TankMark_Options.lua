@@ -1,67 +1,31 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev
 -- File: TankMark_Options.lua
--- [PHASE 3] Removed debug print and unused localization
+-- [v0.19] Added Data Management tab
 
 if not TankMark then return end
 
--- Localizations
-local _pairs = pairs
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
+local _ipairs = ipairs
+local _getn = table.getn
 
 -- ==========================================================
--- 0. CONFIRMATION DIALOG SETUP
+-- OPTIONS PANEL
 -- ==========================================================
-StaticPopupDialogs["TANKMARK_WIPE_CONFIRM"] = {
-	text = "%s",
-	button1 = "Yes",
-	button2 = "No",
-	OnAccept = function()
-		if TankMark.pendingWipeAction then
-			TankMark.pendingWipeAction()
-			TankMark.pendingWipeAction = nil
-		end
-	end,
-	timeout = 0,
-	whileDead = 1,
-	hideOnEscape = 1,
-}
-
 TankMark.optionsFrame = nil
-TankMark.currentTab = 1
-TankMark.tab1 = nil
-TankMark.tab2 = nil
+TankMark.activeTab = nil
 
-function TankMark:ValidateDB()
-	if not TankMarkDB then TankMarkDB = {} end
-	if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
-	if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-	if not TankMarkProfileDB then TankMarkProfileDB = {} end
-end
-
-function TankMark:UpdateTabs()
-	if TankMark.currentTab == 1 then
-		if TankMark.tab1 then TankMark.tab1:Show() end
-		if TankMark.tab2 then TankMark.tab2:Hide() end
-		
-		-- Tab 1 Logic
-		if TankMark.UpdateMobList then TankMark:UpdateMobList() end
-	else
-		if TankMark.tab1 then TankMark.tab1:Hide() end
-		if TankMark.tab2 then TankMark.tab2:Show() end
-		
-		-- Tab 2 Logic
-		if TankMark.LoadProfileToCache then TankMark:LoadProfileToCache() end
-		if TankMark.UpdateProfileList then TankMark:UpdateProfileList() end
-		if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-	end
-end
-
+-- ==========================================================
+-- CREATE OPTIONS FRAME (Called Once)
+-- ==========================================================
 function TankMark:CreateOptionsFrame()
 	if TankMark.optionsFrame then return end
 	
-	TankMark:ValidateDB()
-	
+	-- Create main frame
 	local f = CreateFrame("Frame", "TankMarkOptions", UIParent)
-	f:SetWidth(450); f:SetHeight(480)
+	f:SetWidth(520)
+	f:SetHeight(480)
 	f:SetPoint("CENTER", 0, 0)
 	f:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -69,74 +33,197 @@ function TankMark:CreateOptionsFrame()
 		tile = true, tileSize = 32, edgeSize = 32,
 		insets = { left = 11, right = 12, top = 12, bottom = 11 }
 	})
-	f:EnableMouse(true); f:SetMovable(true)
+	f:EnableMouse(true)
+	f:SetMovable(true)
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", function() f:StartMoving() end)
 	f:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-	f:Hide()
+	f:Hide()  -- ← CRITICAL: Hide during construction
 	
-	local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	t:SetPoint("TOP", 0, -15); t:SetText("TankMark Configuration")
+	-- Title
+	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	title:SetPoint("TOP", 0, -20)
+	title:SetText("TankMark Configuration")
 	
-	local cb = CreateFrame("Button", "TMCloseBtn", f, "UIPanelCloseButton")
-	cb:SetPoint("TOPRIGHT", -5, -5)
+	-- Close Button
+	local closeBtn = CreateFrame("Button", "TMCloseBtn", f, "UIPanelCloseButton")
+	closeBtn:SetPoint("TOPRIGHT", -5, -5)
+	closeBtn:SetScript("OnClick", function() f:Hide() end)
 	
-	-- === LOAD MODULES ===
+	-- ==========================================================
+	-- TAB CONTENT (Load Modules)
+	-- ==========================================================
+	local tabFrames = {}
+	
+	-- Tab 1: Mob Database
 	if TankMark.CreateMobTab then
-		TankMark.tab1 = TankMark:CreateMobTab(f)
+		tabFrames[1] = TankMark:CreateMobTab(f)
 	end
+	
+	-- Tab 2: Team Profiles
 	if TankMark.CreateProfileTab then
-		TankMark.tab2 = TankMark:CreateProfileTab(f)
+		tabFrames[2] = TankMark:CreateProfileTab(f)
 	end
 	
-	-- === TABS ===
-	local tab1 = CreateFrame("Button", "TMTab1", f, "UIPanelButtonTemplate")
-	tab1:SetWidth(120); tab1:SetHeight(30)
-	tab1:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5)
-	tab1:SetText("Mob Database")
-	tab1:SetScript("OnClick", function() TankMark.currentTab = 1; TankMark:UpdateTabs() end)
+	-- Tab 3: Data Management
+	if TankMark.BuildDataManagementTab then
+		tabFrames[3] = TankMark:BuildDataManagementTab(f)
+		-- Initialize snapshot list once on creation
+		if TankMark.RefreshSnapshotList then
+			TankMark:RefreshSnapshotList()
+		end
+	end
 	
-	local tab2 = CreateFrame("Button", "TMTab2", f, "UIPanelButtonTemplate")
-	tab2:SetWidth(120); tab2:SetHeight(30)
-	tab2:SetPoint("LEFT", tab1, "RIGHT", 5, 0)
-	tab2:SetText("Team Profiles")
-	tab2:SetScript("OnClick", function() TankMark.currentTab = 2; TankMark:UpdateTabs() end)
+	-- Tab 4: General Options
+	if TankMark.BuildGeneralOptionsTab then
+		tabFrames[4] = TankMark:BuildGeneralOptionsTab(f)
+	end
 	
-	local mc = CreateFrame("CheckButton", "TM_MasterToggle", f, "UICheckButtonTemplate")
-	mc:SetWidth(24); mc:SetHeight(24)
-	mc:SetPoint("TOPLEFT", 15, -10)
-	_G[mc:GetName().."Text"]:SetText("Enable TankMark")
-	mc:SetChecked(TankMark.IsActive and 1 or nil)
-	mc:SetScript("OnClick", function() 
-		TankMark.IsActive = this:GetChecked() and true or false
-		TankMark:Print("Auto-Marking " .. (TankMark.IsActive and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-	end)
+	-- Store tab frames for later access
+	TankMark.tabFrames = tabFrames
 	
+	-- ==========================================================
+	-- TAB BUTTONS
+	-- ==========================================================
+	local tabs = {
+		{name = "Mob Database", index = 1},
+		{name = "Team Profiles", index = 2},
+		{name = "Data Management", index = 3},
+		{name = "Options", index = 4}
+	}
+	
+	local tabButtons = {}
+	
+	for i = 1, _getn(tabs) do
+		local tabInfo = tabs[i]
+		
+		local btn = CreateFrame("Button", "TMTab"..i, f, "UIPanelButtonTemplate")
+		btn:SetWidth(120)
+		btn:SetHeight(30)
+		btn:SetText(tabInfo.name)
+		
+		-- Position below the frame
+		if i == 1 then
+			btn:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 5)
+		else
+			btn:SetPoint("LEFT", tabButtons[i-1], "RIGHT", 5, 0)
+		end
+		
+		-- Store index for closure
+		local buttonIndex = i
+		
+		btn:SetScript("OnClick", function()
+			TankMark:SwitchTab(buttonIndex)
+		end)
+		
+		tabButtons[i] = btn
+	end
+	
+	TankMark.tabButtons = tabButtons
 	TankMark.optionsFrame = f
-	-- [PHASE 3] Removed debug print that fired on first config open
 end
 
-function TankMark:ShowOptions()
-	if not TankMark.optionsFrame then TankMark:CreateOptionsFrame() end
+-- ==========================================================
+-- TAB SWITCHING LOGIC
+-- ==========================================================
+function TankMark:SwitchTab(tabIndex)
+	if not TankMark.tabFrames or not TankMark.tabButtons then return end
 	
-	TankMark.optionsFrame:Show()
-	TankMark:ValidateDB()
-	
-	-- [PHASE 1 FIX] Refresh profile cache BEFORE UpdateTabs to prevent stale data
-	if TankMark.LoadProfileToCache then 
-		TankMark:LoadProfileToCache() 
+	-- Hide all tabs
+	for i = 1, _getn(TankMark.tabFrames) do
+		if TankMark.tabFrames[i] then
+			TankMark.tabFrames[i]:Hide()
+		end
 	end
 	
-	-- Cleanup focus from other modules if they exist
-	if TankMark.editPrio then TankMark.editPrio:ClearFocus() end
-	if TankMark.searchBox then TankMark.searchBox:ClearFocus() end
-	if TankMark.zoneModeCheck then TankMark.zoneModeCheck:SetChecked(TankMark.isZoneListMode) end
+	-- Show selected tab
+	if TankMark.tabFrames[tabIndex] then
+		TankMark.tabFrames[tabIndex]:Show()
+	end
 	
-	-- [PHASE 1 FIX REVISION] Update BOTH zone dropdowns to current zone
-	-- [PHASE 2] Use cached zone
-	local cz = TankMark:GetCachedZone()
-	if TankMark.zoneDropDown then UIDropDownMenu_SetText(cz, TankMark.zoneDropDown) end  -- Mob Database
-	if TankMark.profileZoneDropdown then UIDropDownMenu_SetText(cz, TankMark.profileZoneDropdown) end  -- Profile
+	TankMark.activeTab = tabIndex
 	
-	TankMark:UpdateTabs()
+	-- Update button states
+	for i = 1, _getn(TankMark.tabButtons) do
+		if TankMark.tabButtons[i] then
+			if i == tabIndex then
+				TankMark.tabButtons[i]:Disable()
+			else
+				TankMark.tabButtons[i]:Enable()
+			end
+		end
+	end
+	
+	-- Refresh data on tab open
+	if tabIndex == 1 and TankMark.UpdateMobList then
+		TankMark:UpdateMobList()
+	elseif tabIndex == 2 then
+		if TankMark.LoadProfileToCache then
+			TankMark:LoadProfileToCache()
+		end
+		if TankMark.UpdateProfileList then
+			TankMark:UpdateProfileList()
+		end
+	end
+	-- Tab 3 (Data Management) doesn't refresh on switch
+end
+
+-- ==========================================================
+-- SHOW OPTIONS (Called by /tmark c)
+-- ==========================================================
+function TankMark:ShowOptions()
+	if not TankMark.optionsFrame then
+		TankMark:CreateOptionsFrame()
+	end
+	
+	if TankMark.optionsFrame:IsVisible() then
+		TankMark.optionsFrame:Hide()
+	else
+		TankMark.optionsFrame:Show()
+		
+		-- Refresh zone dropdowns on open
+		if TankMark.UpdateZoneDropdown then TankMark:UpdateZoneDropdown() end
+		if TankMark.UpdateProfileZoneDropdown then TankMark:UpdateProfileZoneDropdown() end
+		
+		-- Switch to first tab by default
+		if not TankMark.activeTab then
+			TankMark:SwitchTab(1)
+		else
+			TankMark:SwitchTab(TankMark.activeTab)
+		end
+	end
+end
+
+-- ==========================================================
+-- GENERAL OPTIONS TAB
+-- ==========================================================
+function TankMark:BuildGeneralOptionsTab(parent)
+	local tab = CreateFrame("Frame", "TMOptionsTab", parent)
+	tab:SetPoint("TOPLEFT", 15, -40)
+	tab:SetPoint("BOTTOMRIGHT", -15, 50)
+	tab:Hide()
+	
+	-- Title
+	local title = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	title:SetPoint("TOP", 0, -20)
+	title:SetText("General Options")
+	
+	-- Mark Normals Checkbox
+	local normalsCheck = CreateFrame("CheckButton", "TMNormalsCheck", tab, "UICheckButtonTemplate")
+	normalsCheck:SetPoint("TOPLEFT", 30, -80)
+	getglobal(normalsCheck:GetName().."Text"):SetText("Mark Normal/Non-Elite Mobs")
+	normalsCheck:SetChecked(TankMark.MarkNormals)
+	normalsCheck:SetScript("OnClick", function()
+		TankMark.MarkNormals = this:GetChecked()
+		TankMark:Print("Marking Normal Mobs: " .. (TankMark.MarkNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+	end)
+	
+	TankMark.normalsCheck = normalsCheck
+	
+	-- Version Info
+	local versionInfo = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	versionInfo:SetPoint("BOTTOM", 0, 20)
+	versionInfo:SetText("|cff888888TankMark v0.19-dev\nDatabase Resilience System|r")
+	
+	return tab
 end

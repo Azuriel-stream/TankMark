@@ -1,4 +1,4 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev (Release Candidate)
 -- File: TankMark_Sync.lua
 -- [PHASE 2] Standardized error message formatting
 

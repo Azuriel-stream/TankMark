@@ -1,6 +1,6 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev
 -- File: TankMark_Data.lua
--- [PHASE 3] Removed unused MarkClassDefaults
+-- [v0.19] Database initialization, snapshot system, and corruption detection
 
 if not TankMark then
 	TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -16,38 +16,291 @@ TankMark:RegisterEvent("CHAT_MSG_ADDON")
 -- LOCALIZATIONS
 -- ==========================================================
 local _insert = table.insert
+local _remove = table.remove
 local _ipairs = ipairs
 local _pairs = pairs
+local _getn = table.getn
 
 -- ==========================================================
 -- SESSION STATE
 -- ==========================================================
 TankMark.sessionAssignments = {}
 TankMark.runtimeCache = { classRoster = {} }
+TankMark.activeDB = nil  -- [v0.19] Merged zone cache (Defaults + User DB)
 
 -- ==========================================================
 -- DATABASE INITIALIZATION
 -- ==========================================================
 function TankMark:InitializeDB()
-	-- 1. Mob Database (RETAINED)
+	-- 1. Mob Database
 	if not TankMarkDB then TankMarkDB = {} end
 	if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
 	if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
 	
-	-- 2. Profile Database (RESET for v0.15 Structure)
-	-- We assume any existing data is incompatible v0.14 data and ignore it.
-	-- Structure: TankMarkProfileDB[zone] = { {mark=8, tank="Name", ...}, {mark=7, ...} }
+	-- 2. Profile Database
 	if not TankMarkProfileDB then TankMarkProfileDB = {} end
 	
-	TankMark:Print("Database initialized (v0.18 Ordered Lists).")
+	-- 3. [v0.19] Snapshot Database
+	if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
+	
+	-- 4. [v0.19] Corruption Detection
+	local isCorrupt, errors = TankMark:ValidateDB()
+	if isCorrupt then
+		TankMark:ShowCorruptionDialog(errors)
+		return
+	end
+	
+	TankMark:Print("Database initialized (v0.19 Resilience System active).")
 end
 
--- [v0.15] Adapter: Scans the ordered list to find data for a specific Icon ID
--- This keeps current logic (TankMark.lua) working until Phase 3.
+-- ==========================================================
+-- [v0.19] CORRUPTION DETECTION (Layer 3)
+-- ==========================================================
+function TankMark:ValidateDB()
+	local errors = {}
+	local isCorrupt = false
+	
+	-- Check 1: Primary DB exists
+	if not TankMarkDB or type(TankMarkDB) ~= "table" then
+		_insert(errors, "Primary database missing or corrupt")
+		isCorrupt = true
+		return isCorrupt, errors
+	end
+	
+	-- Check 2: Required keys exist
+	if not TankMarkDB.Zones or type(TankMarkDB.Zones) ~= "table" then
+		_insert(errors, "Zones table missing or corrupt")
+		isCorrupt = true
+	end
+	
+	if not TankMarkDB.StaticGUIDs or type(TankMarkDB.StaticGUIDs) ~= "table" then
+		_insert(errors, "StaticGUIDs table missing or corrupt")
+		isCorrupt = true
+	end
+	
+	-- Check 3: Data type validation (sample check for first zone)
+	if TankMarkDB.Zones and type(TankMarkDB.Zones) == "table" then
+		for zoneName, mobs in _pairs(TankMarkDB.Zones) do
+			if type(mobs) ~= "table" then
+				_insert(errors, "Zone '" .. zoneName .. "' has invalid data")
+				isCorrupt = true
+				break
+			end
+			
+			-- Sample mob validation (check first mob only for performance)
+			for mobName, data in _pairs(mobs) do
+				if type(data) ~= "table" or not data.prio or not data.mark then
+					_insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure")
+					isCorrupt = true
+				end
+				break -- Only check first mob per zone
+			end
+			
+			if isCorrupt then break end
+		end
+	end
+	
+	return isCorrupt, errors
+end
+
+function TankMark:ShowCorruptionDialog(errors)
+	local errorText = "Database corruption detected!\n\n"
+	for i, err in _ipairs(errors) do
+		errorText = errorText .. "- " .. err .. "\n"
+	end
+	errorText = errorText .. "\nChoose recovery option:"
+	
+	StaticPopupDialogs["TANKMARK_CORRUPTION"] = {
+		text = errorText,
+		button1 = "Restore Snapshot",
+		button2 = "Merge Defaults",
+		button3 = "Start Fresh",
+		OnAccept = function()
+			TankMark:RestoreFromSnapshot(1)
+		end,
+		OnCancel = function()
+			TankMark:MergeDefaults()
+		end,
+		OnAlt = function()
+			-- Wipe and reinitialize
+			TankMarkDB = {Zones = {}, StaticGUIDs = {}}
+			TankMarkProfileDB = {}
+			TankMark:Print("Database wiped. Starting fresh.")
+		end,
+		timeout = 0,
+		whileDead = 1,
+		hideOnEscape = nil, -- Force user to choose
+	}
+	
+	StaticPopup_Show("TANKMARK_CORRUPTION")
+end
+
+-- ==========================================================
+-- [v0.19] SNAPSHOT SYSTEM (Layer 2)
+-- ==========================================================
+function TankMark:CreateSnapshot()
+	if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
+	
+	-- Deep copy helper (Lua 5.0 compatible)
+	local function DeepCopy(original)
+		if type(original) ~= "table" then return original end
+		local copy = {}
+		for k, v in _pairs(original) do
+			copy[k] = DeepCopy(v)
+		end
+		return copy
+	end
+	
+	-- Build snapshot
+	local snapshot = {
+		timestamp = time(),
+		zones = DeepCopy(TankMarkDB.Zones),
+		guids = DeepCopy(TankMarkDB.StaticGUIDs),
+		profile = nil -- Add current zone profile if in a known zone
+	}
+	
+	-- Capture current zone profile
+	local currentZone = TankMark:GetCachedZone()
+	if currentZone and TankMarkProfileDB[currentZone] then
+		snapshot.profile = {
+			zone = currentZone,
+			data = DeepCopy(TankMarkProfileDB[currentZone])
+		}
+	end
+	
+	-- Insert at front of list
+	_insert(TankMarkDB_Snapshot, 1, snapshot)
+	
+	-- Keep only last 3 snapshots
+	while _getn(TankMarkDB_Snapshot) > 3 do
+		_remove(TankMarkDB_Snapshot)
+	end
+	
+	TankMark:Print("Snapshot created (" .. _getn(TankMarkDB_Snapshot) .. "/3 slots used).")
+end
+
+function TankMark:RestoreFromSnapshot(index)
+	if not TankMarkDB_Snapshot or not TankMarkDB_Snapshot[index] then
+		TankMark:Print("|cffff0000Error:|r No snapshot found at index " .. index)
+		return
+	end
+	
+	local snapshot = TankMarkDB_Snapshot[index]
+	
+	-- Deep copy helper
+	local function DeepCopy(original)
+		if type(original) ~= "table" then return original end
+		local copy = {}
+		for k, v in _pairs(original) do
+			copy[k] = DeepCopy(v)
+		end
+		return copy
+	end
+	
+	-- Restore data
+	TankMarkDB.Zones = DeepCopy(snapshot.zones)
+	TankMarkDB.StaticGUIDs = DeepCopy(snapshot.guids)
+	
+	-- Restore profile if present
+	if snapshot.profile then
+		TankMarkProfileDB[snapshot.profile.zone] = DeepCopy(snapshot.profile.data)
+	end
+	
+	-- Count restored mobs
+	local mobCount = 0
+	for _, mobs in _pairs(TankMarkDB.Zones) do
+		for _ in _pairs(mobs) do
+			mobCount = mobCount + 1
+		end
+	end
+	
+	TankMark:Print("|cff00ff00Restored:|r " .. mobCount .. " mobs from snapshot (age: " .. TankMark:FormatTimestamp(snapshot.timestamp) .. ")")
+	
+	-- Refresh UI if open
+	if TankMark.UpdateMobList then TankMark:UpdateMobList() end
+	if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+end
+
+function TankMark:MergeDefaults()
+	if not TankMarkDefaults then
+		TankMark:Print("|cffff0000Error:|r Default database not loaded.")
+		return
+	end
+	
+	local added = 0
+	
+	for zoneName, defaultMobs in _pairs(TankMarkDefaults) do
+		if not TankMarkDB.Zones[zoneName] then
+			TankMarkDB.Zones[zoneName] = {}
+		end
+		
+		for mobName, mobData in _pairs(defaultMobs) do
+			if not TankMarkDB.Zones[zoneName][mobName] then
+				-- Deep copy to avoid reference issues
+				TankMarkDB.Zones[zoneName][mobName] = {
+					prio = mobData.prio,
+					mark = mobData.mark,
+					type = mobData.type,
+					class = mobData.class
+				}
+				added = added + 1
+			end
+		end
+	end
+	
+	TankMark:Print("|cff00ff00Merged:|r " .. added .. " mobs from default database.")
+	
+	-- Refresh UI
+	if TankMark.UpdateMobList then TankMark:UpdateMobList() end
+end
+
+-- ==========================================================
+-- [v0.19] LAZY-LOAD ZONE DATA (Layer 1 Integration)
+-- ==========================================================
+function TankMark:LoadZoneData(zoneName)
+	if not zoneName then return end
+	
+	-- Build merged view for current zone
+	TankMark.activeDB = {}
+	
+	-- Priority 1: User data (always wins)
+	if TankMarkDB.Zones[zoneName] then
+		for mobName, data in _pairs(TankMarkDB.Zones[zoneName]) do
+			TankMark.activeDB[mobName] = data
+		end
+	end
+	
+	-- Priority 2: Default data (fill gaps only)
+	if TankMarkDefaults and TankMarkDefaults[zoneName] then
+		for mobName, data in _pairs(TankMarkDefaults[zoneName]) do
+			if not TankMark.activeDB[mobName] then
+				TankMark.activeDB[mobName] = data
+			end
+		end
+	end
+end
+
+-- ==========================================================
+-- HELPER FUNCTIONS
+-- ==========================================================
+function TankMark:FormatTimestamp(timestamp)
+	local diff = time() - timestamp
+	
+	if diff < 60 then
+		return diff .. " seconds ago"
+	elseif diff < 3600 then
+		return math.floor(diff / 60) .. " minutes ago"
+	elseif diff < 86400 then
+		return math.floor(diff / 3600) .. " hours ago"
+	else
+		return math.floor(diff / 86400) .. " days ago"
+	end
+end
+
+-- Legacy adapter for existing code
 function TankMark:GetProfileData(zone, iconID)
 	if not TankMarkProfileDB[zone] then return nil end
 	
-	-- Scan the ordered array
 	for _, entry in _ipairs(TankMarkProfileDB[zone]) do
 		if entry.mark == iconID then
 			return entry

@@ -1,6 +1,6 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev
 -- File: TankMark.lua
--- [PHASE 2] Added zone caching, localization fixes, and standardized error messages
+-- [v0.19] Added snapshot triggers and zone data loading
 
 if not TankMark then
 	TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -13,12 +13,11 @@ local _strfind = string.find
 local _lower = string.lower
 local _pairs = pairs
 local _ipairs = ipairs
-local _getn = table.getn  -- [PHASE 2] Added localization
+local _getn = table.getn
 
 -- ==========================================================
 -- ZONE CACHING
 -- ==========================================================
--- [PHASE 2] Cache zone to reduce API calls
 TankMark.currentZone = nil
 
 function TankMark:GetCachedZone()
@@ -56,8 +55,13 @@ TankMark:SetScript("OnEvent", function()
 	elseif (event == "PLAYER_LOGIN") then
 		math.randomseed(time())
 		
-		-- [PHASE 2] Initialize zone cache
+		-- Initialize zone cache
 		TankMark.currentZone = GetRealZoneText()
+		
+		-- [v0.19] Load zone data (merge defaults + user DB)
+		if TankMark.LoadZoneData then
+			TankMark:LoadZoneData(TankMark.currentZone)
+		end
 		
 		if TankMark.UpdateRoster then TankMark:UpdateRoster() end
 		
@@ -68,12 +72,16 @@ TankMark:SetScript("OnEvent", function()
 		TankMark:InitDriver()
 		TankMark:ScanForRangeSpell()
 		
-		TankMark:Print("TankMark v0.18-dev Loaded.")
+		TankMark:Print("TankMark v0.19-dev loaded.")
 	
-	-- [PHASE 2] Zone change handler
 	elseif (event == "ZONE_CHANGED_NEW_AREA") then
 		TankMark.currentZone = GetRealZoneText()
-	
+		
+		-- [v0.19] Load zone data for new zone
+		if TankMark.LoadZoneData then
+			TankMark:LoadZoneData(TankMark.currentZone)
+		end
+		
 	elseif (event == "UPDATE_MOUSEOVER_UNIT") then
 		TankMark:HandleMouseover()
 	
@@ -90,7 +98,7 @@ end)
 
 TankMark:RegisterEvent("ADDON_LOADED")
 TankMark:RegisterEvent("PLAYER_LOGIN")
-TankMark:RegisterEvent("ZONE_CHANGED_NEW_AREA")  -- [PHASE 2] Added event
+TankMark:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
 TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
@@ -140,7 +148,7 @@ function TankMark:SlashHandler(msg)
 		end
 	
 	elseif cmd == "zone" or cmd == "debug" then
-		local currentZone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+		local currentZone = TankMark:GetCachedZone()
 		TankMark:Print("Current Zone: " .. currentZone)
 		TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
 		if TankMark.IsSuperWoW then
@@ -160,7 +168,6 @@ function TankMark:SlashHandler(msg)
 				TankMark:Print("Manually assigned " .. TankMark:GetMarkString(iconID) .. " to " .. targetPlayer)
 				if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 			else
-				-- [PHASE 2] Standardized error format
 				TankMark:Print("|cffff0000Error:|r Invalid mark.")
 			end
 		else
@@ -179,10 +186,10 @@ function TankMark:SlashHandler(msg)
 end
 
 function TankMark:AnnounceAssignments()
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	local profile = TankMarkProfileDB[zone]
 	
-	if not profile or _getn(profile) == 0 then  -- [PHASE 2] Use localized _getn
+	if not profile or _getn(profile) == 0 then
 		TankMark:Print("No profile assignments found for " .. zone .. ".")
 		return
 	end
@@ -194,7 +201,7 @@ function TankMark:AnnounceAssignments()
 	SendChatMessage("== " .. zone .. " Assignments ==", channel)
 	SendChatMessage("Mark || Tank || Healers", channel)
 	
-	for _, data in _ipairs(profile) do  -- [PHASE 2] Fixed ipairs → _ipairs
+	for _, data in _ipairs(profile) do
 		if data.mark and data.tank ~= "" then
 			local info = TankMark.MarkInfo[data.mark]
 			local markDisplay = ""
