@@ -196,6 +196,21 @@ function TankMark:SlashHandler(msg)
 	elseif cmd == "sync" or cmd == "share" then
 		if TankMark.BroadcastZone then TankMark:BroadcastZone() end
 	
+	elseif cmd == "debugprofiles" then
+		TankMark:Print("=== Profile Database Debug ===")
+		if not TankMarkProfileDB then
+			TankMark:Print("TankMarkProfileDB is NIL!")
+		else
+			local count = 0
+			for zoneName, profile in pairs(TankMarkProfileDB) do
+				count = count + 1
+				local entries = table.getn(profile)
+				TankMark:Print(count .. ". '" .. zoneName .. "' - " .. entries .. " marks")
+			end
+			if count == 0 then
+				TankMark:Print("Database is EMPTY")
+			end
+		end
 	else
 		TankMark:Print("Commands: /tmark reset, /tmark on, /tmark off, /tmark assign, /tmark recorder")
 	end
