@@ -96,6 +96,17 @@ TankMark:SetScript("OnEvent", function()
 	elseif (event == "UNIT_HEALTH") then
 		TankMark:HandleDeath(arg1)
 	
+	elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
+		-- Update HUD colors when roster changes
+		if TankMark.UpdateHUD then
+			TankMark:UpdateHUD()
+		end
+		
+		-- Update Profile tab colors if visible
+		if TankMark.UpdateProfileList and TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
+			TankMark:UpdateProfileList()
+		end
+
 	elseif (event == "CHAT_MSG_COMBAT_HOSTILE_DEATH") then
 		TankMark:HandleCombatLog(arg1)
 	
@@ -111,6 +122,8 @@ TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
 TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
+TankMark:RegisterEvent("RAID_ROSTER_UPDATE")
+TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
 
 -- ==========================================================
 -- COMMANDS
@@ -214,6 +227,42 @@ function TankMark:SlashHandler(msg)
 	else
 		TankMark:Print("Commands: /tmark reset, /tmark on, /tmark off, /tmark assign, /tmark recorder")
 	end
+end
+
+-- ==========================================================
+-- ROSTER VALIDATION
+-- ==========================================================
+
+function TankMark:IsPlayerInRaid(playerName)
+	if not playerName or playerName == "" then return true end
+	
+	-- Check player
+	if UnitName("player") == playerName then return true end
+	
+	-- Check raid
+	local numRaid = GetNumRaidMembers()
+	if numRaid > 0 then
+		for i = 1, 40 do
+			if UnitName("raid"..i) == playerName then
+				return true
+			end
+		end
+		return false
+	end
+	
+	-- Check party
+	local numParty = GetNumPartyMembers()
+	if numParty > 0 then
+		for i = 1, 4 do
+			if UnitName("party"..i) == playerName then
+				return true
+			end
+		end
+		return false
+	end
+	
+	-- Solo - always valid (can't check)
+	return true
 end
 
 function TankMark:AnnounceAssignments()

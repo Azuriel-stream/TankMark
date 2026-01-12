@@ -335,6 +335,17 @@ function TankMark:UpdateProfileList()
 			row.tankEdit:SetText(data.tank or "")
 			row.healEdit:SetText(data.healers or "")
 			
+            -- Apply roster validation color to tank name
+            if data.tank and data.tank ~= "" then
+                if TankMark:IsPlayerInRaid(data.tank) then
+                    row.tankEdit:SetTextColor(1, 1, 1) -- White (in raid)
+                else
+                    row.tankEdit:SetTextColor(1, 0, 0) -- Red (not in raid)
+                end
+            else
+                row.tankEdit:SetTextColor(0.7, 0.7, 0.7) -- Gray (empty)
+            end
+
 			-- Disable Up button for first row, Down for last row
 			if index == 1 then
 				row.upBtn:Disable()
