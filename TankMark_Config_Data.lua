@@ -1,4 +1,4 @@
--- TankMark: v0.19-dev
+-- TankMark: v0.19
 
 -- File: TankMark_Config_Data.lua
 

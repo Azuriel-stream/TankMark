@@ -1,22 +1,49 @@
-# TankMark (v0.17)
+# TankMark (v0.19)
 
 **TankMark** is an intelligent raid marking automation addon for Vanilla WoW (1.12.1). It automates the assignment of Raid Targets based on a priority system and includes tools for data collection and team coordination.
 
-> **🚀 New in v0.17:** Performance Optimization, Enhanced Stability, and Sync Data Validation.
+> **🚀 New in v0.19:** Profile Templates, Zone Cloning, Healer Death Alerts, and Roster Validation!
 
 ## ✨ Key Features
 
-### ⚡ Performance Improvements (New!)
+### 🎯 Profile Templates (New!)
+Quick-start your team configuration with pre-built templates.
+* **4 Templates:** Standard 8-Tank, Priority 5-Tank, Minimal 3-Tank, CC Heavy (4 Tank + 4 CC)
+* **One-Click Setup:** Load any template, add player names, save.
+* **Copy From...:** Duplicate existing profiles between zones instantly.
+
+### 👥 Roster Validation (New!)
+Real-time feedback on team readiness.
+* **Red Name Highlighting:** Tank/Healer names turn red when offline or not in raid.
+* **Warning Icons:** Yellow alert icons appear when assigned healers are offline.
+* **Status Tooltips:** Hover over warning icon to see detailed healer status.
+* **Auto-Updates:** Refreshes when players join/leave raid.
+
+### 💔 Healer Death Alerts (New!)
+Automatic notifications keep tanks informed.
+* **Instant Whispers:** Tank receives alert when their healer dies.
+* **Smart Filtering:** Only alerts for healers currently in raid.
+* **Multi-Healer Support:** Handles space-delimited healer lists.
+
+### 🗺️ Zone Management Tools (New!)
+Complete zone lifecycle control.
+* **Add Zone Button:** Add current zone to database with confirmation.
+* **Delete Zone:** Remove entire zone with all data (with safety prompt).
+* **Lock Viewer:** Browse and edit GUID-locked mobs per zone.
+* **Manage Zones Browser:** View all saved zones with lock counts.
+
+### 📼 Enhanced Flight Recorder (New!)
+Smarter mob recording workflow.
+* **Zone Pre-Creation:** Automatically creates zone entry on recorder start.
+* **Duplicate Prevention:** Skips mobs already in database (no spam).
+* **Auto-Disable:** Turns off when you leave the zone with notification.
+* **Immediate Use:** Recorded mobs available for marking instantly.
+
+### ⚡ Performance Improvements
 Significant optimization for high-density combat scenarios.
 * **Zone Caching System:** Reduces API overhead by ~50+ calls per combat pull.
 * **Automatic UI Refresh:** Config panels now auto-update zone dropdowns after teleports.
 * **Configurable Scanner Throttle:** Fine-tune nameplate scan intervals for performance tuning.
-
-### 🛡️ Enhanced Stability (New!)
-Bulletproof data integrity and error handling.
-* **Sync Data Validation:** Incoming sync messages are now validated to prevent database corruption.
-* **Wildcard Safety:** Fixed edge-case nil errors with empty tank assignments in profiles.
-* **State Synchronization:** Profile cache pre-loads before tab switches to eliminate stale data display.
 
 ### 🖱️ HUD Context Menus
 The HUD is now a fully interactive Command Center.
@@ -66,6 +93,7 @@ More flexible team assignments.
 | `/tmark normals` | Toggle marking of **Normal/Non-Elite** mobs. |
 | `/tmark sync` | **Broadcasts** priorities AND locks to the raid. |
 | `/tmark recorder start` | Enables **Flight Recorder** (Auto-add mobs). |
+| `/tmark recorder stop` | Disables **Flight Recorder**. |
 | `/tmark reset` | **Wipes** all marks and assignments (HUD & In-Game). |
 | `/tmark on` / `/tmark off` | Toggle automation. |
 | `/tmark assign [mark] [player]` | Manually assign a player to a mark via command line. |
@@ -81,18 +109,53 @@ More flexible team assignments.
 3.  Choose a **Role** (e.g., "Mage" sets Moon).
 4.  Click **"Save"**.
 
-### 2. Team Profiles (Healers & Tanks)
-Assign specific players to marks for any zone.
-* **Wildcards:** Leave the Name field blank to let the addon use the mark freely.
-* **TWA Sync:** Assignments are imported automatically if the RL broadcasts via BigWigs/TWAssignments.
-* **Manual:** Type names into the **Tank** or **Healers** boxes and click Save.
-* **Management:** Use the **Right-Click Context Menu** on the HUD to manage these on the fly.
+#### Quick Setup with Flight Recorder:
+1.  `/tmark recorder start` in the zone you want to record.
+2.  Fight mobs normally - all new mobs auto-added to database.
+3.  Recorder auto-disables when you leave the zone.
+4.  Edit priorities/icons in Mob Database tab later.
+
+### 2. Team Profiles
+
+#### Quick Setup with Templates:
+1.  Open **Team Profiles** tab.
+2.  Click **"Load Template"** → Select template.
+3.  Add player names to **Tank** fields.
+4.  (Optional) Add **Healers** (space-delimited list).
+5.  Click **"Save Profile"**.
+
+#### Copy Between Zones:
+1.  Select target zone in dropdown.
+2.  Click **"Copy From..."** button.
+3.  Select source zone from list.
+4.  Edit as needed and **Save**.
+
+#### Manual Assignment:
+* **Tank Field:** Type player name or click "T" button to use current target.
+* **Healer Field:** Click "T" button to add current target to healer list (auto-appends, checks duplicates).
+* **Warning Icon:** Yellow icon appears when any assigned healer is offline.
+* **Roster Validation:** Names turn red when players are not in raid/party.
 
 ---
 
 ## 🔄 Version History
 
+* **v0.19** - Profile templates, zone cloning, healer death alerts, roster validation
+* **v0.18** - Zone management tools, flight recorder improvements
 * **v0.17** - Performance optimization, sync validation, zone caching
 * **v0.16** - Modular architecture, HUD context menus, wildcard profiles
 * **v0.15** - Ordered profile lists, TWA integration
 * **v0.14** - Team profile system, sticky skull logic
+
+---
+
+## 🤝 Contributing
+
+Contributions, bug reports, and feature requests are welcome!
+- **GitHub:** https://github.com/Azuriel-stream/TankMark
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License.

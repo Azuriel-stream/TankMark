@@ -1,4 +1,4 @@
--- TankMark: v0.19-dev
+-- TankMark: v0.19
 
 -- File: TankMark_Options.lua
 
@@ -258,7 +258,7 @@ function TankMark:BuildGeneralOptionsTab(parent)
 	-- Version Info
 	local versionInfo = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	versionInfo:SetPoint("BOTTOM", 0, 20)
-	versionInfo:SetText("|cff888888TankMark v0.19-dev\nDatabase Resilience System|r")
+	versionInfo:SetText("|cff888888TankMark v0.19\nDatabase Resilience System|r")
 	
 	return tab
 end

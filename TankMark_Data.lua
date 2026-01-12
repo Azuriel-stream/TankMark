@@ -1,4 +1,4 @@
--- TankMark: v0.19-dev
+-- TankMark: v0.19
 -- File: TankMark_Data.lua
 -- [v0.19] Database initialization, snapshot system, and corruption detection
 
