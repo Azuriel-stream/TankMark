@@ -1,4 +1,4 @@
--- TankMark: v0.18-dev (Config Tab 2: Team Profiles)
+-- TankMark: v0.19-dev (Config Tab 2: Team Profiles)
 -- File: TankMark_Config_Profiles.lua
 
 if not TankMark then return end
@@ -194,12 +194,12 @@ function TankMark:CreateProfileTab(parent)
     UIDropDownMenu_Initialize(pDrop, function()
         local curr = GetRealZoneText()
         local info = {}; info.text = curr
-        info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); TankMark:UpdateTabs() end
+        info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); if TankMark.LoadProfileToCache then TankMark:LoadProfileToCache() end; if TankMark.UpdateProfileList then	TankMark:UpdateProfileList() end; end
         UIDropDownMenu_AddButton(info)
         for zName, _ in _pairs(TankMarkProfileDB) do
             if zName ~= curr then
                 info = {}; info.text = zName
-                info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); TankMark:UpdateTabs() end
+                info.func = function() UIDropDownMenu_SetSelectedID(pDrop, this:GetID()); if TankMark.LoadProfileToCache then TankMark:LoadProfileToCache() end; if TankMark.UpdateProfileList then	TankMark:UpdateProfileList() end; end
                 UIDropDownMenu_AddButton(info)
             end
         end
@@ -253,6 +253,7 @@ function TankMark:CreateProfileTab(parent)
         del:SetScript("OnClick", function() TankMark:Profile_DeleteRow(row.index) end)
         
         TankMark.profileRows[i] = row
+        row:Hide()
     end
     
     local addBtn = CreateFrame("Button", "TMProfileAddBtn", t2, "UIPanelButtonTemplate")

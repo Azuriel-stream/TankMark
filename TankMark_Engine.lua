@@ -1,17 +1,21 @@
--- TankMark: v0.18-dev (Release Candidate)
+-- TankMark: v0.19-dev
 -- File: TankMark_Engine.lua
--- [PHASE 2] Replaced GetRealZoneText() with cached zone lookups
+-- [v0.19] Updated ProcessUnit() to use activeDB (merged defaults + user data)
 
 if not TankMark then return end
 
--- Localizations
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
 local _strfind = string.find
 local _gsub = string.gsub
 local _pairs = pairs
 local _ipairs = ipairs
 local _getn = table.getn
 
--- State Variables
+-- ==========================================================
+-- STATE VARIABLES
+-- ==========================================================
 TankMark.usedIcons = {}
 TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
@@ -39,16 +43,16 @@ TankMark.MarkInfo = {
 function TankMark:HasPermissions()
 	local numRaid = GetNumRaidMembers()
 	local numParty = GetNumPartyMembers()
-	if numRaid == 0 and numParty == 0 then return true end -- Solo
-	if numRaid > 0 then return (IsRaidLeader() or IsRaidOfficer())
-	elseif numParty > 0 then return IsPartyLeader() end
+	if numRaid == 0 and numParty == 0 then return true end
+	if numRaid > 0 then return (IsRaidLeader() or IsRaidOfficer()) end
+	if numParty > 0 then return IsPartyLeader() end
 	return false
 end
 
 function TankMark:CanAutomate()
 	if not TankMark.IsActive then return false end
 	if not TankMark:HasPermissions() then return false end
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	if not TankMarkProfileDB[zone] or _getn(TankMarkProfileDB[zone]) == 0 then
 		return false
 	end
@@ -95,15 +99,19 @@ function TankMark:ProcessUnit(guid, mode)
 		if cls == "normal" or cls == "trivial" or cls == "minus" then return end
 	end
 	
+	-- Flight Recorder
 	if TankMark.IsRecorderActive then
 		TankMark:RecordUnit(guid)
 	end
 	
 	-- 2. Check Database Existence
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
-	local dbExists = (TankMarkDB.Zones[zone] or TankMarkDB.StaticGUIDs[zone])
+	local zone = TankMark:GetCachedZone()
 	
-	-- [FIX] Allow FORCE mode to proceed even if DB is empty for this zone
+	-- [v0.19] Check if we have any data: activeDB (merged) OR StaticGUIDs
+	local hasActiveDB = (TankMark.activeDB and next(TankMark.activeDB) ~= nil)
+	local hasGUIDLocks = (TankMarkDB.StaticGUIDs[zone] and next(TankMarkDB.StaticGUIDs[zone]) ~= nil)
+	local dbExists = hasActiveDB or hasGUIDLocks
+	
 	if not TankMark.IsRecorderActive and not dbExists and mode ~= "FORCE" then return end
 	
 	-- 3. Check Current Mark
@@ -126,8 +134,12 @@ function TankMark:ProcessUnit(guid, mode)
 	if TankMarkDB.StaticGUIDs[zone] and TankMarkDB.StaticGUIDs[zone][guid] then
 		local lockData = TankMarkDB.StaticGUIDs[zone][guid]
 		local lockedIcon = nil
-		if type(lockData) == "table" then lockedIcon = lockData.mark
-		elseif type(lockData) == "number" then lockedIcon = lockData end
+		
+		if type(lockData) == "table" then 
+			lockedIcon = lockData.mark
+		elseif type(lockData) == "number" then 
+			lockedIcon = lockData 
+		end
 		
 		if lockedIcon and lockedIcon > 0 then
 			TankMark:Driver_ApplyMark(guid, lockedIcon)
@@ -140,9 +152,11 @@ function TankMark:ProcessUnit(guid, mode)
 	local mobName = UnitName(guid)
 	if not mobName then return end
 	
+	-- [v0.19] LOOKUP IN MERGED ZONE CACHE (activeDB)
 	local mobData = nil
-	if TankMarkDB.Zones[zone] and TankMarkDB.Zones[zone][mobName] then
-		mobData = TankMarkDB.Zones[zone][mobName]
+	
+	if TankMark.activeDB and TankMark.activeDB[mobName] then
+		mobData = TankMark.activeDB[mobName]
 	end
 	
 	if mobData then
@@ -154,7 +168,7 @@ function TankMark:ProcessUnit(guid, mode)
 end
 
 function TankMark:ProcessKnownMob(mobData, guid)
-	if mobData.mark == 0 then return end -- IGNORE logic
+	if mobData.mark == 0 then return end
 	
 	local iconToApply = nil
 	local isCCBlocked = (mobData.type == "CC" and TankMark.disabledMarks[mobData.mark])
@@ -162,11 +176,11 @@ function TankMark:ProcessKnownMob(mobData, guid)
 	if mobData.type == "KILL" or isCCBlocked then
 		-- Priority 1: Use specific mark if free AND in profile
 		if not TankMark.usedIcons[mobData.mark] then
-			local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+			local zone = TankMark:GetCachedZone()
 			local list = TankMarkProfileDB[zone]
+			
 			if list then
 				for _, entry in _ipairs(list) do
-					-- [FIX] Allow fallback to mark if Tank name is empty (Wildcard)
 					if entry.mark == mobData.mark then
 						if entry.tank == "" or TankMark:FindUnitByName(entry.tank) then
 							iconToApply = mobData.mark
@@ -178,8 +192,10 @@ function TankMark:ProcessKnownMob(mobData, guid)
 		end
 		
 		-- Priority 2: Get next available from Ordered List
-		if not iconToApply then iconToApply = TankMark:GetFreeTankIcon() end
-	
+		if not iconToApply then 
+			iconToApply = TankMark:GetFreeTankIcon() 
+		end
+		
 	elseif mobData.type == "CC" then
 		if not TankMark.usedIcons[mobData.mark] and not TankMark.disabledMarks[mobData.mark] then
 			local assignee = TankMark:GetAssigneeForMark(mobData.mark)
@@ -212,7 +228,9 @@ function TankMark:RegisterMarkUsage(icon, name, guid, isCaster)
 	
 	if not TankMark.sessionAssignments[icon] then
 		local assignee = TankMark:GetAssigneeForMark(icon)
-		if assignee then TankMark.sessionAssignments[icon] = assignee end
+		if assignee then 
+			TankMark.sessionAssignments[icon] = assignee 
+		end
 	end
 	
 	if TankMark.UpdateHUD then TankMark:UpdateHUD() end
@@ -227,22 +245,28 @@ function TankMark:RecordUnit(guid)
 	
 	if not TankMarkDB.Zones[zone][name] then
 		TankMarkDB.Zones[zone][name] = {
-			["prio"] = 5,  -- [v0.18] Middle baseline - user adjusts per pack context
-			["mark"] = 8, 
-			["type"] = "KILL", 
+			["prio"] = 5,
+			["mark"] = 8,
+			["type"] = "KILL",
 			["class"] = nil
 		}
+		
 		TankMark:Print("Recorder: Captured [" .. name .. "] (P5 - adjust as needed)")
+		
+		-- [v0.19] Also add to activeDB for immediate use
+		if TankMark.activeDB then
+			TankMark.activeDB[name] = TankMarkDB.Zones[zone][name]
+		end
+		
 		if TankMark.UpdateMobList then TankMark:UpdateMobList() end
 	end
 end
-
 
 -- ==========================================================
 -- ASSIGNMENT HELPERS
 -- ==========================================================
 function TankMark:GetFreeTankIcon()
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	local list = TankMarkProfileDB[zone]
 	if not list then return nil end
 	
@@ -252,11 +276,9 @@ function TankMark:GetFreeTankIcon()
 		
 		if markID and not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
 			if tankName and tankName ~= "" then
-				-- Standard Logic: Mark belongs to a specific Tank
 				local u = TankMark:FindUnitByName(tankName)
 				if u and not UnitIsDeadOrGhost(u) then return markID end
 			else
-				-- [FIX] Wildcard Logic: Mark is in profile but unassigned. Use it.
 				return markID
 			end
 		end
@@ -273,13 +295,14 @@ function TankMark:FindUnitByName(name)
 end
 
 function TankMark:GetAssigneeForMark(markID)
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	local list = TankMarkProfileDB[zone]
 	if not list then return nil end
 	
 	for _, entry in _ipairs(list) do
 		if entry.mark == markID then return entry.tank end
 	end
+	
 	return nil
 end
 
@@ -306,7 +329,9 @@ function TankMark:HandleCombatLog(msg)
 			if name == deadMobName then
 				if not TankMark:VerifyMarkExistence(iconID) then
 					TankMark:EvictMarkOwner(iconID)
-					if TankMark.IsSuperWoW and iconID == 8 then TankMark:ReviewSkullState() end
+					if TankMark.IsSuperWoW and iconID == 8 then 
+						TankMark:ReviewSkullState() 
+					end
 					return
 				end
 			end
@@ -322,7 +347,9 @@ function TankMark:HandleDeath(unitID)
 		local hp = UnitHealth(unitID)
 		if icon and hp and hp <= 0 then
 			TankMark:EvictMarkOwner(icon)
-			if TankMark.IsSuperWoW and icon == 8 then TankMark:ReviewSkullState() end
+			if TankMark.IsSuperWoW and icon == 8 then 
+				TankMark:ReviewSkullState() 
+			end
 		end
 		return
 	end
@@ -333,22 +360,22 @@ function TankMark:HandleDeath(unitID)
 	local deadPlayerName = UnitName(unitID)
 	if not deadPlayerName then return end
 	
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
+	local zone = TankMark:GetCachedZone()
 	local list = TankMarkProfileDB[zone]
 	if not list then return end
 	
 	local deadIndex = nil
 	for i, entry in _ipairs(list) do
-		-- [PHASE 1 FIX] Validate entry.tank exists before comparison (handles Wildcards)
-		if entry.tank and entry.tank == deadPlayerName then 
+		if entry.tank and entry.tank == deadPlayerName then
 			deadIndex = i
-			break 
+			break
 		end
 	end
 	
 	if deadIndex then
 		local deadMarkStr = TankMark:GetMarkString(list[deadIndex].mark)
 		local nextEntry = list[deadIndex + 1]
+		
 		if nextEntry and nextEntry.tank and nextEntry.tank ~= "" then
 			local msg = "ALERT: " .. deadPlayerName .. " ("..deadMarkStr..") has died! Take over!"
 			SendChatMessage(msg, "WHISPER", nil, nextEntry.tank)
@@ -377,9 +404,13 @@ function TankMark:VerifyMarkExistence(iconID)
 	if Check("mouseover") then return true end
 	
 	if numRaid > 0 then
-		for i = 1, 40 do if Check("raid"..i.."target") then return true end end
+		for i = 1, 40 do 
+			if Check("raid"..i.."target") then return true end 
+		end
 	elseif numParty > 0 then
-		for i = 1, 4 do if Check("party"..i.."target") then return true end end
+		for i = 1, 4 do 
+			if Check("party"..i.."target") then return true end 
+		end
 	end
 	
 	return false
@@ -392,24 +423,27 @@ function TankMark:EvictMarkOwner(iconID)
 	TankMark.activeMobIsCaster[iconID] = nil
 	
 	for guid, mark in _pairs(TankMark.activeGUIDs) do
-		if mark == iconID then TankMark.activeGUIDs[guid] = nil end
+		if mark == iconID then 
+			TankMark.activeGUIDs[guid] = nil 
+		end
 	end
 	
 	if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
--- [REVISED] Cascading Priority Logic (Prio 1 > Prio 2 > ...)
 function TankMark:ReviewSkullState()
 	-- 1. Identify Current Skull
 	local skullGUID = nil
 	for guid, mark in _pairs(TankMark.activeGUIDs) do
-		if mark == 8 then skullGUID = guid; break end
+		if mark == 8 then 
+			skullGUID = guid
+			break 
+		end
 	end
 	
 	-- 2. Logic: Promote Cross to Skull (Instant Priority)
 	for guid, mark in _pairs(TankMark.activeGUIDs) do
 		if mark == 7 and TankMark.visibleTargets[guid] and not UnitIsDead(guid) then
-			-- [FIXED] Only promote Cross if Skull is ACTUALLY MISSING.
 			if not skullGUID then
 				TankMark:Driver_ApplyMark(guid, 8)
 				TankMark:EvictMarkOwner(7)
@@ -423,27 +457,29 @@ function TankMark:ReviewSkullState()
 	-- 3. Find Best Candidate (Cascading Priority)
 	local bestGUID = nil
 	local lowestHP = 999999
-	local bestPrio = 99 -- Start with worst possible priority
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
-	if not TankMarkDB.Zones[zone] then return end
+	local bestPrio = 99
+	
+	local zone = TankMark:GetCachedZone()
+	
+	-- [v0.19] Use activeDB instead of TankMarkDB.Zones[zone]
+	if not TankMark.activeDB then return end
 	
 	for guid, _ in _pairs(TankMark.visibleTargets) do
 		local currentMark = GetRaidTargetIndex(guid)
 		
-		-- Candidate Check: Alive, and (Unmarked OR Low Mark OR is Current Skull)
 		if not UnitIsDead(guid) and (not currentMark or currentMark <= 6 or guid == skullGUID) then
 			local name = UnitName(guid)
-			if name and TankMarkDB.Zones[zone][name] then
-				local data = TankMarkDB.Zones[zone][name]
+			
+			-- [v0.19] Lookup in activeDB
+			if name and TankMark.activeDB[name] then
+				local data = TankMark.activeDB[name]
 				local mobPrio = data.prio or 99
 				local mobHP = UnitHealth(guid)
 				
-				-- LOGIC UPDATE: Switch to better Priority Tier immediately
 				if mobPrio < bestPrio then
 					bestPrio = mobPrio
 					lowestHP = mobHP
 					bestGUID = guid
-				-- If Same Priority Tier, check HP
 				elseif mobPrio == bestPrio then
 					if mobHP and mobHP < lowestHP and mobHP > 0 then
 						lowestHP = mobHP
@@ -461,18 +497,17 @@ function TankMark:ReviewSkullState()
 		if not skullGUID then
 			shouldSwap = true
 		elseif bestGUID ~= skullGUID then
-			-- Compare Candidate against Current Skull
 			local currentSkullName = UnitName(skullGUID)
 			local currentSkullPrio = 99
-			if currentSkullName and TankMarkDB.Zones[zone][currentSkullName] then
-				currentSkullPrio = TankMarkDB.Zones[zone][currentSkullName].prio or 99
+			
+			-- [v0.19] Lookup current skull in activeDB
+			if currentSkullName and TankMark.activeDB[currentSkullName] then
+				currentSkullPrio = TankMark.activeDB[currentSkullName].prio or 99
 			end
 			
 			if bestPrio < currentSkullPrio then
-				-- Always swap if we found a higher priority target
 				shouldSwap = true
 			elseif bestPrio == currentSkullPrio then
-				-- If same priority, use Hysteresis (10% HP threshold)
 				local currentHP = UnitHealth(skullGUID) or 1
 				local candidateHP = UnitHealth(bestGUID)
 				if currentHP > 0 and candidateHP < (currentHP * 0.90) then
@@ -483,8 +518,10 @@ function TankMark:ReviewSkullState()
 		
 		if shouldSwap then
 			if skullGUID then TankMark:EvictMarkOwner(8) end
+			
 			local oldMark = GetRaidTargetIndex(bestGUID)
 			if oldMark then TankMark:EvictMarkOwner(oldMark) end
+			
 			TankMark:Driver_ApplyMark(bestGUID, 8)
 			TankMark:RegisterMarkUsage(8, UnitName(bestGUID), bestGUID, false)
 		end
@@ -511,13 +548,17 @@ function TankMark:ResetSession()
 	TankMark.activeGUIDs = {}
 	
 	if TankMark.visibleTargets then
-		for k in _pairs(TankMark.visibleTargets) do TankMark.visibleTargets[k] = nil end
+		for k in _pairs(TankMark.visibleTargets) do 
+			TankMark.visibleTargets[k] = nil 
+		end
 	end
 	
 	if TankMark:HasPermissions() then
 		if TankMark.IsSuperWoW then
 			for i = 1, 8 do
-				if UnitExists("mark"..i) then SetRaidTarget("mark"..i, 0) end
+				if UnitExists("mark"..i) then 
+					SetRaidTarget("mark"..i, 0) 
+				end
 			end
 		end
 		
@@ -527,12 +568,19 @@ function TankMark:ResetSession()
 			end
 		end
 		
-		ClearUnit("target"); ClearUnit("mouseover")
+		ClearUnit("target")
+		ClearUnit("mouseover")
 		
 		if UnitInRaid("player") then
-			for i = 1, 40 do ClearUnit("raid"..i); ClearUnit("raid"..i.."target") end
+			for i = 1, 40 do 
+				ClearUnit("raid"..i)
+				ClearUnit("raid"..i.."target") 
+			end
 		else
-			for i = 1, 4 do ClearUnit("party"..i); ClearUnit("party"..i.."target") end
+			for i = 1, 4 do 
+				ClearUnit("party"..i)
+				ClearUnit("party"..i.."target") 
+			end
 		end
 		
 		TankMark:Print("Session reset and ALL marks cleared.")
