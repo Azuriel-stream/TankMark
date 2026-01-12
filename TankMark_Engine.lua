@@ -355,18 +355,20 @@ end
 function TankMark:HandleDeath(unitID)
 	if not TankMark:CanAutomate() then return end
 	
+	-- Handle MOB death
 	if not UnitIsPlayer(unitID) then
 		local icon = GetRaidTargetIndex(unitID)
 		local hp = UnitHealth(unitID)
 		if icon and hp and hp <= 0 then
 			TankMark:EvictMarkOwner(icon)
-			if TankMark.IsSuperWoW and icon == 8 then 
-				TankMark:ReviewSkullState() 
+			if TankMark.IsSuperWoW and icon == 8 then
+				TankMark:ReviewSkullState()
 			end
 		end
 		return
 	end
 	
+	-- Handle PLAYER death
 	local hp = UnitHealth(unitID)
 	if hp and hp > 0 then return end
 	
@@ -377,22 +379,46 @@ function TankMark:HandleDeath(unitID)
 	local list = TankMarkProfileDB[zone]
 	if not list then return end
 	
-	local deadIndex = nil
+	-- Check if dead player is a TANK
+	local deadTankIndex = nil
 	for i, entry in _ipairs(list) do
 		if entry.tank and entry.tank == deadPlayerName then
-			deadIndex = i
+			deadTankIndex = i
 			break
 		end
 	end
 	
-	if deadIndex then
-		local deadMarkStr = TankMark:GetMarkString(list[deadIndex].mark)
-		local nextEntry = list[deadIndex + 1]
-		
+	if deadTankIndex then
+		-- Alert next tank in line
+		local deadMarkStr = TankMark:GetMarkString(list[deadTankIndex].mark)
+		local nextEntry = list[deadTankIndex + 1]
 		if nextEntry and nextEntry.tank and nextEntry.tank ~= "" then
 			local msg = "ALERT: " .. deadPlayerName .. " ("..deadMarkStr..") has died! Take over!"
 			SendChatMessage(msg, "WHISPER", nil, nextEntry.tank)
 			TankMark:Print("Alerted " .. nextEntry.tank .. " to cover for " .. deadPlayerName)
+		end
+		return
+	end
+	
+	-- Check if dead player is a HEALER
+	for _, entry in _ipairs(list) do
+		if entry.healers and entry.healers ~= "" then
+			-- Parse healer list (space-delimited)
+			for healerName in string.gfind(entry.healers, "[^ ]+") do
+				if healerName == deadPlayerName then
+					-- Check if healer is in raid/party (roster validation)
+					if TankMark:IsPlayerInRaid(healerName) then
+						-- Alert the tank
+						local tankName = entry.tank
+						if tankName and tankName ~= "" then
+							local msg = "ALERT: Your healer " .. healerName .. " has died!"
+							SendChatMessage(msg, "WHISPER", nil, tankName)
+							TankMark:Print("Alerted " .. tankName .. " about healer death: " .. healerName)
+						end
+					end
+					return
+				end
+			end
 		end
 	end
 end
