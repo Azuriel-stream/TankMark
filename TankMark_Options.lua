@@ -1,24 +1,53 @@
 -- TankMark: v0.19-dev
+
 -- File: TankMark_Options.lua
--- [v0.19] Added Data Management tab
+
+-- Configuration panel with tab system and popup dialogs
 
 if not TankMark then return end
 
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
+
 local _ipairs = ipairs
 local _getn = table.getn
 
 -- ==========================================================
 -- OPTIONS PANEL
 -- ==========================================================
+
 TankMark.optionsFrame = nil
 TankMark.activeTab = nil
 
 -- ==========================================================
+-- STATIC POPUP DIALOGS
+-- ==========================================================
+
+-- Wipe Confirmation Popup (used for deletes)
+StaticPopupDialogs["TANKMARK_WIPE_CONFIRM"] = {
+	text = "%s",
+	button1 = "Confirm",
+	button2 = "Cancel",
+	OnAccept = function()
+		if TankMark.pendingWipeAction then
+			TankMark.pendingWipeAction()
+			TankMark.pendingWipeAction = nil
+		end
+	end,
+	OnCancel = function()
+		TankMark.pendingWipeAction = nil
+	end,
+	timeout = 0,
+	whileDead = 1,
+	hideOnEscape = 1,
+	exclusive = 1,
+}
+
+-- ==========================================================
 -- CREATE OPTIONS FRAME (Called Once)
 -- ==========================================================
+
 function TankMark:CreateOptionsFrame()
 	if TankMark.optionsFrame then return end
 	
@@ -30,7 +59,9 @@ function TankMark:CreateOptionsFrame()
 	f:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
 		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true, tileSize = 32, edgeSize = 32,
+		tile = true,
+		tileSize = 32,
+		edgeSize = 32,
 		insets = { left = 11, right = 12, top = 12, bottom = 11 }
 	})
 	f:EnableMouse(true)
@@ -38,7 +69,7 @@ function TankMark:CreateOptionsFrame()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", function() f:StartMoving() end)
 	f:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-	f:Hide()  -- ← CRITICAL: Hide during construction
+	f:Hide()
 	
 	-- Title
 	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -53,6 +84,7 @@ function TankMark:CreateOptionsFrame()
 	-- ==========================================================
 	-- TAB CONTENT (Load Modules)
 	-- ==========================================================
+	
 	local tabFrames = {}
 	
 	-- Tab 1: Mob Database
@@ -85,18 +117,17 @@ function TankMark:CreateOptionsFrame()
 	-- ==========================================================
 	-- TAB BUTTONS
 	-- ==========================================================
+	
 	local tabs = {
-		{name = "Mob Database", index = 1},
-		{name = "Team Profiles", index = 2},
-		{name = "Data Management", index = 3},
-		{name = "Options", index = 4}
+		{ name = "Mob Database", index = 1 },
+		{ name = "Team Profiles", index = 2 },
+		{ name = "Data Management", index = 3 },
+		{ name = "Options", index = 4 }
 	}
 	
 	local tabButtons = {}
-	
 	for i = 1, _getn(tabs) do
 		local tabInfo = tabs[i]
-		
 		local btn = CreateFrame("Button", "TMTab"..i, f, "UIPanelButtonTemplate")
 		btn:SetWidth(120)
 		btn:SetHeight(30)
@@ -111,7 +142,6 @@ function TankMark:CreateOptionsFrame()
 		
 		-- Store index for closure
 		local buttonIndex = i
-		
 		btn:SetScript("OnClick", function()
 			TankMark:SwitchTab(buttonIndex)
 		end)
@@ -126,6 +156,7 @@ end
 -- ==========================================================
 -- TAB SWITCHING LOGIC
 -- ==========================================================
+
 function TankMark:SwitchTab(tabIndex)
 	if not TankMark.tabFrames or not TankMark.tabButtons then return end
 	
@@ -165,12 +196,12 @@ function TankMark:SwitchTab(tabIndex)
 			TankMark:UpdateProfileList()
 		end
 	end
-	-- Tab 3 (Data Management) doesn't refresh on switch
 end
 
 -- ==========================================================
 -- SHOW OPTIONS (Called by /tmark c)
 -- ==========================================================
+
 function TankMark:ShowOptions()
 	if not TankMark.optionsFrame then
 		TankMark:CreateOptionsFrame()
@@ -182,8 +213,12 @@ function TankMark:ShowOptions()
 		TankMark.optionsFrame:Show()
 		
 		-- Refresh zone dropdowns on open
-		if TankMark.UpdateZoneDropdown then TankMark:UpdateZoneDropdown() end
-		if TankMark.UpdateProfileZoneDropdown then TankMark:UpdateProfileZoneDropdown() end
+		if TankMark.UpdateZoneDropdown then
+			TankMark:UpdateZoneDropdown()
+		end
+		if TankMark.UpdateProfileZoneDropdown then
+			TankMark:UpdateProfileZoneDropdown()
+		end
 		
 		-- Switch to first tab by default
 		if not TankMark.activeTab then
@@ -197,6 +232,7 @@ end
 -- ==========================================================
 -- GENERAL OPTIONS TAB
 -- ==========================================================
+
 function TankMark:BuildGeneralOptionsTab(parent)
 	local tab = CreateFrame("Frame", "TMOptionsTab", parent)
 	tab:SetPoint("TOPLEFT", 15, -40)
@@ -217,7 +253,6 @@ function TankMark:BuildGeneralOptionsTab(parent)
 		TankMark.MarkNormals = this:GetChecked()
 		TankMark:Print("Marking Normal Mobs: " .. (TankMark.MarkNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 	end)
-	
 	TankMark.normalsCheck = normalsCheck
 	
 	-- Version Info
