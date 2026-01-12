@@ -1,4 +1,4 @@
--- TankMark: v0.19-dev
+-- TankMark: v0.19
 -- File: TankMark_Defaults.lua
 -- [v0.19] Default Mob Database - Curated baseline priorities for top-tier content
 

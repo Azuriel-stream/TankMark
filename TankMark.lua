@@ -1,4 +1,4 @@
--- TankMark: v0.19-dev
+-- TankMark: v0.19
 -- File: TankMark.lua
 -- [v0.19] Added snapshot triggers and zone data loading
 
@@ -72,7 +72,7 @@ TankMark:SetScript("OnEvent", function()
 		TankMark:InitDriver()
 		TankMark:ScanForRangeSpell()
 		
-		TankMark:Print("TankMark v0.19-dev loaded.")
+		TankMark:Print("TankMark v0.19 loaded.")
 	
 	elseif (event == "ZONE_CHANGED_NEW_AREA") then
 		local oldZone = TankMark.currentZone
