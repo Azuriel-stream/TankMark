@@ -502,6 +502,14 @@ function TankMark:ReviewSkullState()
         if not UnitIsDead(guid) and (not currentMark or currentMark <= 6 or guid == skullGUID) then
             local name = UnitName(guid)
             
+            -- [v0.20] Respect MarkNormals filter
+            if not TankMark.MarkNormals then
+                local cls = UnitClassification(guid)
+                if cls == "normal" or cls == "trivial" or cls == "minus" then
+                    name = nil
+                end
+            end
+            
             -- [v0.19] Lookup in activeDB
             if name and TankMark.activeDB[name] then
                 local data = TankMark.activeDB[name]

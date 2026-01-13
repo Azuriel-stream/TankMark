@@ -445,6 +445,13 @@ function TankMark:RequestDeleteZone(zoneName)
 		TankMarkDB.Zones[zoneName] = nil
 		TankMarkDB.StaticGUIDs[zoneName] = nil
 		TankMark:Print("|cffff0000Deleted:|r Zone '" .. zoneName .. "'")
+		
+		-- [v0.20] Refresh activeDB if we deleted the current zone
+        local currentZone = TankMark:GetCachedZone()
+        if zoneName == currentZone and TankMark.LoadZoneData then
+            TankMark:LoadZoneData(currentZone)
+        end
+		
 		TankMark:UpdateMobList()
 	end
 	StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete ENTIRE zone and all its data?\n\n|cffff0000" .. zoneName .. "|r")
