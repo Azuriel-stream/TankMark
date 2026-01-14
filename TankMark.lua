@@ -63,7 +63,7 @@ TankMark:SetScript("OnEvent", function()
         -- Initialize zone cache
         TankMark.currentZone = GetRealZoneText()
         
-        -- [v0.19] Load zone data (merge defaults + user DB)
+        -- [v0.20] Load zone data (merge defaults + user DB)
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
@@ -83,7 +83,7 @@ TankMark:SetScript("OnEvent", function()
         local oldZone = TankMark.currentZone
         TankMark.currentZone = GetRealZoneText()
         
-        -- [v0.19] Load zone data for new zone
+        -- [v0.20] Load zone data for new zone
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
