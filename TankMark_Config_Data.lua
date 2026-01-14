@@ -1,8 +1,8 @@
--- TankMark: v0.19
+-- TankMark: v0.20
 
 -- File: TankMark_Config_Data.lua
 
--- [v0.19] Data Management UI - Snapshot restore, default merging, and export/import
+-- [v0.20] Data Management UI - Snapshot restore, default merging, and export/import
 
 if not TankMark then return end
 
