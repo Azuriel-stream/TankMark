@@ -150,7 +150,7 @@ function TankMark:ProcessUnit(guid, mode)
     local mobName = UnitName(guid)
     if not mobName then return end
     
-    -- [v0.19] LOOKUP IN MERGED ZONE CACHE (activeDB)
+    -- [v0.20] LOOKUP IN MERGED ZONE CACHE (activeDB)
     local mobData = nil
     if TankMark.activeDB and TankMark.activeDB[mobName] then
         mobData = TankMark.activeDB[mobName]
@@ -494,7 +494,7 @@ function TankMark:ReviewSkullState()
     local bestPrio = 99
     local zone = TankMark:GetCachedZone()
     
-    -- [v0.19] Use activeDB instead of TankMarkDB.Zones[zone]
+    -- [v0.20] Use activeDB instead of TankMarkDB.Zones[zone]
     if not TankMark.activeDB then return end
     
     for guid, _ in _pairs(TankMark.visibleTargets) do
@@ -510,7 +510,7 @@ function TankMark:ReviewSkullState()
                 end
             end
             
-            -- [v0.19] Lookup in activeDB
+            -- [v0.20] Lookup in activeDB
             if name and TankMark.activeDB[name] then
                 local data = TankMark.activeDB[name]
                 local mobPrio = data.prio or 99
@@ -539,7 +539,7 @@ function TankMark:ReviewSkullState()
             local currentSkullName = UnitName(skullGUID)
             local currentSkullPrio = 99
             
-            -- [v0.19] Lookup current skull in activeDB
+            -- [v0.20] Lookup current skull in activeDB
             if currentSkullName and TankMark.activeDB[currentSkullName] then
                 currentSkullPrio = TankMark.activeDB[currentSkullName].prio or 99
             end

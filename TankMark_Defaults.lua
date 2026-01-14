@@ -1,6 +1,6 @@
--- TankMark: v0.19
+-- TankMark: v0.20
 -- File: TankMark_Defaults.lua
--- [v0.19] Default Mob Database - Curated baseline priorities for top-tier content
+-- [v0.20] Default Mob Database - Curated baseline priorities for top-tier content
 
 -- ==========================================================
 -- DEFAULT MOB DATABASE
