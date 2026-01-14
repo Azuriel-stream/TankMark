@@ -44,6 +44,11 @@ function TankMark:HandleMouseover()
         return
     end
     
+	-- [v0.20] SuperWoW: Let Scanner handle marking (skip mouseover PASSIVE mode)
+    if TankMark.IsSuperWoW then
+        return
+    end
+	
     local guid = TankMark:Driver_GetGUID("mouseover")
     if guid then TankMark:ProcessUnit(guid, "PASSIVE") end
 end
