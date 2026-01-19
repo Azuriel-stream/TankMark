@@ -87,7 +87,10 @@ function TankMark:StartSuperScanner()
         
         -- Skull priority review (SuperWoW only)
         if TankMark.IsSuperWoW and TankMark.ReviewSkullState then
-            TankMark:ReviewSkullState()
+            -- [v0.21] Skip skull management when Recorder is active
+            if not TankMark.IsRecorderActive then
+                TankMark:ReviewSkullState()
+            end
         end
     end)
 end

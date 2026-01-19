@@ -37,14 +37,13 @@ TankMark.isShiftHeld = false
 -- EVENT HANDLER
 -- ==========================================================
 function TankMark:HandleMouseover()
-    if not TankMark:CanAutomate() and not TankMark.IsRecorderActive then return end
-    
+    -- [v0.21] PRIORITY 1: Ctrl to unmark (always available)
     if IsControlKeyDown() then
         if GetRaidTargetIndex("mouseover") then TankMark:UnmarkUnit("mouseover") end
         return
     end
     
-    -- [v0.21] Batch Processing: Collect candidates while Shift is held
+    -- [v0.21] PRIORITY 2: Batch Processing (Shift key check BEFORE permission check)
     if IsShiftKeyDown() then
         -- Only available with SuperWoW
         if not TankMark.IsSuperWoW then
@@ -55,9 +54,27 @@ function TankMark:HandleMouseover()
         local guid = TankMark:Driver_GetGUID("mouseover")
         if guid then
             TankMark:AddBatchCandidate(guid)
+            
+            -- [v0.21] Start polling for Shift release (Vanilla 1.12 workaround)
+            if not TankMark.batchPollingActive then
+                TankMark.batchPollingActive = true
+                TankMark:StartBatchShiftPoller()
+            end
         end
         return
     end
+    
+    -- [v0.21] PRIORITY 3: Flight Recorder (bypass permission check)
+    if TankMark.IsRecorderActive then
+        local guid = TankMark:Driver_GetGUID("mouseover")
+        if guid then
+            TankMark:RecordUnit(guid)
+        end
+        return
+    end
+    
+    -- [v0.21] PRIORITY 4: Permission check for auto-marking
+    if not TankMark:CanAutomate() then return end
     
     -- [v0.20] SuperWoW: Let Scanner handle marking (skip mouseover PASSIVE mode)
     if TankMark.IsSuperWoW then
@@ -67,6 +84,31 @@ function TankMark:HandleMouseover()
     local guid = TankMark:Driver_GetGUID("mouseover")
     if guid then TankMark:ProcessUnit(guid, "PASSIVE") end
 end
+
+-- ==========================================================
+-- [v0.21] BATCH SHIFT POLLING (Vanilla 1.12 Workaround)
+-- ==========================================================
+TankMark.batchPollingActive = false
+
+function TankMark:StartBatchShiftPoller()
+    if not TankMark.batchPollerFrame then
+        TankMark.batchPollerFrame = CreateFrame("Frame")
+    end
+    
+    TankMark.batchPollerFrame:SetScript("OnUpdate", function()
+        -- Poll every frame to detect Shift release
+        if not IsShiftKeyDown() then
+            -- Shift released
+            TankMark.batchPollingActive = false
+            TankMark.batchPollerFrame:SetScript("OnUpdate", nil)
+            
+            if TankMark.ExecuteBatchMarking then
+                TankMark:ExecuteBatchMarking()
+            end
+        end
+    end)
+end
+
 
 TankMark:SetScript("OnEvent", function()
     if (event == "ADDON_LOADED" and arg1 == "TankMark") then
@@ -132,22 +174,6 @@ TankMark:SetScript("OnEvent", function()
         
     elseif (event == "CHAT_MSG_ADDON") then
         if TankMark.HandleSync then TankMark:HandleSync(arg1, arg2, arg4) end
-        
-    elseif (event == "MODIFIER_STATE_CHANGED") then
-        -- [v0.21] Batch Processing: Execute on Shift release
-        if arg1 == "LSHIFT" or arg1 == "RSHIFT" then
-            if arg2 == 1 then
-                -- Shift pressed
-                TankMark.isShiftHeld = true
-                TankMark.batchCandidates = {}
-            elseif arg2 == 0 then
-                -- Shift released
-                TankMark.isShiftHeld = false
-                if TankMark.ExecuteBatchMarking then
-                    TankMark:ExecuteBatchMarking()
-                end
-            end
-        end
     end
 end)
 
@@ -160,7 +186,6 @@ TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
 TankMark:RegisterEvent("RAID_ROSTER_UPDATE")
 TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
-TankMark:RegisterEvent("MODIFIER_STATE_CHANGED")  -- [v0.21] Batch processing
 
 -- ==========================================================
 -- COMMANDS
