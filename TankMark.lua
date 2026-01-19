@@ -53,6 +53,12 @@ function TankMark:HandleMouseover()
         
         local guid = TankMark:Driver_GetGUID("mouseover")
         if guid then
+            -- [v0.21] Initialize batch on first Shift+mouseover
+            if not TankMark.batchPollingActive then
+                TankMark.batchSequence = 0  -- Reset sequence counter
+                TankMark.batchCandidates = {}  -- Clear candidates
+            end
+
             TankMark:AddBatchCandidate(guid)
             
             -- [v0.21] Start polling for Shift release (Vanilla 1.12 workaround)

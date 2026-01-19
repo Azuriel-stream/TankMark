@@ -283,6 +283,14 @@ end
 -- ==========================================================
 -- HELPER FUNCTIONS
 -- ==========================================================
+-- [v0.21] Refresh activeDB when database changes via config UI
+function TankMark:RefreshActiveDB()
+    local zone = TankMark:GetCachedZone()
+    if zone then
+        TankMark:LoadZoneData(zone)
+    end
+end
+
 function TankMark:FormatTimestamp(timestamp)
 	local diff = time() - timestamp
 	
