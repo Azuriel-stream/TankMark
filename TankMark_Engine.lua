@@ -812,6 +812,14 @@ function TankMark:ProcessBatchMark(candidateData)
     if not _UnitExists(guid) or _UnitIsDead(guid) then return end
     if _GetRaidTargetIndex(guid) then return end
     
+    -- [v0.21] Respect MarkNormals filter for batch marking
+    if not TankMark.MarkNormals then
+        local cls = UnitClassification(guid)
+        if cls == "normal" or cls == "trivial" or cls == "minus" then
+            return  -- Skip normal mobs if filter is active
+        end
+    end
+    
     -- Permission check (may have changed during batch)
     if not TankMark:CanAutomate() then
         TankMark:Print("|cffff0000Batch marking aborted: Permission lost.|r")
