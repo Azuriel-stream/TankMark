@@ -408,6 +408,12 @@ function TankMark:SaveFormData()
 	}
 	
 	TankMark:Print("|cff00ff00Saved:|r " .. mob .. " |cff888888(P" .. prio .. ", Mark: " .. icon .. ")|r")
+
+	-- [v0.21] Refresh activeDB after saving changes
+    if TankMark.RefreshActiveDB then
+        TankMark:RefreshActiveDB()
+    end
+	
 	TankMark:ResetEditor()
 	TankMark.isZoneListMode = false
 	TankMark:UpdateMobList()
