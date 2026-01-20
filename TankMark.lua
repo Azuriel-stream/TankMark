@@ -86,7 +86,7 @@ function TankMark:HandleMouseover()
     -- [v0.21] PRIORITY 4: Permission check for auto-marking
     if not TankMark:CanAutomate() then return end
     
-    -- [v0.20] SuperWoW: Let Scanner handle marking (skip mouseover PASSIVE mode)
+    -- [v0.21] SuperWoW: Let Scanner handle marking (skip mouseover PASSIVE mode)
     if TankMark.IsSuperWoW then
         return
     end
@@ -132,7 +132,7 @@ TankMark:SetScript("OnEvent", function()
         -- Initialize zone cache
         TankMark.currentZone = GetRealZoneText()
         
-        -- [v0.20] Load zone data (merge defaults + user DB)
+        -- [v0.21] Load zone data (merge defaults + user DB)
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
@@ -152,7 +152,7 @@ TankMark:SetScript("OnEvent", function()
         local oldZone = TankMark.currentZone
         TankMark.currentZone = GetRealZoneText()
         
-        -- [v0.20] Load zone data for new zone
+        -- [v0.21] Load zone data for new zone
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end

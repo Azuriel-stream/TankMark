@@ -1,4 +1,4 @@
--- TankMark: v0.21-dev
+-- TankMark: v0.21
 -- File: TankMark_Scanner.lua
 -- SuperWoW nameplate scanner with hybrid range detection
 
