@@ -37,9 +37,13 @@ TankMark.isShiftHeld = false
 -- EVENT HANDLER
 -- ==========================================================
 function TankMark:HandleMouseover()
+    if not _UnitExists("mouseover") then return end
+    
     -- [v0.21] PRIORITY 1: Ctrl to unmark (always available)
     if IsControlKeyDown() then
-        if GetRaidTargetIndex("mouseover") then TankMark:UnmarkUnit("mouseover") end
+        if _GetRaidTargetIndex("mouseover") then
+            TankMark:UnmarkUnit("mouseover")
+        end
         return
     end
     
@@ -55,10 +59,10 @@ function TankMark:HandleMouseover()
         if guid then
             -- [v0.21] Initialize batch on first Shift+mouseover
             if not TankMark.batchPollingActive then
-                TankMark.batchSequence = 0  -- Reset sequence counter
-                TankMark.batchCandidates = {}  -- Clear candidates
+                TankMark.batchSequence = 0
+                TankMark.batchCandidates = {}
             end
-
+            
             TankMark:AddBatchCandidate(guid)
             
             -- [v0.21] Start polling for Shift release (Vanilla 1.12 workaround)
@@ -88,7 +92,9 @@ function TankMark:HandleMouseover()
     end
     
     local guid = TankMark:Driver_GetGUID("mouseover")
-    if guid then TankMark:ProcessUnit(guid, "PASSIVE") end
+    if guid then
+        TankMark:ProcessUnit(guid, "PASSIVE")
+    end
 end
 
 -- ==========================================================
