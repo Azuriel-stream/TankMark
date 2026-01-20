@@ -1,4 +1,4 @@
--- TankMark: v0.20
+-- TankMark: v0.21
 
 -- File: TankMark_Config_Mobs.lua
 
@@ -408,6 +408,12 @@ function TankMark:SaveFormData()
 	}
 	
 	TankMark:Print("|cff00ff00Saved:|r " .. mob .. " |cff888888(P" .. prio .. ", Mark: " .. icon .. ")|r")
+
+	-- [v0.21] Refresh activeDB after saving changes
+    if TankMark.RefreshActiveDB then
+        TankMark:RefreshActiveDB()
+    end
+
 	TankMark:ResetEditor()
 	TankMark.isZoneListMode = false
 	TankMark:UpdateMobList()
@@ -446,7 +452,7 @@ function TankMark:RequestDeleteZone(zoneName)
 		TankMarkDB.StaticGUIDs[zoneName] = nil
 		TankMark:Print("|cffff0000Deleted:|r Zone '" .. zoneName .. "'")
 		
-		-- [v0.20] Refresh activeDB if we deleted the current zone
+		-- [v0.21] Refresh activeDB if we deleted the current zone
         local currentZone = TankMark:GetCachedZone()
         if zoneName == currentZone and TankMark.LoadZoneData then
             TankMark:LoadZoneData(currentZone)

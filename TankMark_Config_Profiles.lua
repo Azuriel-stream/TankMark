@@ -1,4 +1,4 @@
--- TankMark: v0.20
+-- TankMark: v0.21
 
 -- File: TankMark_Config_Profiles.lua
 

@@ -2,37 +2,45 @@
 
 **TankMark** is an intelligent raid marking automation addon for Vanilla WoW (1.12.1). It automates the assignment of Raid Targets based on a priority system and includes tools for data collection and team coordination.
 
-> **🚀 New in v0.19:** Profile Templates, Zone Cloning, Healer Death Alerts, and Roster Validation!
+> **🚀 New in v0.19:** Batch Marking System!
 
 ## ✨ Key Features
 
-### 🎯 Profile Templates (New!)
+### ⚡ Batch Marking System (New!)
+Queue multiple mobs for intelligent sequential marking.
+* **Hold Shift + Mouseover:** Queue up to 8 mobs for batch processing.
+* **Priority Sorting:** Marks are assigned based on mob priority (1-8), then mouseover order.
+* **Smart Assignment:** Respects Team Profile assignments and mark availability.
+* **Combat Gating:** Scanner only marks mobs actively targeting raid members.
+* **Ctrl+Mouseover:** Quickly unmark any mob without opening menus.
+
+### 🎯 Profile Templates
 Quick-start your team configuration with pre-built templates.
 * **4 Templates:** Standard 8-Tank, Priority 5-Tank, Minimal 3-Tank, CC Heavy (4 Tank + 4 CC)
 * **One-Click Setup:** Load any template, add player names, save.
 * **Copy From...:** Duplicate existing profiles between zones instantly.
 
-### 👥 Roster Validation (New!)
+### 👥 Roster Validation
 Real-time feedback on team readiness.
 * **Red Name Highlighting:** Tank/Healer names turn red when offline or not in raid.
 * **Warning Icons:** Yellow alert icons appear when assigned healers are offline.
 * **Status Tooltips:** Hover over warning icon to see detailed healer status.
 * **Auto-Updates:** Refreshes when players join/leave raid.
 
-### 💔 Healer Death Alerts (New!)
+### 💔 Healer Death Alerts
 Automatic notifications keep tanks informed.
 * **Instant Whispers:** Tank receives alert when their healer dies.
 * **Smart Filtering:** Only alerts for healers currently in raid.
 * **Multi-Healer Support:** Handles space-delimited healer lists.
 
-### 🗺️ Zone Management Tools (New!)
+### 🗺️ Zone Management Tools
 Complete zone lifecycle control.
 * **Add Zone Button:** Add current zone to database with confirmation.
 * **Delete Zone:** Remove entire zone with all data (with safety prompt).
 * **Lock Viewer:** Browse and edit GUID-locked mobs per zone.
 * **Manage Zones Browser:** View all saved zones with lock counts.
 
-### 📼 Enhanced Flight Recorder (New!)
+### 📼 Enhanced Flight Recorder
 Smarter mob recording workflow.
 * **Zone Pre-Creation:** Automatically creates zone entry on recorder start.
 * **Duplicate Prevention:** Skips mobs already in database (no spam).
@@ -140,6 +148,8 @@ More flexible team assignments.
 
 ## 🔄 Version History
 
+* **v0.21** - Batch marking system, combat gating, activeDB auto-refresh, Ctrl+mouseover unmark
+* **v0.20** - Merged zone cache, snapshot system, corruption detection
 * **v0.19** - Profile templates, zone cloning, healer death alerts, roster validation
 * **v0.18** - Zone management tools, flight recorder improvements
 * **v0.17** - Performance optimization, sync validation, zone caching
