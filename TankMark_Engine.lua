@@ -208,30 +208,20 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
             if list then
                 for _, entry in _ipairs(list) do
                     if entry.mark == mobData.mark then
-                        DEFAULT_CHAT_FRAME:AddMessage("[BATCH] Found mark "..mobData.mark.." in profile, tank='"..tostring(entry.tank).."'")
-                
                         local foundUnit = TankMark:FindUnitByName(entry.tank)
-                        DEFAULT_CHAT_FRAME:AddMessage("[BATCH] FindUnitByName("..tostring(entry.tank)..") = "..tostring(foundUnit))
 
                         if entry.tank == "" or TankMark:FindUnitByName(entry.tank) then
-                            DEFAULT_CHAT_FRAME:AddMessage("[BATCH] Tank check PASSED, using mark "..mobData.mark)
                             iconToApply = mobData.mark
                             break
-                        else
-                            DEFAULT_CHAT_FRAME:AddMessage("[BATCH] Tank check FAILED")
                         end
                     end
                 end
             end
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH P1] Mark "..mobData.mark.." already used, skipping Priority 1")
         end
         
         -- Priority 2: Get next available from Ordered List
         if not iconToApply then
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH P2] Calling GetFreeTankIcon()")
             iconToApply = TankMark:GetFreeTankIcon()
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH P2] GetFreeTankIcon() returned: "..tostring(iconToApply))
         end
         
     elseif mobData.type == "CC" then
@@ -775,11 +765,6 @@ function TankMark:ExecuteBatchMarking()
         return a.prio < b.prio
     end)
     
-    -- [DEBUG] Print sorted order
-    for i, candidate in _ipairs(sortedCandidates) do
-        DEFAULT_CHAT_FRAME:AddMessage("[SORT] Position "..i..": "..candidate.name..", seq="..candidate.sequence..", prio="..candidate.prio)
-    end
-
     -- Limit to top 8
     local maxMarks = math.min(8, _tgetn(sortedCandidates))
     
@@ -811,16 +796,11 @@ function TankMark:StartBatchProcessor()
     TankMark.batchQueueTimer = 0
     TankMark.batchCurrentIndex = 1
     
-    DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Starting processor, queue size=".. _tgetn(TankMark.batchMarkQueue))
-    
     TankMark.batchProcessorFrame:SetScript("OnUpdate", function()
         TankMark.batchQueueTimer = TankMark.batchQueueTimer + arg1
         
-        DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] OnUpdate tick: index="..TankMark.batchCurrentIndex..", timer="..string.format("%.3f", TankMark.batchQueueTimer))
-        
         -- Check if queue is empty
         if TankMark.batchCurrentIndex > _tgetn(TankMark.batchMarkQueue) then
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Queue complete, stopping processor")
             TankMark.batchProcessorFrame:SetScript("OnUpdate", nil)
             TankMark.batchCurrentIndex = 1
             return
@@ -828,15 +808,10 @@ function TankMark:StartBatchProcessor()
         
         -- Process next mark if delay expired
         local queueEntry = TankMark.batchMarkQueue[TankMark.batchCurrentIndex]
-        DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Entry "..TankMark.batchCurrentIndex.." delay="..queueEntry.delay..", timer="..string.format("%.3f", TankMark.batchQueueTimer))
         
         if TankMark.batchQueueTimer >= queueEntry.delay then
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Processing entry "..TankMark.batchCurrentIndex)
             TankMark:ProcessBatchMark(queueEntry.data)
             TankMark.batchCurrentIndex = TankMark.batchCurrentIndex + 1
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Incremented index to "..TankMark.batchCurrentIndex)
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH PROC] Delay not met yet, waiting...")
         end
     end)
 end
@@ -847,19 +822,14 @@ function TankMark:ProcessBatchMark(candidateData)
     local guid = candidateData.guid
     local mobData = candidateData.mobData
     
-    DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] Processing guid="..tostring(guid)..", mobName="..(candidateData.name or "unknown"))
-
     -- Validate GUID still exists and is unmarked
     if not _UnitExists(guid) then
-        DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] SKIP: GUID doesn't exist")
         return
     end
     if _UnitIsDead(guid) then
-        DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] SKIP: Unit is dead")
         return
     end
     if _GetRaidTargetIndex(guid) then
-        DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] SKIP: Already marked with ".. _GetRaidTargetIndex(guid))
         return
     end
     
@@ -867,7 +837,6 @@ function TankMark:ProcessBatchMark(candidateData)
     if not TankMark.MarkNormals then
         local cls = UnitClassification(guid)
         if cls == "normal" or cls == "trivial" or cls == "minus" then
-            DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] SKIP: Normal mob filter active")
             return  -- Skip normal mobs if filter is active
         end
     end
@@ -879,8 +848,6 @@ function TankMark:ProcessBatchMark(candidateData)
         return
     end
     
-    DEFAULT_CHAT_FRAME:AddMessage("[BATCH MARK] All checks passed, calling ProcessKnownMob")
-
     -- Process known mob
     if mobData then
         TankMark:ProcessKnownMob(mobData, guid, "FORCE")
