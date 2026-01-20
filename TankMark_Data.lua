@@ -1,6 +1,6 @@
--- TankMark: v0.20
+-- TankMark: v0.21
 -- File: TankMark_Data.lua
--- [v0.20] Database initialization, snapshot system, and corruption detection
+-- [v0.21] Database initialization, snapshot system, and corruption detection
 
 if not TankMark then
 	TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -26,7 +26,7 @@ local _getn = table.getn
 -- ==========================================================
 TankMark.sessionAssignments = {}
 TankMark.runtimeCache = { classRoster = {} }
-TankMark.activeDB = nil  -- [v0.20] Merged zone cache (Defaults + User DB)
+TankMark.activeDB = nil  -- [v0.21] Merged zone cache (Defaults + User DB)
 
 -- ==========================================================
 -- DATABASE INITIALIZATION
@@ -40,21 +40,21 @@ function TankMark:InitializeDB()
 	-- 2. Profile Database
 	if not TankMarkProfileDB then TankMarkProfileDB = {} end
 	
-	-- 3. [v0.20] Snapshot Database
+	-- 3. [v0.21] Snapshot Database
 	if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
 	
-	-- 4. [v0.20] Corruption Detection
+	-- 4. [v0.21] Corruption Detection
 	local isCorrupt, errors = TankMark:ValidateDB()
 	if isCorrupt then
 		TankMark:ShowCorruptionDialog(errors)
 		return
 	end
 	
-	TankMark:Print("Database initialized (v0.20 Resilience System active).")
+	TankMark:Print("Database initialized (v0.21 Resilience System active).")
 end
 
 -- ==========================================================
--- [v0.20] CORRUPTION DETECTION (Layer 3)
+-- [v0.21] CORRUPTION DETECTION (Layer 3)
 -- ==========================================================
 function TankMark:ValidateDB()
 	local errors = {}
@@ -136,7 +136,7 @@ function TankMark:ShowCorruptionDialog(errors)
 end
 
 -- ==========================================================
--- [v0.20] SNAPSHOT SYSTEM (Layer 2)
+-- [v0.21] SNAPSHOT SYSTEM (Layer 2)
 -- ==========================================================
 function TankMark:CreateSnapshot()
 	if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
@@ -255,7 +255,7 @@ function TankMark:MergeDefaults()
 end
 
 -- ==========================================================
--- [v0.20] LAZY-LOAD ZONE DATA (Layer 1 Integration)
+-- [v0.21] LAZY-LOAD ZONE DATA (Layer 1 Integration)
 -- ==========================================================
 function TankMark:LoadZoneData(zoneName)
 	if not zoneName then return end
@@ -283,6 +283,14 @@ end
 -- ==========================================================
 -- HELPER FUNCTIONS
 -- ==========================================================
+-- [v0.21] Refresh activeDB when database changes via config UI
+function TankMark:RefreshActiveDB()
+    local zone = TankMark:GetCachedZone()
+    if zone then
+        TankMark:LoadZoneData(zone)
+    end
+end
+
 function TankMark:FormatTimestamp(timestamp)
 	local diff = time() - timestamp
 	

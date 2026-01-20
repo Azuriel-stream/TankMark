@@ -1,4 +1,4 @@
--- TankMark: v0.20
+-- TankMark: v0.21
 -- File: TankMark_Scanner.lua
 -- SuperWoW nameplate scanner with hybrid range detection
 
@@ -9,6 +9,10 @@ if not TankMark then return end
 -- ==========================================================
 local _IsSpellInRange = IsSpellInRange
 local _CheckInteractDistance = CheckInteractDistance
+local _UnitExists = UnitExists
+local _UnitIsPlayer = UnitIsPlayer
+local _UnitName = UnitName
+local _UnitPlayerControlled = UnitPlayerControlled
 local _strfind = string.find
 local _ipairs = ipairs
 local _pairs = pairs
@@ -35,7 +39,7 @@ function TankMark:InitDriver()
     -- Check global variable exposed by SuperWoW
     if type(SUPERWOW_VERSION) ~= "nil" then
         TankMark.IsSuperWoW = true
-        TankMark:Print("SuperWoW Detected: |cff00ff00v0.12 Hybrid Driver Loaded.|r")
+        TankMark:Print("SuperWoW Detected: |cff00ff00v0.21 Hybrid Driver Loaded.|r")
         TankMark:StartSuperScanner()
     else
         TankMark:Print("Standard Client: Hybrid features disabled. Falling back to v0.10 driver.")
@@ -60,8 +64,8 @@ function TankMark:StartSuperScanner()
         end
         
         -- Wipe table manually (Lua 5.0)
-        for k in _pairs(TankMark.visibleTargets) do 
-            TankMark.visibleTargets[k] = nil 
+        for k in _pairs(TankMark.visibleTargets) do
+            TankMark.visibleTargets[k] = nil
         end
         
         -- SuperWoW Feature: frame:GetName(1) -> GUID
@@ -72,7 +76,10 @@ function TankMark:StartSuperScanner()
                 if guid then
                     TankMark.visibleTargets[guid] = true
                     if not TankMark.activeGUIDs[guid] then
-                        TankMark:ProcessUnit(guid, "SCANNER")
+                        -- [v0.21] Combat Gating: Only mark if mob is in combat
+                        if TankMark.IsRecorderActive or TankMark:IsGUIDInCombat(guid) then
+                            TankMark:ProcessUnit(guid, "SCANNER")
+                        end
                     end
                 end
             end
@@ -80,23 +87,57 @@ function TankMark:StartSuperScanner()
         
         -- Skull priority review (SuperWoW only)
         if TankMark.IsSuperWoW and TankMark.ReviewSkullState then
-            TankMark:ReviewSkullState()
+            -- [v0.21] Skip skull management when Recorder is active
+            if not TankMark.IsRecorderActive then
+                TankMark:ReviewSkullState()
+            end
         end
     end)
 end
 
-function TankMark:IsNameplate(frame)
-    if not frame or not frame.GetChildren or not frame:IsVisible() then 
-        return false 
-    end
+-- ==========================================================
+-- [v0.21] COMBAT DETECTION
+-- ==========================================================
+function TankMark:IsGUIDInCombat(guid)
+    if not guid then return false end
     
-    local children = {frame:GetChildren()}
-    for _, child in _ipairs(children) do
-        if child.GetValue and child.GetMinMaxValues and child.SetMinMaxValues then 
-            return true 
+    -- Check if mob is targeting a unit
+    local targetUnit = guid.."target"
+    if not _UnitExists(targetUnit) then return false end
+    
+    -- PATH 1: Mob is targeting a player
+    if _UnitIsPlayer(targetUnit) then
+        local targetName = _UnitName(targetUnit)
+        if targetName and TankMark:IsPlayerInRaid(targetName) then
+            return true
         end
     end
     
+    -- PATH 2: Mob is targeting a pet (check owner)
+    if _UnitPlayerControlled(targetUnit) then
+        -- SuperWoW: unitid.."owner" suffix
+        local ownerUnit = targetUnit.."owner"
+        if _UnitExists(ownerUnit) and _UnitIsPlayer(ownerUnit) then
+            local ownerName = _UnitName(ownerUnit)
+            if ownerName and TankMark:IsPlayerInRaid(ownerName) then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+function TankMark:IsNameplate(frame)
+    if not frame or not frame.GetChildren or not frame:IsVisible() then
+        return false
+    end
+    local children = {frame:GetChildren()}
+    for _, child in _ipairs(children) do
+        if child.GetValue and child.GetMinMaxValues and child.SetMinMaxValues then
+            return true
+        end
+    end
     return false
 end
 
@@ -124,12 +165,10 @@ function TankMark:ScanForRangeSpell()
     local bestRange = 0
     local bestIndex = nil
     local i = 1
-    
     while true do
         if i > 1000 then break end -- Safety Cap
         local spellName, rank = GetSpellName(i, "spell")
         if not spellName then break end
-        
         if longRangeSpells[spellName] then
             local range = longRangeSpells[spellName]
             if range > bestRange then
@@ -138,7 +177,6 @@ function TankMark:ScanForRangeSpell()
                 bestIndex = i
             end
         end
-        
         i = i + 1
     end
     
@@ -166,7 +204,7 @@ function TankMark:Driver_IsDistanceValid(unitOrGuid)
     -- Nameplates in SuperWoW appear at ~20 yards (vanilla default)
     -- If the Scanner detected it and mouseover works, it's in valid range
     if type(unitOrGuid) == "string" and _strfind(unitOrGuid, "^0x") then
-        local exists, mouseoverGuid = UnitExists("mouseover")
+        local exists, mouseoverGuid = _UnitExists("mouseover")
         if exists and mouseoverGuid == unitOrGuid then
             return true
         end
