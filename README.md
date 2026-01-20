@@ -1,4 +1,4 @@
-# TankMark (v0.19)
+# TankMark (v0.21)
 
 **TankMark** is an intelligent raid marking automation addon for Vanilla WoW (1.12.1). It automates the assignment of Raid Targets based on a priority system and includes tools for data collection and team coordination.
 
