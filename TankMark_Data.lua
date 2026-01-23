@@ -1,4 +1,4 @@
--- TankMark: v0.21
+-- TankMark: v0.22
 -- File: TankMark_Data.lua
 -- [v0.21] Database initialization, snapshot system, and corruption detection
 
@@ -54,7 +54,7 @@ function TankMark:InitializeDB()
         return
     end
     
-    TankMark:Print("Database initialized (v0.21 Resilience System active).")
+    TankMark:Print("Database initialized (v0.22 Resilience System active).")
 end
 
 -- ==========================================================
