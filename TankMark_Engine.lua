@@ -718,6 +718,13 @@ function TankMark:AddBatchCandidate(guid)
     if _UnitIsDead(guid) then return end
     if _UnitIsPlayer(guid) or _UnitIsFriend("player", guid) then return end
     
+    -- [v0.22 FIX] Combat filtering depends on SuperWoW availability
+    -- WITH SuperWoW: Skip combat mobs (scanner will handle them automatically)
+    -- WITHOUT SuperWoW: Allow combat mobs (batch marking is the only marking method)
+    if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
+        return
+    end
+
     local mobName = _UnitName(guid)
     if not mobName then return end
     
@@ -840,6 +847,13 @@ function TankMark:ProcessBatchMark(candidateData)
         return
     end
     if _GetRaidTargetIndex(guid) then
+        return
+    end
+    
+    -- [v0.22 FIX] Combat filtering depends on SuperWoW availability
+    -- WITH SuperWoW: Skip combat mobs (let scanner handle them)
+    -- WITHOUT SuperWoW: Process combat mobs (batch marking is the only option)
+    if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
         return
     end
     
