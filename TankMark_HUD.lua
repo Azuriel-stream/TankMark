@@ -156,71 +156,85 @@ end
 -- 2. FRAME CREATION
 -- ==========================================================
 function TankMark:CreateHUD()
-	-- Single Menu Frame used for both contexts (re-initialized on click)
-	TankMark.menuFrame = CreateFrame("Frame", "TankMarkHUDMenu", UIParent, "UIDropDownMenuTemplate")
-	
-	local f = CreateFrame("Frame", "TankMarkHUD", UIParent)
-	f:SetWidth(200); f:SetHeight(150)
-	f:SetPoint("CENTER", UIParent, "CENTER", 200, 0)
-	f:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 5, right = 5, top = 5, bottom = 5 }
-	})
-	f:SetBackdropColor(0, 0, 0, 0.4)
-	f:SetBackdropBorderColor(0.8, 0.8, 0.8, 0.5)
-	f:SetMovable(true); f:EnableMouse(true)
-	f:RegisterForDrag("LeftButton")
-	f:SetScript("OnDragStart", function() this:StartMoving() end)
-	f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
-	
-	-- Right-Click on Background -> Global Menu
-	f:SetScript("OnMouseUp", function()
-		if arg1 == "RightButton" then
-			UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitGlobalMenu() end, "MENU")
-			ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
-		end
-	end)
-	
-	f.header = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	f.header:SetPoint("TOP", f, "TOP", 0, -5)
-	f.header:SetText("TankMark HUD")
-	
-	for i = 8, 1, -1 do
-		local row = CreateFrame("Button", nil, f)
-		row:SetWidth(180); row:SetHeight(20)
-		row:SetID(i)
-		
-		row.icon = row:CreateTexture(nil, "ARTWORK")
-		row.icon:SetWidth(16); row.icon:SetHeight(16)
-		row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-		row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-		SetRaidTargetIconTexture(row.icon, i)
-		
-		row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
-		row.text:SetText("")
-		
-		row:EnableMouse(true)
-		row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-		row:SetScript("OnClick", function()
-			if arg1 == "LeftButton" then
-				TankMark:ToggleMarkState(this:GetID())
-			elseif arg1 == "RightButton" then
-				-- Open Row Context Menu
-				TankMark.clickedIconID = this:GetID()
-				UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitRowMenu() end, "MENU")
-				ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
-			end
-		end)
-		
-		row:Hide()
-		TankMark.hudRows[i] = row
-	end
-	
-	TankMark.hudFrame = f
-	TankMark:UpdateHUD()
+    -- Single Menu Frame used for both contexts (re-initialized on click)
+    TankMark.menuFrame = CreateFrame("Frame", "TankMarkHUDMenu", UIParent, "UIDropDownMenuTemplate")
+    
+    local f = CreateFrame("Frame", "TankMarkHUD", UIParent)
+    f:SetWidth(200); f:SetHeight(150)
+    
+    -- [v0.22] Restore saved position or use default
+    if TankMarkCharConfig and TankMarkCharConfig.HUD and TankMarkCharConfig.HUD.point then
+        local pos = TankMarkCharConfig.HUD
+        f:SetPoint(pos.point, pos.relativeTo or UIParent, pos.relativePoint, pos.xOffset, pos.yOffset)
+    else
+        -- Default position (first-time user)
+        f:SetPoint("CENTER", UIParent, "CENTER", 200, 0)
+    end
+    
+    f:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 5, right = 5, top = 5, bottom = 5 }
+    })
+    f:SetBackdropColor(0, 0, 0, 0.4)
+    f:SetBackdropBorderColor(0.8, 0.8, 0.8, 0.5)
+    f:SetMovable(true); f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() this:StartMoving() end)
+    f:SetScript("OnDragStop", function()
+        this:StopMovingOrSizing()
+        -- [v0.22] Save HUD position
+        TankMark:SaveHUDPosition()
+    end)
+    
+    -- Right-Click on Background -> Global Menu
+    f:SetScript("OnMouseUp", function()
+        if arg1 == "RightButton" then
+            UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitGlobalMenu() end, "MENU")
+            ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
+        end
+    end)
+    
+    f.header = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.header:SetPoint("TOP", f, "TOP", 0, -5)
+    f.header:SetText("TankMark HUD")
+    
+    -- Create 8 rows (Skull to Star)
+    for i = 8, 1, -1 do
+        local row = CreateFrame("Button", nil, f)
+        row:SetWidth(180); row:SetHeight(20)
+        row:SetID(i)
+        
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetWidth(16); row.icon:SetHeight(16)
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        SetRaidTargetIconTexture(row.icon, i)
+        
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+        row.text:SetText("")
+        
+        row:EnableMouse(true)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row:SetScript("OnClick", function()
+            if arg1 == "LeftButton" then
+                TankMark:ToggleMarkState(this:GetID())
+            elseif arg1 == "RightButton" then
+                -- Open Row Context Menu
+                TankMark.clickedIconID = this:GetID()
+                UIDropDownMenu_Initialize(TankMark.menuFrame, function() TankMark:InitRowMenu() end, "MENU")
+                ToggleDropDownMenu(1, nil, TankMark.menuFrame, "cursor", 0, 0)
+            end
+        end)
+        
+        row:Hide()
+        TankMark.hudRows[i] = row
+    end
+    
+    TankMark.hudFrame = f
+    TankMark:UpdateHUD()
 end
 
 -- ==========================================================
@@ -346,4 +360,25 @@ function TankMark:UpdateHUD()
 	else
 		TankMark.hudFrame:Hide()
 	end
+end
+
+-- ==========================================================
+-- [v0.22] HUD POSITION PERSISTENCE
+-- ==========================================================
+
+function TankMark:SaveHUDPosition()
+    if not TankMark.hudFrame then return end
+    
+    local point, relativeTo, relativePoint, xOffset, yOffset = TankMark.hudFrame:GetPoint()
+    
+    -- Initialize if needed
+    if not TankMarkCharConfig then TankMarkCharConfig = {} end
+    if not TankMarkCharConfig.HUD then TankMarkCharConfig.HUD = {} end
+    
+    -- Save position (always anchor to UIParent for stability)
+    TankMarkCharConfig.HUD.point = point
+    TankMarkCharConfig.HUD.relativeTo = "UIParent"
+    TankMarkCharConfig.HUD.relativePoint = relativePoint
+    TankMarkCharConfig.HUD.xOffset = xOffset
+    TankMarkCharConfig.HUD.yOffset = yOffset
 end

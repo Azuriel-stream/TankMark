@@ -32,25 +32,29 @@ TankMark.activeDB = nil  -- [v0.21] Merged zone cache (Defaults + User DB)
 -- DATABASE INITIALIZATION
 -- ==========================================================
 function TankMark:InitializeDB()
-	-- 1. Mob Database
-	if not TankMarkDB then TankMarkDB = {} end
-	if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
-	if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
-	
-	-- 2. Profile Database
-	if not TankMarkProfileDB then TankMarkProfileDB = {} end
-	
-	-- 3. [v0.21] Snapshot Database
-	if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
-	
-	-- 4. [v0.21] Corruption Detection
-	local isCorrupt, errors = TankMark:ValidateDB()
-	if isCorrupt then
-		TankMark:ShowCorruptionDialog(errors)
-		return
-	end
-	
-	TankMark:Print("Database initialized (v0.21 Resilience System active).")
+    -- 1. Mob Database
+    if not TankMarkDB then TankMarkDB = {} end
+    if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
+    if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
+    
+    -- 2. Profile Database
+    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+    
+    -- 3. [v0.21] Snapshot Database
+    if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
+    
+    -- 4. [v0.22] Character-Specific UI Settings
+    if not TankMarkCharConfig then TankMarkCharConfig = {} end
+    if not TankMarkCharConfig.HUD then TankMarkCharConfig.HUD = {} end
+    
+    -- 5. [v0.21] Corruption Detection
+    local isCorrupt, errors = TankMark:ValidateDB()
+    if isCorrupt then
+        TankMark:ShowCorruptionDialog(errors)
+        return
+    end
+    
+    TankMark:Print("Database initialized (v0.21 Resilience System active).")
 end
 
 -- ==========================================================
