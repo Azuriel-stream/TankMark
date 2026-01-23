@@ -1,4 +1,4 @@
--- TankMark: v0.21-dev
+-- TankMark: v0.22
 -- File: TankMark_Engine.lua
 -- Core marking logic and assignment algorithms
 
@@ -174,26 +174,27 @@ function TankMark:ProcessUnit(guid, mode)
     
     if mobData then
         mobData.name = mobName
-        -- [v0.21] Pass mode to ProcessKnownMob for combat gating
         TankMark:ProcessKnownMob(mobData, guid, mode)
     else
-        if mode == "FORCE" then
-            TankMark:ProcessUnknownMob(guid)
+        -- [v0.22 FIX] Allow SCANNER mode to mark unknown mobs
+        if mode == "FORCE" or mode == "SCANNER" then
+            TankMark:ProcessUnknownMob(guid, mode)  -- Pass mode
         end
     end
+
 end
 
 function TankMark:ProcessKnownMob(mobData, guid, mode)
     if mobData.mark == 0 then return end
     
-    -- [v0.21] COMBAT GATING: Only mark mobs when combat is happening
+    -- [v0.22] COMBAT GATING: Only mark mobs when combat is happening
     if mode == "SCANNER" then
         -- Check if mob is targeting raid OR player is in combat
         local playerInCombat = UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
-
+        
         if not mobInCombat and not playerInCombat then
-            return  -- Don't mark peaceful mobs
+            return -- Don't mark peaceful mobs
         end
     end
     
@@ -201,25 +202,12 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     local isCCBlocked = (mobData.type == "CC" and TankMark.disabledMarks[mobData.mark])
     
     if mobData.type == "KILL" or isCCBlocked then
-        -- Priority 1: Use specific mark if free AND in profile
+        -- [v0.22 FIX] Priority 1: Use mob's database mark if free (regardless of Team Profile)
         if not TankMark.usedIcons[mobData.mark] then
-            local zone = TankMark:GetCachedZone()
-            local list = TankMarkProfileDB[zone]
-            if list then
-                for _, entry in _ipairs(list) do
-                    if entry.mark == mobData.mark then
-                        local foundUnit = TankMark:FindUnitByName(entry.tank)
-
-                        if entry.tank == "" or TankMark:FindUnitByName(entry.tank) then
-                            iconToApply = mobData.mark
-                            break
-                        end
-                    end
-                end
-            end
+            iconToApply = mobData.mark
         end
         
-        -- Priority 2: Get next available from Ordered List
+        -- [v0.22 FIX] Priority 2: Only if mark is taken, get next available from Team Profile
         if not iconToApply then
             iconToApply = TankMark:GetFreeTankIcon()
         end
@@ -240,7 +228,18 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     end
 end
 
-function TankMark:ProcessUnknownMob(guid)
+function TankMark:ProcessUnknownMob(guid, mode)
+    -- [v0.22 FIX] Combat gating (only for SCANNER mode)
+    -- FORCE mode (batch marking) bypasses this check
+    if mode == "SCANNER" then
+        local playerInCombat = UnitAffectingCombat("player")
+        local mobInCombat = TankMark:IsGUIDInCombat(guid)
+        
+        if not mobInCombat and not playerInCombat then
+            return  -- Don't mark peaceful mobs via scanner
+        end
+    end
+    
     local iconToApply = TankMark:GetFreeTankIcon()
     if iconToApply then
         TankMark:Driver_ApplyMark(guid, iconToApply)
@@ -510,7 +509,7 @@ function TankMark:EvictMarkOwner(iconID)
 end
 
 function TankMark:ReviewSkullState()
-    -- [v0.21] Skip skull management when Recorder is active
+    -- [v0.22] Skip skull management when Recorder is active
     if TankMark.IsRecorderActive then return end
     
     -- 1. Identify Current Skull
@@ -526,7 +525,7 @@ function TankMark:ReviewSkullState()
     for guid, mark in _pairs(TankMark.activeGUIDs) do
         if mark == 7 and TankMark.visibleTargets[guid] and not _UnitIsDead(guid) then
             if not skullGUID then
-                -- [v0.21] Check combat before promoting
+                -- [v0.22] Check combat before promoting
                 if TankMark:IsGUIDInCombat(guid) then
                     TankMark:Driver_ApplyMark(guid, 8)
                     TankMark:EvictMarkOwner(7)
@@ -544,19 +543,30 @@ function TankMark:ReviewSkullState()
     local bestPrio = 99
     local zone = TankMark:GetCachedZone()
     
-    -- [v0.21] Use activeDB instead of TankMarkDB.Zones[zone]
+    -- [v0.22] Use activeDB instead of TankMarkDB.Zones[zone]
     if not TankMark.activeDB then return end
     
     for guid, _ in _pairs(TankMark.visibleTargets) do
-        -- [v0.21] COMBAT GATING: Only consider mobs in combat
-        if not TankMark:IsGUIDInCombat(guid) then
-            -- Skip peaceful mobs
-        else
+        -- [v0.22] COMBAT GATING: Only consider mobs in combat
+        if TankMark:IsGUIDInCombat(guid) then
             local currentMark = _GetRaidTargetIndex(guid)
-            if not _UnitIsDead(guid) and (not currentMark or currentMark <= 6 or guid == skullGUID) then
-                local name = _UnitName(guid)
-                
-                -- [v0.21] Respect MarkNormals filter
+            local name = _UnitName(guid)
+            
+            -- [v0.22 FIX] Check database mark to determine eligibility
+            local mobData = name and TankMark.activeDB[name]
+            local databaseMark = mobData and mobData.mark or nil
+            
+            -- Candidate eligibility:
+            -- 1. Unmarked mob with NO database entry OR database mark is SKULL
+            -- 2. Mob currently has SKULL (for dynamic swapping)
+            -- EXPLICITLY EXCLUDE: Mobs whose database mark is anything other than SKULL
+            local isEligible = not _UnitIsDead(guid) and (
+                (not currentMark and (not databaseMark or databaseMark == 8)) or
+                currentMark == 8
+            )
+            
+            if isEligible then
+                -- [v0.22] Respect MarkNormals filter
                 if not TankMark.MarkNormals then
                     local cls = UnitClassification(guid)
                     if cls == "normal" or cls == "trivial" or cls == "minus" then
@@ -564,7 +574,7 @@ function TankMark:ReviewSkullState()
                     end
                 end
                 
-                -- [v0.21] Lookup in activeDB
+                -- [v0.22] Lookup in activeDB
                 if name and TankMark.activeDB[name] then
                     local data = TankMark.activeDB[name]
                     local mobPrio = data.prio or 99
@@ -595,7 +605,7 @@ function TankMark:ReviewSkullState()
             local currentSkullName = _UnitName(skullGUID)
             local currentSkullPrio = 99
             
-            -- [v0.21] Lookup current skull in activeDB
+            -- [v0.22] Lookup current skull in activeDB
             if currentSkullName and TankMark.activeDB[currentSkullName] then
                 currentSkullPrio = TankMark.activeDB[currentSkullName].prio or 99
             end
@@ -605,7 +615,8 @@ function TankMark:ReviewSkullState()
             elseif bestPrio == currentSkullPrio then
                 local currentHP = UnitHealth(skullGUID) or 1
                 local candidateHP = UnitHealth(bestGUID)
-                if currentHP > 0 and candidateHP < (currentHP * 0.90) then
+                -- [v0.22] Changed HP threshold from 10% to 30% (0.90 → 0.70)
+                if currentHP > 0 and candidateHP < (currentHP * 0.70) then
                     shouldSwap = true
                 end
             end
@@ -708,6 +719,13 @@ function TankMark:AddBatchCandidate(guid)
     if _UnitIsDead(guid) then return end
     if _UnitIsPlayer(guid) or _UnitIsFriend("player", guid) then return end
     
+    -- [v0.22 FIX] Combat filtering depends on SuperWoW availability
+    -- WITH SuperWoW: Skip combat mobs (scanner will handle them automatically)
+    -- WITHOUT SuperWoW: Allow combat mobs (batch marking is the only marking method)
+    if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
+        return
+    end
+
     local mobName = _UnitName(guid)
     if not mobName then return end
     
@@ -833,6 +851,13 @@ function TankMark:ProcessBatchMark(candidateData)
         return
     end
     
+    -- [v0.22 FIX] Combat filtering depends on SuperWoW availability
+    -- WITH SuperWoW: Skip combat mobs (let scanner handle them)
+    -- WITHOUT SuperWoW: Process combat mobs (batch marking is the only option)
+    if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
+        return
+    end
+
     -- [v0.21] Respect MarkNormals filter for batch marking
     if not TankMark.MarkNormals then
         local cls = UnitClassification(guid)
@@ -852,7 +877,7 @@ function TankMark:ProcessBatchMark(candidateData)
     if mobData then
         TankMark:ProcessKnownMob(mobData, guid, "FORCE")
     else
-        -- Unknown mob: use ProcessUnknownMob logic
-        TankMark:ProcessUnknownMob(guid)
+        -- [v0.22 FIX] Pass FORCE mode explicitly for clarity
+        TankMark:ProcessUnknownMob(guid, "FORCE")
     end
 end
