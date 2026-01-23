@@ -1,4 +1,4 @@
--- TankMark: v0.21-dev
+-- TankMark: v0.22
 -- File: TankMark.lua
 -- Entry point, Event Handlers, and Slash Commands
 
@@ -9,6 +9,8 @@ end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
+local _UnitExists = UnitExists
+local _GetRaidTargetIndex = GetRaidTargetIndex
 local _strfind = string.find
 local _lower = string.lower
 local _pairs = pairs
@@ -146,7 +148,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell()
         
-        TankMark:Print("TankMark v0.21-dev loaded.")
+        TankMark:Print("TankMark v0.22 loaded.")
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
@@ -171,7 +173,20 @@ TankMark:SetScript("OnEvent", function()
         TankMark:HandleDeath(arg1)
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
-        -- Update HUD colors when roster changes
+        -- [v0.22] Check if player left party/raid
+        local numRaid = GetNumRaidMembers()
+        local numParty = GetNumPartyMembers()
+        
+        if numRaid == 0 and numParty == 0 then
+            -- Player is now solo (left group)
+            TankMark:ResetSession()
+            if TankMark.hudFrame then
+                TankMark.hudFrame:Hide()
+            end
+            return  -- Skip HUD update since we just hid it
+        end
+        
+        -- Update HUD colors when roster changes (still in group)
         if TankMark.UpdateHUD then
             TankMark:UpdateHUD()
         end
@@ -283,7 +298,7 @@ function TankMark:SlashHandler(msg)
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
         
     else
-        TankMark:Print("|cff00ffffTankMark v0.21-dev Commands:|r")
+        TankMark:Print("|cff00ffffTankMark v0.22 Commands:|r")
         TankMark:Print("  |cffffffff/tmark reset|r - Clear all marks and reset session")
         TankMark:Print("  |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
         TankMark:Print("  |cffffffff/tmark normals|r - Toggle marking normal mobs")
