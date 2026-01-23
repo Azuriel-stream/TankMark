@@ -9,6 +9,8 @@ end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
+local _UnitExists = UnitExists
+local _GetRaidTargetIndex = GetRaidTargetIndex
 local _strfind = string.find
 local _lower = string.lower
 local _pairs = pairs
