@@ -615,7 +615,8 @@ function TankMark:ReviewSkullState()
             elseif bestPrio == currentSkullPrio then
                 local currentHP = UnitHealth(skullGUID) or 1
                 local candidateHP = UnitHealth(bestGUID)
-                if currentHP > 0 and candidateHP < (currentHP * 0.90) then
+                -- [v0.22] Changed HP threshold from 10% to 30% (0.90 → 0.70)
+                if currentHP > 0 and candidateHP < (currentHP * 0.70) then
                     shouldSwap = true
                 end
             end
@@ -856,7 +857,7 @@ function TankMark:ProcessBatchMark(candidateData)
     if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
         return
     end
-    
+
     -- [v0.21] Respect MarkNormals filter for batch marking
     if not TankMark.MarkNormals then
         local cls = UnitClassification(guid)
