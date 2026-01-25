@@ -205,20 +205,33 @@ function TankMark:BuildDataManagementTab(parent)
 			OnAccept = function()
 				-- Wipe user DB
 				TankMarkDB.Zones = {}
-				-- Copy all defaults
-				for zoneName, defaultMobs in _pairs(TankMarkDefaults) do
+				
+				-- Copy all defaults (v0.23 structure)
+				for zoneName, defaultMobs in pairs(TankMarkDefaults) do
 					TankMarkDB.Zones[zoneName] = {}
-					for mobName, mobData in _pairs(defaultMobs) do
+					for mobName, mobData in pairs(defaultMobs) do
+						-- [v0.23] Deep copy marks array
+						local marksCopy = {}
+						if mobData.marks then
+							for i, mark in ipairs(mobData.marks) do
+								marksCopy[i] = mark
+							end
+						end
+						
 						TankMarkDB.Zones[zoneName][mobName] = {
 							prio = mobData.prio,
-							mark = mobData.mark,
+							marks = marksCopy,
 							type = mobData.type,
 							class = mobData.class
 						}
 					end
 				end
-				TankMark:Print("|cff00ff00Replaced:|r Database reset to defaults.")
-				if TankMark.UpdateMobList then TankMark:UpdateMobList() end
+				
+				TankMark:Print("|cff00ff00Replaced|r Database reset to defaults.")
+				
+				if TankMark.UpdateMobList then
+					TankMark:UpdateMobList()
+				end
 			end,
 			timeout = 0,
 			whileDead = 1,
