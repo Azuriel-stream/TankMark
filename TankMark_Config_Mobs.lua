@@ -576,6 +576,8 @@ function TankMark:UpdateMobList()
 								TankMark.lockBtn:Disable()
 								TankMark.lockBtn:SetText("|cff888888Lock Mark|r")  -- Gray text
 							end
+						else
+							TankMark:RefreshSequentialRows()
                         end
                         
                         -- Update UI state
@@ -1027,27 +1029,49 @@ function TankMark:CreateMobTab(parent)
     drop:SetPoint("TOPLEFT", 0, -10)
     UIDropDownMenu_SetWidth(150, drop)
     UIDropDownMenu_Initialize(drop, function()
-        local curr = GetRealZoneText()
-        local info = {}
-        info.text = curr
-        info.func = function()
-            UIDropDownMenu_SetSelectedID(drop, this:GetID())
-            TankMark:UpdateMobList()
-        end
-        UIDropDownMenu_AddButton(info)
-        
-        for zName, _ in _pairs(TankMarkDB.Zones) do
-            if zName ~= curr then
-                info = {}
-                info.text = zName
-                info.func = function()
-                    UIDropDownMenu_SetSelectedID(drop, this:GetID())
-                    TankMark:UpdateMobList()
-                end
-                UIDropDownMenu_AddButton(info)
-            end
-        end
-    end)
+		local curr = GetRealZoneText()
+		local info = {}
+		
+		-- Current zone (first)
+		info.text = curr
+		info.func = function()
+			-- Get the currently displayed zone BEFORE changing
+			local previousZone = UIDropDownMenu_GetText(TankMark.zoneDropDown)
+			
+			UIDropDownMenu_SetSelectedID(drop, this:GetID())
+			
+			-- Only reset editor if switching to a DIFFERENT zone
+			if previousZone ~= curr then
+				TankMark:ResetEditor()
+			end
+			
+			TankMark:UpdateMobList()
+		end
+		UIDropDownMenu_AddButton(info)
+		
+		-- All other saved zones
+		for zName, _ in _pairs(TankMarkDB.Zones) do
+			if zName ~= curr then
+				info = {}
+				info.text = zName
+				info.func = function()
+					-- Get the currently displayed zone BEFORE changing
+					local previousZone = UIDropDownMenu_GetText(TankMark.zoneDropDown)
+					
+					UIDropDownMenu_SetSelectedID(drop, this:GetID())
+					
+					-- Only reset editor if switching to a DIFFERENT zone
+					if previousZone ~= zName then
+						TankMark:ResetEditor()
+					end
+					
+					TankMark:UpdateMobList()
+				end
+				UIDropDownMenu_AddButton(info)
+			end
+		end
+	end)
+
     UIDropDownMenu_SetText(GetRealZoneText(), drop)
     TankMark.zoneDropDown = drop
     
