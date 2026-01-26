@@ -90,20 +90,8 @@ end
 function TankMark:InitClassMenu()
 	local info = {}
 
-	-- [v0.23] IGNORE option only for single-mark mobs
-	if _getn(TankMark.editingSequentialMarks) == 0 then
-		info = {
-			text = "|cff888888IGNORE (Do Not Mark)|r",
-			func = function()
-				TankMark.selectedClass = nil
-				TankMark:UpdateClassButton()
-				TankMark.classBtn:SetText("IGNORED")
-				TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
-				TankMark:ApplySmartDefaults("IGNORE")
-			end
-		}
-		UIDropDownMenu_AddButton(info)
-	end
+	-- [v0.23] IGNORE option REMOVED - use Icon dropdown to set IGNORE instead
+	-- IGNORE only appears in Icon menu when no sequential marks exist
 
 	info = {
 		text = "|cffffffffNo CC (Kill Target)|r",
