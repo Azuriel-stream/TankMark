@@ -13,6 +13,7 @@ TankMark_Scanner.lua
 TankMark_Engine.lua
 TankMark_UI_Widgets.lua
 TankMark_Config_Mobs_Logic.lua
+TankMark_Config_Mobs_List.lua
 TankMark_Config_Mobs.lua
 TankMark_Config_Profiles.lua
 TankMark_Config_Data.lua
