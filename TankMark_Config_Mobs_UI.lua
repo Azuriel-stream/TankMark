@@ -1,6 +1,7 @@
 -- TankMark: v0.23
--- File: TankMark_Config_Mobs_UI.lua
+-- File: TankMark_Config_Mobs_UI.lua (FIXED)
 -- UI construction for Mobs tab
+-- FIX: Search box now properly anchored below mob list
 
 if not TankMark then return end
 
@@ -140,7 +141,8 @@ local function CreateMobList(parent)
 		TankMark.mobRows[i] = row
 	end
 
-	return sf
+	-- [FIX] Return both scrollFrame and background for search box anchoring
+	return sf, listBg
 end
 
 -- Create search box
@@ -519,8 +521,8 @@ function TankMark:CreateMobTab(parent)
 
 	-- Create all UI sections
 	local zoneDropdown = CreateZoneControls(t1)
-	local mobList = CreateMobList(t1)
-	local searchBox = CreateSearchBox(t1, t1:GetChildren())
+	local mobList, listBg = CreateMobList(t1)  -- [FIX] Get both return values
+	local searchBox = CreateSearchBox(t1, listBg)  -- [FIX] Pass listBg for anchoring
 
 	local header = CreateAccordionHeader(t1, -230)
 	local editor = CreateMobEditor(t1, header)
