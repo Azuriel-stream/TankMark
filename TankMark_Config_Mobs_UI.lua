@@ -41,6 +41,55 @@ local function CreateSmallButton(parent, width, text)
     return btn
 end
 
+-- Reset form to defaults without collapsing
+local function ResetFormToDefaults()
+    if TankMark.editMob then
+        TankMark.editMob:SetText("Mob Name")
+        TankMark.editMob:SetTextColor(0.5, 0.5, 0.5)
+    end
+    
+    TankMark.selectedIcon = 8
+    if TankMark.iconBtn and TankMark.iconBtn.tex then
+        TankMark:SetIconTexture(TankMark.iconBtn.tex, 8)
+    end
+    
+    if TankMark.editPrio then
+        TankMark.editPrio:SetText("1")
+    end
+    
+    TankMark.selectedClass = nil
+    if TankMark.classBtn then
+        TankMark.classBtn:SetText("No CC")
+    end
+    
+    if TankMark.lockBtn then
+        if UnitExists("target") then
+            TankMark.lockBtn:Enable()
+        else
+            TankMark.lockBtn:Disable()
+        end
+        TankMark.lockBtn:SetText("Lock Mark")
+    end
+    
+    TankMark.isGuidLocked = false
+    TankMark.editingSequentialMarks = {}
+    
+    if TankMark.RefreshSequentialRows then
+        TankMark:RefreshSequentialRows()
+    end
+    
+    if TankMark.saveBtn then
+        TankMark.saveBtn:Disable()
+    end
+    
+    if TankMark.addMoreMarksText then
+        TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)
+    end
+    if TankMark.addMoreMarksBtn then
+        TankMark.addMoreMarksBtn:Enable()
+    end
+end
+
 -- ==========================================================
 -- TOP SECTION: ZONE CONTROLS (Right-aligned)
 -- ==========================================================
@@ -463,7 +512,7 @@ local function CreateMobEditorControls(editor)
     local saveBtn = CreateFrame("Button", "TMSaveBtn", editor, "UIPanelButtonTemplate")
     saveBtn:SetWidth(50)
     saveBtn:SetHeight(20)
-    saveBtn:SetPoint("TOPLEFT", 69, -81)
+    saveBtn:SetPoint("TOPLEFT", 60, -81)
     saveBtn:SetText("Save")
     saveBtn:SetScript("OnClick", function() TankMark:SaveFormData() end)
     saveBtn:Disable()
@@ -473,10 +522,9 @@ local function CreateMobEditorControls(editor)
     local cancelBtn = CreateFrame("Button", "TMCancelBtn", editor, "UIPanelButtonTemplate")
     cancelBtn:SetWidth(50)
     cancelBtn:SetHeight(20)
-    cancelBtn:SetPoint("TOPLEFT", 140, -81)
+    cancelBtn:SetPoint("TOPLEFT", 120, -81)
     cancelBtn:SetText("Cancel")
-    cancelBtn:SetScript("OnClick", function() TankMark:ResetEditor() end)
-    cancelBtn:Hide()
+    cancelBtn:SetScript("OnClick", function() ResetFormToDefaults() end)
     TankMark.cancelBtn = cancelBtn
 end
 
