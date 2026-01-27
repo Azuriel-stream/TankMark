@@ -534,8 +534,8 @@ end
 local function CreateSequentialAccordion(parent)
     -- Accordion Header (wireframe: x=305, y=284, w=261, h=20)
     local header = CreateFrame("Button", "TMAddMoreMarksHeader", parent)
-    header:SetPoint("TOPLEFT", parent, "TOPLEFT", 305, -284)
-    header:SetWidth(261)
+    header:SetPoint("TOPLEFT", parent, "TOPLEFT", 265, -284)
+    header:SetWidth(238)
     header:SetHeight(20)
     
     header.arrow = header:CreateTexture(nil, "ARTWORK")
@@ -572,8 +572,8 @@ local function CreateSequentialAccordion(parent)
     
     -- Sequential Interface Frame (wireframe: x=305.5, y=313, w=260.5, h=120)
     local seqFrame = CreateFrame("Frame", nil, parent)
-    seqFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 305, -313)
-    seqFrame:SetWidth(261)
+    seqFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 265, -313)
+    seqFrame:SetWidth(238)
     seqFrame:SetHeight(120)
     seqFrame:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -582,7 +582,8 @@ local function CreateSequentialAccordion(parent)
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
     seqFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-    seqFrame:Hide()
+    -- seqFrame:Hide()
+	seqFrame:Show()
     TankMark.sequentialInterface = seqFrame
     
     return seqFrame
@@ -594,13 +595,13 @@ end
 local function CreateSequentialScroll(seqFrame)
     -- Sequential Scroll Frame (wireframe: x=313.64, y=321 → relative: x=8, y=-8)
     local seqScroll = CreateFrame("ScrollFrame", "TMSeqScrollFrame", seqFrame, "FauxScrollFrameTemplate")
-    seqScroll:SetPoint("TOPLEFT", 8, -8)
-    seqScroll:SetWidth(244)
-    seqScroll:SetHeight(103)
+    seqScroll:SetPoint("TOPLEFT", 5, -5)
+    seqScroll:SetWidth(207)
+    seqScroll:SetHeight(111)
     TankMark.sequentialScrollFrame = seqScroll
     
     local seqContent = CreateFrame("Frame", nil, seqScroll)
-    seqContent:SetWidth(244)
+    seqContent:SetWidth(207)
     seqContent:SetHeight(168) -- 7 rows * 24px
     seqScroll:SetScrollChild(seqContent)
     
@@ -611,7 +612,7 @@ local function CreateSequentialScroll(seqFrame)
     -- Create 7 sequential row frames (max 7 additional marks)
     for i = 1, 7 do
         local seqRow = CreateFrame("Frame", "TMSeqRow"..i, seqContent)
-        seqRow:SetWidth(220)
+        seqRow:SetWidth(187)
         seqRow:SetHeight(24)
         seqRow:SetPoint("TOPLEFT", 2, -(i-1)*24)
         
@@ -621,7 +622,7 @@ local function CreateSequentialScroll(seqFrame)
         
         seqRow.iconBtn = CreateFrame("Button", nil, seqRow)
         seqRow.iconBtn:SetWidth(24)
-        seqRow.iconBtn:SetHeight(20)
+        seqRow.iconBtn:SetHeight(24)
         seqRow.iconBtn:SetPoint("LEFT", seqRow.number, "RIGHT", 8, 0)
         seqRow.iconBtn.tex = seqRow.iconBtn:CreateTexture(nil, "ARTWORK")
         seqRow.iconBtn.tex:SetAllPoints()
@@ -635,10 +636,10 @@ local function CreateSequentialScroll(seqFrame)
         end)
         
         seqRow.ccBtn = CreateFrame("Button", nil, seqRow, "UIPanelButtonTemplate")
-        seqRow.ccBtn:SetWidth(100)
+        seqRow.ccBtn:SetWidth(70)
         seqRow.ccBtn:SetHeight(20)
         seqRow.ccBtn:SetPoint("LEFT", seqRow.iconBtn, "RIGHT", 4, 0)
-        seqRow.ccBtn:SetText("No CC (Kill)")
+        seqRow.ccBtn:SetText("No CC")
         
         local seqCCDrop = CreateFrame("Frame", "TMSeqCCDropDown"..i, seqRow.ccBtn, "UIDropDownMenuTemplate")
         UIDropDownMenu_Initialize(seqCCDrop, function() TankMark:InitSequentialClassMenu(i) end, "MENU")

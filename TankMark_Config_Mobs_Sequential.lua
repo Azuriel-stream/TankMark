@@ -68,7 +68,7 @@ function TankMark:RefreshSequentialRows()
 				row.ccBtn:SetText(seqData.class)
 				row.ccBtn:SetTextColor(0, 1, 0)
 			else
-				row.ccBtn:SetText("No CC (Kill)")
+				row.ccBtn:SetText("No CC")
 				row.ccBtn:SetTextColor(1, 0.82, 0)
 			end
 
