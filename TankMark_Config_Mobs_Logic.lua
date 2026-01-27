@@ -82,7 +82,10 @@ end
 
 -- Reset the mob editor to default state
 function TankMark:ResetEditor()
-	if TankMark.editMob then TankMark.editMob:SetText("") end
+	if TankMark.editMob then
+        TankMark.editMob:SetText("Mob Name")
+        TankMark.editMob:SetTextColor(0.5, 0.5, 0.5) -- Gray placeholder
+    end
 	if TankMark.editPrio then TankMark.editPrio:SetText("1") end
 
 	TankMark.editingLockGUID = nil
@@ -210,6 +213,14 @@ end
 
 -- Save mob data from the edit form to the database
 function TankMark:SaveFormData()
+	local mobName = TankMark.editMob and TankMark.editMob:GetText()
+    
+    -- Ignore placeholder text
+    if not mobName or mobName == "" or mobName == "Mob Name" then
+        TankMark:Print("|cffff0000Error:|r Please enter a valid mob name.")
+        return
+    end
+
 	-- [v0.23] Handle GUID lock updates (existing logic)
 	if TankMark.editingLockGUID then
 		local zone = TankMark.lockViewZone or (TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown))

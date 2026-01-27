@@ -300,7 +300,11 @@ function TankMark:UpdateMobList()
 	local filter = ""
 
 	if TankMark.searchBox then
-		filter = _lower(TankMark.searchBox:GetText())
+		local searchText = TankMark.searchBox:GetText()
+        -- Ignore placeholder text
+        if searchText ~= "Search Mob Database" then
+            filter = _lower(searchText)
+        end
 	end
 
 	-- Build list data
