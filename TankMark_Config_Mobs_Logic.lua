@@ -25,7 +25,7 @@ function TankMark:UpdateClassButton()
 		TankMark.classBtn:SetText(TankMark.selectedClass)
 		TankMark.classBtn:SetTextColor(0, 1, 0)
 	else
-		TankMark.classBtn:SetText("No CC (Kill)")
+		TankMark.classBtn:SetText("No CC")
 		TankMark.classBtn:SetTextColor(1, 0.82, 0)
 	end
 
