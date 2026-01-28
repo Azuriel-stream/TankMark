@@ -22,6 +22,12 @@ function TankMark:RefreshSequentialRows()
 	local numMarks = _getn(TankMark.editingSequentialMarks)
 	
 	if numMarks == 0 then
+		-- Hide all sequential rows when empty
+		for i = 1, 4 do
+			if TankMark.sequentialRows[i] then
+				TankMark.sequentialRows[i]:Hide()
+			end
+		end
 		TankMark.sequentialScrollFrame:Hide()
 		
 		-- Show instructional text if accordion is expanded

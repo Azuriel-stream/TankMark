@@ -118,13 +118,18 @@ function TankMark:ResetEditorState()
 		TankMark.saveBtn:Disable()
 	end
 	
-	if TankMark.cancelBtn then
-		TankMark.cancelBtn:Hide()
-	end
-	
 	-- Clear sequential marks
 	TankMark.editingSequentialMarks = {}
 	
+	-- Hide all sequential row frames
+	if TankMark.sequentialRows then
+		for i = 1, _getn(TankMark.sequentialRows) do
+			if TankMark.sequentialRows[i] then
+				TankMark.sequentialRows[i]:Hide()
+			end
+		end
+	end
+
 	if TankMark.sequentialScrollFrame then
 		TankMark.sequentialScrollFrame:Hide()
 	end
@@ -154,11 +159,10 @@ function TankMark:ResetEditorState()
 		TankMark.addMoreMarksHeader.arrow:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
 	end
 	
-	-- Deactivate sequential accordion (grey out, disable arrow)
+	-- Deactivate sequential accordion (grey out, disable header)
 	if TankMark.addMoreMarksText then
 		TankMark.addMoreMarksText:SetTextColor(0.53, 0.53, 0.53)
 	end
-	
 	if TankMark.addMoreMarksArrow then
 		TankMark.addMoreMarksArrow:Disable()
 	end
@@ -171,7 +175,6 @@ end
 function TankMark:ActivateSequentialAccordion(hasSequentialMarks)
 	-- Enable sequential accordion
 	TankMark.isSequentialActive = true
-	
 	if TankMark.addMoreMarksArrow then
 		TankMark.addMoreMarksArrow:Enable()
 	end

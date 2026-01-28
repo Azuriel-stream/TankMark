@@ -246,7 +246,7 @@ local function CreateMobEditorAccordion(parent)
 	-- Accordion Header (wireframe: x=16, y=284, w=260, h=20.8)
 	local header = CreateFrame("Button", "TMAddMobHeader", parent)
 	header:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -284)
-	header:SetWidth(260)
+	header:SetWidth(238)
 	header:SetHeight(21)
 	
 	-- Arrow texture
@@ -259,14 +259,11 @@ local function CreateMobEditorAccordion(parent)
 	-- Header text
 	header.text = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	header.text:SetPoint("LEFT", header.arrow, "RIGHT", 5, 0)
-	header.text:SetText("|cff00ccffAdd a mob manually|r")
+	header.text:SetText("Add a mob manually")
+	header.text:SetTextColor(0, 0.8, 1)
 	
-	-- Arrow click region (toggle only)
-	local arrowBtn = CreateFrame("Button", nil, header)
-	arrowBtn:SetWidth(20)
-	arrowBtn:SetHeight(21)
-	arrowBtn:SetPoint("LEFT", 0, 0)
-	arrowBtn:SetScript("OnClick", function()
+	-- Entire header is clickable (toggle expand/collapse)
+	header:SetScript("OnClick", function()
 		if TankMark.isAddMobExpanded then
 			TankMark.addMobInterface:Hide()
 			header.arrow:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
@@ -301,7 +298,7 @@ local function CreateMobEditorAccordion(parent)
 		insets = { left = 4, right = 4, top = 4, bottom = 4 }
 	})
 	editor:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-	editor:Hide()  -- Start collapsed
+	editor:Hide() -- Start collapsed
 	
 	TankMark.addMobInterface = editor
 	
@@ -517,7 +514,7 @@ local function CreateSequentialAccordion(parent)
 	header.text:SetText("Add More Marks")
 	header.text:SetTextColor(0.53, 0.53, 0.53)
 	
-	-- Arrow click region (toggle expand/collapse only)
+	-- Arrow click button (always toggles expand/collapse)
 	local arrowBtn = CreateFrame("Button", nil, header)
 	arrowBtn:SetWidth(20)
 	arrowBtn:SetHeight(20)
@@ -544,46 +541,68 @@ local function CreateSequentialAccordion(parent)
 			header.text:SetTextColor(0, 0.8, 1)
 		end
 	end)
-	arrowBtn:Disable()  -- Start disabled
-	TankMark.addMoreMarksArrow = arrowBtn
+	arrowBtn:Disable() -- Start disabled
 	
-	-- Header text click region (add mark when CYAN)
+	-- Header text click button (expands when collapsed, adds mark when expanded)
 	local textBtn = CreateFrame("Button", nil, header)
-	textBtn:SetWidth(200)
+	textBtn:SetWidth(218) -- 238 - 20 = 218 (leave arrow region exposed)
 	textBtn:SetHeight(20)
 	textBtn:SetPoint("LEFT", 20, 0)
 	textBtn:SetScript("OnClick", function()
-		-- Only clickable when expanded AND active
-		if TankMark.isSequentialExpanded and TankMark.isSequentialActive then
-			-- Check GUID lock
-			if TankMark:HasGUIDLockForMobName(TankMark.editMob and TankMark.editMob:GetText() or "") then
-				return
-			end
-			TankMark:OnAddMoreMarksClicked()
+		-- Only allow interaction if active
+		if not TankMark.isSequentialActive then
+			return
 		end
-	end)
-	
-	-- Tooltip on hover
-	header:SetScript("OnEnter", function()
+		
+		-- Check GUID lock first
 		if TankMark:HasGUIDLockForMobName(TankMark.editMob and TankMark.editMob:GetText() or "") then
-			GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-			GameTooltip:SetText("Sequential marking is unavailable because this mob has a GUID lock. Remove the GUID lock to enable sequential marks.", 1, 1, 1, 1, true)
-			GameTooltip:Show()
-		elseif TankMark.isSequentialActive and TankMark.isSequentialExpanded then
-			-- Show hover effect only when clickable
-			header.text:SetTextColor(0, 1, 1)
+			return
 		end
-	end)
-	
-	header:SetScript("OnLeave", function()
-		GameTooltip:Hide()
-		if TankMark.isSequentialActive and TankMark.isSequentialExpanded then
+		
+		if TankMark.isSequentialExpanded then
+			-- When expanded: clicking text ADDS a mark
+			TankMark:OnAddMoreMarksClicked()
+		else
+			-- When collapsed: clicking text EXPANDS
+			TankMark.sequentialInterface:Show()
+			header.arrow:SetTexture("Interface\\Buttons\\UI-MinusButton-Up")
+			TankMark.isSequentialExpanded = true
 			header.text:SetTextColor(0, 0.8, 1)
 		end
 	end)
 	
+	-- Consolidated hover function
+	local function HeaderOnEnter()
+		if TankMark:HasGUIDLockForMobName(TankMark.editMob and TankMark.editMob:GetText() or "") then
+			GameTooltip:SetOwner(header, "ANCHOR_RIGHT")
+			GameTooltip:SetText("Sequential marking is unavailable because this mob has a GUID lock. Remove the GUID lock to enable sequential marks.", 1, 1, 1, 1, true)
+			GameTooltip:Show()
+		elseif TankMark.isSequentialActive then
+			-- Show hover effect when active (regardless of expanded state)
+			header.text:SetTextColor(0, 1, 1)
+		end
+	end
+	
+	local function HeaderOnLeave()
+		GameTooltip:Hide()
+		if TankMark.isSequentialActive then
+			if TankMark.isSequentialExpanded then
+				header.text:SetTextColor(0, 0.8, 1)
+			else
+				header.text:SetTextColor(0.53, 0.53, 0.53)
+			end
+		end
+	end
+	
+	-- Apply hover to both arrow and text regions
+	arrowBtn:SetScript("OnEnter", HeaderOnEnter)
+	arrowBtn:SetScript("OnLeave", HeaderOnLeave)
+	textBtn:SetScript("OnEnter", HeaderOnEnter)
+	textBtn:SetScript("OnLeave", HeaderOnLeave)
+	
 	TankMark.addMoreMarksText = header.text
 	TankMark.addMoreMarksHeader = header
+	TankMark.addMoreMarksArrow = arrowBtn
 	
 	-- Sequential Interface Frame (wireframe: x=305.5, y=313, w=260.5, h=120)
 	local seqFrame = CreateFrame("Frame", nil, parent)
@@ -597,7 +616,7 @@ local function CreateSequentialAccordion(parent)
 		insets = { left = 4, right = 4, top = 4, bottom = 4 }
 	})
 	seqFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-	seqFrame:Hide()  -- Start collapsed
+	seqFrame:Hide() -- Start collapsed
 	
 	TankMark.sequentialInterface = seqFrame
 	
@@ -606,6 +625,7 @@ local function CreateSequentialAccordion(parent)
 	emptyText:SetPoint("CENTER", 0, 0)
 	emptyText:SetText("|cff888888Click header to add first mark|r")
 	emptyText:Hide()
+	
 	TankMark.sequentialEmptyText = emptyText
 	
 	return seqFrame
