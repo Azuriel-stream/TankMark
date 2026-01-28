@@ -40,6 +40,6 @@ TankMark.addMobInterface = nil
 TankMark.sequentialScrollFrame = nil
 TankMark.sequentialInterface = nil
 TankMark.addMoreMarksText = nil
-TankMark.addMoreMarksArrow = nil
+TankMark.addMoreMarksHeader = nil
 TankMark.addMoreMarksHeader = nil
 TankMark.sequentialEmptyText = nil
