@@ -298,6 +298,34 @@ function TankMark:HasGUIDLockForMobName(mobName)
 end
 
 -- ==========================================================
+-- DUPLICATE DETECTION HELPER
+-- ==========================================================
+
+-- Store pending save data for confirmation dialog
+local pendingSaveData = nil
+
+-- Perform the actual save operation
+local function PerformSave(zone, mob, mobEntry)
+    if not TankMarkDB.Zones[zone] then
+        TankMarkDB.Zones[zone] = {}
+    end
+    
+    TankMarkDB.Zones[zone][mob] = mobEntry
+    
+    local markCountStr = _getn(mobEntry.marks) > 1 and (", " .. _getn(mobEntry.marks) .. " marks") or ""
+    TankMark:Print("|cff00ff00Saved:|r " .. mob .. " |cff888888(P" .. mobEntry.prio .. markCountStr .. ")|r")
+    
+    -- Refresh activeDB
+    if TankMark.RefreshActiveDB then
+        TankMark:RefreshActiveDB()
+    end
+    
+    TankMark:ResetEditorState()
+    TankMark.isZoneListMode = false
+    TankMark:UpdateMobList()
+end
+
+-- ==========================================================
 -- SAVE FORM DATA
 -- ==========================================================
 
@@ -410,24 +438,36 @@ function TankMark:SaveFormData()
 		end
 	end
 	
-	-- Save to database
-	if not TankMarkDB.Zones[zone] then
-		TankMarkDB.Zones[zone] = {}
+	-- Check if mob already exists (only when Save button text is "Save", not "Update")
+	if TankMarkDB.Zones[zone] and TankMarkDB.Zones[zone][mob] and TankMark.saveBtn:GetText() == "Save" then
+		-- Store the pending save data
+		pendingSaveData = { zone = zone, mob = mob, mobEntry = mobEntry }
+		
+		-- Show confirmation dialog
+		StaticPopupDialogs["TANKMARK_OVERWRITE_CONFIRM"] = {
+			text = "Mob already exists in database!\n\n|cffffaa00" .. mob .. "|r\n\nOverwrite existing entry?",
+			button1 = "Overwrite",
+			button2 = "Cancel",
+			OnAccept = function()
+				if pendingSaveData then
+					PerformSave(pendingSaveData.zone, pendingSaveData.mob, pendingSaveData.mobEntry)
+					pendingSaveData = nil
+				end
+			end,
+			OnCancel = function()
+				pendingSaveData = nil
+			end,
+			timeout = 0,
+			whileDead = 1,
+			hideOnEscape = 1,
+			exclusive = 1,
+		}
+		StaticPopup_Show("TANKMARK_OVERWRITE_CONFIRM")
+		return
 	end
-	
-	TankMarkDB.Zones[zone][mob] = mobEntry
-	
-	local markCountStr = _getn(mobEntry.marks) > 1 and (", " .. _getn(mobEntry.marks) .. " marks") or ""
-	TankMark:Print("|cff00ff00Saved:|r " .. mob .. " |cff888888(P" .. prio .. markCountStr .. ")|r")
-	
-	-- Refresh activeDB
-	if TankMark.RefreshActiveDB then
-		TankMark:RefreshActiveDB()
-	end
-	
-	TankMark:ResetEditorState()
-	TankMark.isZoneListMode = false
-	TankMark:UpdateMobList()
+
+	-- Save to database (direct save if not duplicate or if updating)
+	PerformSave(zone, mob, mobEntry)
 end
 
 -- ==========================================================
