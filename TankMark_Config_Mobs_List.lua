@@ -161,22 +161,26 @@ end
 
 -- Render zone row (in zone browser mode)
 local function RenderZoneRow(row, data)
-	local info = (data.lockCount > 0) and (" |cff00ff00(" .. data.lockCount .. " locks)|r") or ""
-	row.text:SetText("|cffffd200" .. data.label .. "|r" .. info)
-	
-	row.del:Show()
-	row.del:SetText("|cffff0000Delete|r")
-	row.del:SetWidth(60)
-	row.del:SetScript("OnClick", function()
-		TankMark:RequestDeleteZone(data.label)
-	end)
-	
-	row.edit:Show()
-	row.edit:SetText("Locks")
-	row.edit:SetWidth(50)
-	row.edit:SetScript("OnClick", function()
-		TankMark:ViewLocksForZone(data.label)
-	end)
+    local info = (data.lockCount > 0) and (" |cff00ff00(" .. data.lockCount .. " locks)|r") or ""
+    row.text:SetText("|cffffd200" .. data.label .. "|r" .. info)
+    
+    -- Delete button (rightmost)
+    row.del:Show()
+    row.del:SetText("|cffff0000Delete|r")
+    row.del:SetWidth(60)
+    row.del:SetPoint("RIGHT", row, "RIGHT", -2, 0)  -- Anchor to row's right edge
+    row.del:SetScript("OnClick", function()
+        TankMark:RequestDeleteZone(data.label)
+    end)
+    
+    -- Locks button (left of Delete button)
+    row.edit:Show()
+    row.edit:SetText("Locks")
+    row.edit:SetWidth(50)
+    row.edit:SetPoint("RIGHT", row.del, "LEFT", -4, 0)  -- Anchor to left of Delete button
+    row.edit:SetScript("OnClick", function()
+        TankMark:ViewLocksForZone(data.label)
+    end)
 end
 
 -- Render normal mob row
