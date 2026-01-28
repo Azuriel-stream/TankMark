@@ -574,7 +574,7 @@ local function CreateSequentialAccordion(parent)
     local seqFrame = CreateFrame("Frame", nil, parent)
     seqFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 265, -313)
     seqFrame:SetWidth(238)
-    seqFrame:SetHeight(120)
+    seqFrame:SetHeight(114)
     seqFrame:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -597,24 +597,24 @@ local function CreateSequentialScroll(seqFrame)
     local seqScroll = CreateFrame("ScrollFrame", "TMSeqScrollFrame", seqFrame, "FauxScrollFrameTemplate")
     seqScroll:SetPoint("TOPLEFT", 5, -5)
     seqScroll:SetWidth(207)
-    seqScroll:SetHeight(111)
+    seqScroll:SetHeight(105)
     TankMark.sequentialScrollFrame = seqScroll
     
     local seqContent = CreateFrame("Frame", nil, seqScroll)
     seqContent:SetWidth(207)
-    seqContent:SetHeight(168) -- 7 rows * 24px
+    seqContent:SetHeight(168) -- 7 rows * 24 = 168
     seqScroll:SetScrollChild(seqContent)
     
     seqScroll:SetScript("OnVerticalScroll", function()
         FauxScrollFrame_OnVerticalScroll(24, function() TankMark:RefreshSequentialRows() end)
     end)
     
-    -- Create 7 sequential row frames (max 7 additional marks)
-    for i = 1, 7 do
-        local seqRow = CreateFrame("Frame", "TMSeqRow"..i, seqContent)
+    -- Create 4 sequential row frames (max 7 additional marks)
+    for i = 1, 4 do
+        local seqRow = CreateFrame("Frame", "TMSeqRow"..i, seqFrame)
         seqRow:SetWidth(187)
         seqRow:SetHeight(24)
-        seqRow:SetPoint("TOPLEFT", 2, -(i-1)*24)
+        seqRow:SetPoint("TOPLEFT", 10, -8 - (i-1)*24)  -- 10px from left, 14px from top (5px scroll + 9px offset)
         
         seqRow.number = seqRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         seqRow.number:SetPoint("LEFT", 2, 0)
@@ -668,26 +668,34 @@ function TankMark:CreateMobTab(parent)
         return
     end
     
+	-- CREATE CONTAINER FRAME FOR TAB 1
+    local t1 = CreateFrame("Frame", "TMMobDatabaseTab", parent)
+    t1:SetPoint("TOPLEFT", 0, 0)
+    t1:SetPoint("BOTTOMRIGHT", 0, 0)
+    t1:Hide()
+
     -- TOP SECTION: Zone controls (right-aligned)
-    CreateZoneControls(parent)
+    CreateZoneControls(t1)
     
     -- CENTER SECTION: Mob list
-    local mobScrollFrame, listBg = CreateMobList(parent)
+    local mobScrollFrame, listBg = CreateMobList(t1)
     
     -- Search box (centered below mob list)
-    CreateSearchBox(parent, listBg)
+    CreateSearchBox(t1, listBg)
     
     -- Horizontal divider (separates search from accordions)
-    CreateMainDivider(parent)
+    CreateMainDivider(t1)
     
     -- Vertical divider (separates left and right columns)
-    CreateColumnDivider(parent)
+    CreateColumnDivider(t1)
     
     -- LEFT COLUMN: Add Mob Manually (accordion)
-    local editorFrame = CreateMobEditorAccordion(parent)
+    local editorFrame = CreateMobEditorAccordion(t1)
     CreateMobEditorControls(editorFrame)
     
     -- RIGHT COLUMN: Add More Marks (accordion)
-    local seqFrame = CreateSequentialAccordion(parent)
+    local seqFrame = CreateSequentialAccordion(t1)
     CreateSequentialScroll(seqFrame)
+
+	return t1
 end
