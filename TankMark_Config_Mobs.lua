@@ -7,7 +7,6 @@ if not TankMark then return end
 -- ==========================================================
 -- STATE VARIABLES
 -- ==========================================================
-
 TankMark.mobRows = {}
 TankMark.selectedIcon = 8
 TankMark.selectedClass = nil
@@ -18,12 +17,13 @@ TankMark.detectedCreatureType = nil
 TankMark.isLockActive = false
 TankMark.editingSequentialMarks = {}
 TankMark.sequentialRows = {}
-TankMark.isAddMobExpanded = false
+TankMark.isAddMobExpanded = false       -- LEFT accordion state
+TankMark.isSequentialExpanded = false   -- RIGHT accordion expand/collapse state
+TankMark.isSequentialActive = false     -- RIGHT accordion enabled/disabled state
 
 -- ==========================================================
 -- UI WIDGET REFERENCES
 -- ==========================================================
-
 TankMark.scrollFrame = nil
 TankMark.searchBox = nil
 TankMark.zoneDropDown = nil
@@ -38,4 +38,8 @@ TankMark.iconBtn = nil
 TankMark.addMobHeader = nil
 TankMark.addMobInterface = nil
 TankMark.sequentialScrollFrame = nil
+TankMark.sequentialInterface = nil
 TankMark.addMoreMarksText = nil
+TankMark.addMoreMarksArrow = nil
+TankMark.addMoreMarksHeader = nil
+TankMark.sequentialEmptyText = nil
