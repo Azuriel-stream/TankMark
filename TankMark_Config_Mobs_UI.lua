@@ -514,7 +514,8 @@ local function CreateSequentialAccordion(parent)
 	-- Header text
 	header.text = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	header.text:SetPoint("LEFT", header.arrow, "RIGHT", 5, 0)
-	header.text:SetText("|cff888888Add More Marks|r")  -- Start grey (inactive)
+	header.text:SetText("Add More Marks")
+	header.text:SetTextColor(0.53, 0.53, 0.53)
 	
 	-- Arrow click region (toggle expand/collapse only)
 	local arrowBtn = CreateFrame("Button", nil, header)
