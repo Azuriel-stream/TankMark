@@ -54,7 +54,7 @@ function TankMark:CreateOptionsFrame()
 	-- Create main frame
 	local f = CreateFrame("Frame", "TankMarkOptions", UIParent)
 	f:SetWidth(520)
-	f:SetHeight(480)
+	f:SetHeight(450)
 	f:SetPoint("CENTER", 0, 0)
 	f:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
