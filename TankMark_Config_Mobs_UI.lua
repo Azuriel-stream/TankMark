@@ -290,7 +290,7 @@ local function CreateMobEditorAccordion(parent)
 	local editor = CreateFrame("Frame", nil, parent)
 	editor:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -313)
 	editor:SetWidth(238)
-	editor:SetHeight(120)
+	editor:SetHeight(114)
 	editor:SetBackdrop({
 		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -698,7 +698,10 @@ local function CreateSequentialScroll(seqFrame)
 			ToggleDropDownMenu(1, nil, seqCCDrop, "cursor", 0, 0)
 		end)
 		
-		seqRow.delBtn = CreateSmallButton(seqRow, 20, "X")
+		seqRow.delBtn = CreateFrame("Button", nil, seqRow, "UIPanelButtonTemplate")
+		seqRow.delBtn:SetWidth(70)  -- Match "No CC" button width
+		seqRow.delBtn:SetHeight(20) -- Match "No CC" button height
+		seqRow.delBtn:SetText("Remove")
 		seqRow.delBtn:SetPoint("LEFT", seqRow.ccBtn, "RIGHT", 4, 0)
 		seqRow.delBtn:SetScript("OnClick", function()
 			TankMark:RemoveSequentialRow(capturedIndex)
