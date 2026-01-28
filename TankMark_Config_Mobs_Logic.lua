@@ -436,14 +436,22 @@ end
 
 -- Request confirmation to delete a mob from the database
 function TankMark:RequestDeleteMob(zone, mob)
-	TankMark.pendingWipeAction = function()
-		if TankMarkDB.Zones[zone] then
-			TankMarkDB.Zones[zone][mob] = nil
-			TankMark:UpdateMobList()
-			TankMark:Print("|cffff0000Removed:|r " .. mob)
-		end
-	end
-	StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete mob from database?\n\n|cffff0000" .. mob .. "|r")
+    TankMark.pendingWipeAction = function()
+        if TankMarkDB.Zones[zone] then
+            TankMarkDB.Zones[zone][mob] = nil
+            
+            -- Check if the deleted mob is currently being edited
+            local currentlyEditingMob = TankMark.editMob and TankMark.editMob:GetText()
+            if currentlyEditingMob == mob then
+                -- Reset the editor if we're deleting the mob currently shown
+                TankMark:ResetEditorState()
+            end
+            
+            TankMark:UpdateMobList()
+            TankMark:Print("|cffff0000Removed:|r " .. mob)
+        end
+    end
+    StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete mob from database?\n\n|cffff0000" .. mob .. "|r")
 end
 
 -- Request confirmation to delete a GUID lock
