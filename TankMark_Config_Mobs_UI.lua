@@ -234,7 +234,7 @@ end
 -- VERTICAL DIVIDER (Between Left and Right Columns)
 -- ==========================================================
 local function CreateColumnDivider(parent)
-	local divider = CreateVerticalDivider(parent, 184)
+	local divider = CreateVerticalDivider(parent, 147)
 	divider:SetPoint("TOPLEFT", parent, "TOPLEFT", 259, -276)
 	return divider
 end
