@@ -63,22 +63,43 @@ end
 
 -- Toggle GUID lock state for current target
 function TankMark:ToggleLockState()
-	if not UnitExists("target") and not TankMark.editingLockGUID then
-		TankMark:Print("|cffff0000Error:|r You must target a mob to lock it.")
-		return
-	end
-	
-	TankMark.isLockActive = not TankMark.isLockActive
-	
-	if TankMark.lockBtn then
-		if TankMark.isLockActive then
-			TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
-			TankMark.lockBtn:LockHighlight()
-		else
-			TankMark.lockBtn:SetText("Lock Mark")
-			TankMark.lockBtn:UnlockHighlight()
-		end
-	end
+    if not UnitExists("target") and not TankMark.editingLockGUID then
+        TankMark:Print("|cffff0000Error:|r You must target a mob to lock it.")
+        return
+    end
+    
+    TankMark.isLockActive = not TankMark.isLockActive
+    
+    if TankMark.lockBtn then
+        if TankMark.isLockActive then
+            TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
+            TankMark.lockBtn:LockHighlight()
+            
+            -- Deactivate sequential accordion when lock is active
+            TankMark.isSequentialActive = false
+            if TankMark.addMoreMarksArrow then
+                TankMark.addMoreMarksArrow:Disable()
+            end
+            if TankMark.addMoreMarksText then
+                TankMark.addMoreMarksText:SetTextColor(0.53, 0.53, 0.53)
+            end
+            
+            -- Collapse sequential accordion if expanded
+            if TankMark.isSequentialExpanded then
+                TankMark.sequentialInterface:Hide()
+                TankMark.isSequentialExpanded = false
+                if TankMark.addMoreMarksHeader and TankMark.addMoreMarksHeader.arrow then
+                    TankMark.addMoreMarksHeader.arrow:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
+                end
+            end
+        else
+            TankMark.lockBtn:SetText("Lock Mark")
+            TankMark.lockBtn:UnlockHighlight()
+            
+            -- Reactivate sequential accordion when lock is deactivated
+            TankMark:ActivateSequentialAccordion(false)
+        end
+    end
 end
 
 -- ==========================================================
