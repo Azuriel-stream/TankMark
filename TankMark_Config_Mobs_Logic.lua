@@ -97,7 +97,13 @@ function TankMark:ToggleLockState()
             TankMark.lockBtn:UnlockHighlight()
             
             -- Reactivate sequential accordion when lock is deactivated
-            TankMark:ActivateSequentialAccordion(false)
+			TankMark.isSequentialActive = true
+			if TankMark.addMoreMarksArrow then
+				TankMark.addMoreMarksArrow:Enable()
+			end
+			if TankMark.addMoreMarksText then
+				TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)  -- Set to CYAN (active but collapsed)
+			end
         end
     end
 end
