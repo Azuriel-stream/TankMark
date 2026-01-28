@@ -15,69 +15,99 @@ local _remove = table.remove
 -- SEQUENTIAL MARKING HELPERS
 -- ==========================================================
 
--- Refresh the sequential marks scroll frame display
 function TankMark:RefreshSequentialRows()
-	if not TankMark.sequentialScrollFrame then return end
-
-	local numMarks = _getn(TankMark.editingSequentialMarks)
-
-	if numMarks == 0 then
-		TankMark.sequentialScrollFrame:Hide()
-
-		if TankMark.addMoreMarksText then
-			TankMark.addMoreMarksText:SetText("|cff00ccff+ Add More Marks|r")
-		end
-		return
-	end
-
-	TankMark.sequentialScrollFrame:Show()
-	local scrollChild = TankMark.sequentialScrollFrame:GetScrollChild()
-	if scrollChild then
-		scrollChild:Show()
-	end
-
-	-- Update scroll range (max 3 visible rows)
-	local visibleRows = math.min(numMarks, 3)
-	FauxScrollFrame_Update(TankMark.sequentialScrollFrame, numMarks, visibleRows, 24)
-
-	local offset = FauxScrollFrame_GetOffset(TankMark.sequentialScrollFrame)
-
-	-- Force visibility after FauxScrollFrame_Update
-	TankMark.sequentialScrollFrame:Show()
-	if scrollChild then
-		scrollChild:Show()
-	end
-
-	-- Update visible rows (max 3)
-	for i = 1, 3 do
-		local dataIndex = offset + i
-		local row = TankMark.sequentialRows[i]
-
-		if dataIndex <= numMarks then
-			local seqData = TankMark.editingSequentialMarks[dataIndex]
-			row:Show()
-
-			-- Update row number (dataIndex + 1 because main row is #1)
-			row.number:SetText("|cff888888#" .. (dataIndex + 1) .. "|r")
-
-			-- Update icon
-			TankMark:SetIconTexture(row.iconBtn.tex, seqData.icon)
-
-			-- Update CC button
-			if seqData.class then
-				row.ccBtn:SetText(seqData.class)
-				row.ccBtn:SetTextColor(0, 1, 0)
-			else
-				row.ccBtn:SetText("No CC")
-				row.ccBtn:SetTextColor(1, 0.82, 0)
-			end
-
-			-- Store dataIndex for delete button
-			row.dataIndex = dataIndex
-		else
-			row:Hide()
-		end
-	end
+    if not TankMark.sequentialScrollFrame then return end
+    
+    local numMarks = _getn(TankMark.editingSequentialMarks)
+    
+    if numMarks == 0 then
+        TankMark.sequentialScrollFrame:Hide()
+        if TankMark.addMoreMarksText then
+            TankMark.addMoreMarksText:SetText("|cff00ccff+ Add More Marks|r")
+        end
+        return
+    end
+    
+    TankMark.sequentialScrollFrame:Show()
+    local scrollChild = TankMark.sequentialScrollFrame:GetScrollChild()
+    if scrollChild then
+        scrollChild:Show()
+    end
+    
+    -- Update scroll range (max 4 visible rows)
+    local visibleRows = 4
+    FauxScrollFrame_Update(TankMark.sequentialScrollFrame, numMarks, visibleRows, 24)
+    
+    local offset = FauxScrollFrame_GetOffset(TankMark.sequentialScrollFrame)
+    
+    -- DEBUG OUTPUT
+    DEFAULT_CHAT_FRAME:AddMessage("=== SCROLL DEBUG ===")
+    DEFAULT_CHAT_FRAME:AddMessage("Total Marks: " .. numMarks)
+    DEFAULT_CHAT_FRAME:AddMessage("Visible Rows: " .. visibleRows)
+    DEFAULT_CHAT_FRAME:AddMessage("Scroll Offset: " .. offset)
+    DEFAULT_CHAT_FRAME:AddMessage("ScrollFrame Height: " .. TankMark.sequentialScrollFrame:GetHeight())
+    DEFAULT_CHAT_FRAME:AddMessage("ScrollChild Height: " .. scrollChild:GetHeight())
+    
+    -- Get vertical scroll position
+    local verticalScroll = TankMark.sequentialScrollFrame:GetVerticalScroll()
+    DEFAULT_CHAT_FRAME:AddMessage("Vertical Scroll: " .. verticalScroll)
+    
+    -- Force visibility after FauxScrollFrame_Update
+    TankMark.sequentialScrollFrame:Show()
+    if scrollChild then
+        scrollChild:Show()
+    end
+    
+    -- Update visible rows (max 4)
+    for i = 1, 4 do
+        local dataIndex = offset + i
+        local row = TankMark.sequentialRows[i]
+        
+        if dataIndex <= numMarks then
+            local seqData = TankMark.editingSequentialMarks[dataIndex]
+            row:Show()
+            
+            -- Get actual row position
+            local point, relativeTo, relativePoint, xOfs, yOfs = row:GetPoint(1)
+            
+            -- DEBUG: Show positioning details
+            DEFAULT_CHAT_FRAME:AddMessage("Row " .. i .. " (UI) -> Data #" .. (dataIndex + 1) .. " at Y=" .. yOfs)
+            
+            -- Update row number (dataIndex + 1 because main row is #1)
+            row.number:SetText("|cff888888#" .. (dataIndex + 1) .. "|r")
+            
+            -- Update icon
+            TankMark:SetIconTexture(row.iconBtn.tex, seqData.icon)
+            
+            -- Update CC button
+            if seqData.class then
+                row.ccBtn:SetText(seqData.class)
+                row.ccBtn:SetTextColor(0, 1, 0)
+            else
+                row.ccBtn:SetText("No CC")
+                row.ccBtn:SetTextColor(1, 0.82, 0)
+            end
+            
+            -- Store dataIndex for delete button
+            row.dataIndex = dataIndex
+        else
+            row:Hide()
+            DEFAULT_CHAT_FRAME:AddMessage("Row " .. i .. " (UI) -> HIDDEN (no data)")
+        end
+    end
+    
+    -- Check ALL 7 row positions
+    DEFAULT_CHAT_FRAME:AddMessage("--- ALL ROW POSITIONS ---")
+    for i = 1, 7 do
+        local row = TankMark.sequentialRows[i]
+        if row then
+            local point, relativeTo, relativePoint, xOfs, yOfs = row:GetPoint(1)
+            local visible = row:IsShown() and "VISIBLE" or "HIDDEN"
+            DEFAULT_CHAT_FRAME:AddMessage("Physical Row " .. i .. ": Y=" .. yOfs .. " [" .. visible .. "]")
+        end
+    end
+    
+    DEFAULT_CHAT_FRAME:AddMessage("===================")
 end
 
 -- Add a new sequential mark row
