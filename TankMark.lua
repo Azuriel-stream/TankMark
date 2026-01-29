@@ -1,4 +1,4 @@
--- TankMark: v0.22
+-- TankMark: v0.23
 -- File: TankMark.lua
 -- Entry point, Event Handlers, and Slash Commands
 
@@ -9,6 +9,7 @@ end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
+
 local _UnitExists = UnitExists
 local _GetRaidTargetIndex = GetRaidTargetIndex
 local _strfind = string.find
@@ -20,6 +21,7 @@ local _getn = table.getn
 -- ==========================================================
 -- ZONE CACHING
 -- ==========================================================
+
 TankMark.currentZone = nil
 
 function TankMark:GetCachedZone()
@@ -32,12 +34,14 @@ end
 -- ==========================================================
 -- [v0.21] BATCH PROCESSING STATE
 -- ==========================================================
+
 TankMark.batchCandidates = {}
 TankMark.isShiftHeld = false
 
 -- ==========================================================
 -- EVENT HANDLER
 -- ==========================================================
+
 function TankMark:HandleMouseover()
     if not _UnitExists("mouseover") then return end
     
@@ -102,6 +106,7 @@ end
 -- ==========================================================
 -- [v0.21] BATCH SHIFT POLLING (Vanilla 1.12 Workaround)
 -- ==========================================================
+
 TankMark.batchPollingActive = false
 
 function TankMark:StartBatchShiftPoller()
@@ -115,7 +120,6 @@ function TankMark:StartBatchShiftPoller()
             -- Shift released
             TankMark.batchPollingActive = false
             TankMark.batchPollerFrame:SetScript("OnUpdate", nil)
-            
             if TankMark.ExecuteBatchMarking then
                 TankMark:ExecuteBatchMarking()
             end
@@ -123,6 +127,9 @@ function TankMark:StartBatchShiftPoller()
     end)
 end
 
+-- ==========================================================
+-- MAIN EVENT HANDLER
+-- ==========================================================
 
 TankMark:SetScript("OnEvent", function()
     if (event == "ADDON_LOADED" and arg1 == "TankMark") then
@@ -148,7 +155,7 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell()
         
-        TankMark:Print("TankMark v0.22 loaded.")
+        TankMark:Print("TankMark v0.23 loaded.")
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
@@ -183,7 +190,7 @@ TankMark:SetScript("OnEvent", function()
             if TankMark.hudFrame then
                 TankMark.hudFrame:Hide()
             end
-            return  -- Skip HUD update since we just hid it
+            return -- Skip HUD update since we just hid it
         end
         
         -- Update HUD colors when roster changes (still in group)
@@ -217,6 +224,7 @@ TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
 -- ==========================================================
 -- COMMANDS
 -- ==========================================================
+
 function TankMark:SlashHandler(msg)
     local _, _, cmd, args = _strfind(msg, "^(%S*)%s*(.*)$")
     cmd = _lower(cmd or "")
@@ -273,6 +281,7 @@ function TankMark:SlashHandler(msg)
             for k,v in _pairs(TankMark.visibleTargets) do count = count + 1 end
             TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
         end
+        TankMark:Print("Schema Version: " .. (TankMarkDB.SchemaVersion or "Legacy"))
         
     elseif cmd == "assign" then
         local _, _, markStr, targetPlayer = _strfind(args, "^(%S+)%s+(%S+)$")
@@ -296,24 +305,24 @@ function TankMark:SlashHandler(msg)
         
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
-        
     else
-        TankMark:Print("|cff00ffffTankMark v0.22 Commands:|r")
-        TankMark:Print("  |cffffffff/tmark reset|r - Clear all marks and reset session")
-        TankMark:Print("  |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
-        TankMark:Print("  |cffffffff/tmark normals|r - Toggle marking normal mobs")
-        TankMark:Print("  |cffffffff/tmark recorder start|r | |cffffffff/tmark recorder stop|r - Flight recorder")
-        TankMark:Print("  |cffffffff/tmark assign [mark] [player]|r - Manual assignment")
-        TankMark:Print("  |cffffffff/tmark config|r - Open configuration panel")
-        TankMark:Print("  |cffffffff/tmark announce|r - Broadcast assignments to chat")
-        TankMark:Print("  |cffffffff/tmark sync|r - Share mob database with raid")
-        TankMark:Print("  |cffffffff/tmark zone|r - Show current zone and driver info")
+        TankMark:Print("|cff00ffffTankMark v0.23 Commands:|r")
+        TankMark:Print(" |cffffffff/tmark reset|r - Clear all marks and reset session")
+        TankMark:Print(" |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
+        TankMark:Print(" |cffffffff/tmark normals|r - Toggle marking normal mobs")
+        TankMark:Print(" |cffffffff/tmark recorder start|r | |cffffffff/tmark recorder stop|r - Flight recorder")
+        TankMark:Print(" |cffffffff/tmark assign [mark] [player]|r - Manual assignment")
+        TankMark:Print(" |cffffffff/tmark config|r - Open configuration panel")
+        TankMark:Print(" |cffffffff/tmark announce|r - Broadcast assignments to chat")
+        TankMark:Print(" |cffffffff/tmark sync|r - Share mob database with raid")
+        TankMark:Print(" |cffffffff/tmark zone|r - Show current zone and driver info")
     end
 end
 
 -- ==========================================================
 -- ROSTER VALIDATION
 -- ==========================================================
+
 function TankMark:IsPlayerInRaid(playerName)
     if not playerName or playerName == "" then return true end
     
@@ -349,6 +358,7 @@ end
 function TankMark:AnnounceAssignments()
     local zone = TankMark:GetCachedZone()
     local profile = TankMarkProfileDB[zone]
+    
     if not profile or _getn(profile) == 0 then
         TankMark:Print("No profile assignments found for " .. zone .. ".")
         return
