@@ -675,11 +675,10 @@ local function CreateSequentialScroll(seqFrame)
 		TankMark:SetIconTexture(seqRow.iconBtn.tex, 8)
 		
 		local seqIconDrop = CreateFrame("Frame", "TMSeqIconDropDown"..i, seqRow.iconBtn, "UIDropDownMenuTemplate")
-		UIDropDownMenu_Initialize(seqIconDrop, function()
-			TankMark:InitSequentialIconMenu(capturedIndex)
-		end, "MENU")
-		
 		seqRow.iconBtn:SetScript("OnClick", function()
+			UIDropDownMenu_Initialize(seqIconDrop, function()
+				TankMark:InitSequentialIconMenu(seqRow.dataIndex)  -- ← Use dynamic dataIndex
+			end, "MENU")
 			ToggleDropDownMenu(1, nil, seqIconDrop, "cursor", 0, 0)
 		end)
 		
@@ -690,11 +689,11 @@ local function CreateSequentialScroll(seqFrame)
 		seqRow.ccBtn:SetText("No CC")
 		
 		local seqCCDrop = CreateFrame("Frame", "TMSeqCCDropDown"..i, seqRow.ccBtn, "UIDropDownMenuTemplate")
-		UIDropDownMenu_Initialize(seqCCDrop, function()
-			TankMark:InitSequentialClassMenu(capturedIndex)
-		end, "MENU")
-		
 		seqRow.ccBtn:SetScript("OnClick", function()
+			-- Re-initialize dropdown with current dataIndex at click time
+			UIDropDownMenu_Initialize(seqCCDrop, function()
+				TankMark:InitSequentialClassMenu(seqRow.dataIndex)
+			end, "MENU")
 			ToggleDropDownMenu(1, nil, seqCCDrop, "cursor", 0, 0)
 		end)
 		
@@ -704,7 +703,7 @@ local function CreateSequentialScroll(seqFrame)
 		seqRow.delBtn:SetText("Remove")
 		seqRow.delBtn:SetPoint("LEFT", seqRow.ccBtn, "RIGHT", 4, 0)
 		seqRow.delBtn:SetScript("OnClick", function()
-			TankMark:RemoveSequentialRow(capturedIndex)
+			TankMark:RemoveSequentialRow(seqRow.dataIndex)
 		end)
 		
 		seqRow:Hide()
