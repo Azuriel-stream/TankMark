@@ -17,6 +17,7 @@ TankMark:RegisterEvent("CHAT_MSG_ADDON")
 -- ==========================================================
 local _insert = table.insert
 local _remove = table.remove
+local _type = type
 local _ipairs = ipairs
 local _pairs = pairs
 local _getn = table.getn
@@ -57,54 +58,68 @@ function TankMark:InitializeDB()
     TankMark:Print("Database initialized (v0.22 Resilience System active).")
 end
 
--- ==========================================================
--- [v0.21] CORRUPTION DETECTION (Layer 3)
--- ==========================================================
+-- [v0.23] CORRUPTION DETECTION (Layer 3)
 function TankMark:ValidateDB()
-	local errors = {}
-	local isCorrupt = false
-	
-	-- Check 1: Primary DB exists
-	if not TankMarkDB or type(TankMarkDB) ~= "table" then
-		_insert(errors, "Primary database missing or corrupt")
-		isCorrupt = true
-		return isCorrupt, errors
-	end
-	
-	-- Check 2: Required keys exist
-	if not TankMarkDB.Zones or type(TankMarkDB.Zones) ~= "table" then
-		_insert(errors, "Zones table missing or corrupt")
-		isCorrupt = true
-	end
-	
-	if not TankMarkDB.StaticGUIDs or type(TankMarkDB.StaticGUIDs) ~= "table" then
-		_insert(errors, "StaticGUIDs table missing or corrupt")
-		isCorrupt = true
-	end
-	
-	-- Check 3: Data type validation (sample check for first zone)
-	if TankMarkDB.Zones and type(TankMarkDB.Zones) == "table" then
-		for zoneName, mobs in _pairs(TankMarkDB.Zones) do
-			if type(mobs) ~= "table" then
-				_insert(errors, "Zone '" .. zoneName .. "' has invalid data")
-				isCorrupt = true
-				break
-			end
-			
-			-- Sample mob validation (check first mob only for performance)
-			for mobName, data in _pairs(mobs) do
-				if type(data) ~= "table" or not data.prio or not data.mark then
-					_insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure")
-					isCorrupt = true
-				end
-				break -- Only check first mob per zone
-			end
-			
-			if isCorrupt then break end
-		end
-	end
-	
-	return isCorrupt, errors
+    local errors = {}
+    local isCorrupt = false
+    
+    -- Check 1: Primary DB exists
+    if not TankMarkDB or _type(TankMarkDB) ~= "table" then
+        _insert(errors, "Primary database missing or corrupt")
+        isCorrupt = true
+        return isCorrupt, errors
+    end
+    
+    -- Check 2: Required keys exist
+    if not TankMarkDB.Zones or _type(TankMarkDB.Zones) ~= "table" then
+        _insert(errors, "Zones table missing or corrupt")
+        isCorrupt = true
+    end
+    
+    if not TankMarkDB.StaticGUIDs or _type(TankMarkDB.StaticGUIDs) ~= "table" then
+        _insert(errors, "StaticGUIDs table missing or corrupt")
+        isCorrupt = true
+    end
+    
+    -- Check 3: Data type validation (sample check for first zone)
+    if TankMarkDB.Zones and _type(TankMarkDB.Zones) == "table" then
+        for zoneName, mobs in _pairs(TankMarkDB.Zones) do
+            if _type(mobs) ~= "table" then
+                _insert(errors, "Zone '" .. zoneName .. "' has invalid data")
+                isCorrupt = true
+                break
+            end
+            
+            -- Sample mob validation (check first mob only for performance)
+            for mobName, data in _pairs(mobs) do
+                if _type(data) ~= "table" then
+                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure")
+                    isCorrupt = true
+                    break
+                end
+                
+                -- [v0.23] Validate required fields (marks is now an array)
+                if not data.prio or not data.marks or _type(data.marks) ~= "table" then
+                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure (missing prio or marks array)")
+                    isCorrupt = true
+                    break
+                end
+                
+                -- Validate marks array has at least one entry
+                if _getn(data.marks) == 0 then
+                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has empty marks array")
+                    isCorrupt = true
+                    break
+                end
+                
+                break -- Only check first mob per zone
+            end
+            
+            if isCorrupt then break end
+        end
+    end
+    
+    return isCorrupt, errors
 end
 
 function TankMark:ShowCorruptionDialog(errors)
@@ -147,7 +162,7 @@ function TankMark:CreateSnapshot()
 	
 	-- Deep copy helper (Lua 5.0 compatible)
 	local function DeepCopy(original)
-		if type(original) ~= "table" then return original end
+		if _type(original) ~= "table" then return original end
 		local copy = {}
 		for k, v in _pairs(original) do
 			copy[k] = DeepCopy(v)
@@ -193,7 +208,7 @@ function TankMark:RestoreFromSnapshot(index)
 	
 	-- Deep copy helper
 	local function DeepCopy(original)
-		if type(original) ~= "table" then return original end
+		if _type(original) ~= "table" then return original end
 		local copy = {}
 		for k, v in _pairs(original) do
 			copy[k] = DeepCopy(v)
@@ -226,36 +241,43 @@ function TankMark:RestoreFromSnapshot(index)
 end
 
 function TankMark:MergeDefaults()
-	if not TankMarkDefaults then
-		TankMark:Print("|cffff0000Error:|r Default database not loaded.")
-		return
-	end
-	
-	local added = 0
-	
-	for zoneName, defaultMobs in _pairs(TankMarkDefaults) do
-		if not TankMarkDB.Zones[zoneName] then
-			TankMarkDB.Zones[zoneName] = {}
-		end
-		
-		for mobName, mobData in _pairs(defaultMobs) do
-			if not TankMarkDB.Zones[zoneName][mobName] then
-				-- Deep copy to avoid reference issues
-				TankMarkDB.Zones[zoneName][mobName] = {
-					prio = mobData.prio,
-					mark = mobData.mark,
-					type = mobData.type,
-					class = mobData.class
-				}
-				added = added + 1
-			end
-		end
-	end
-	
-	TankMark:Print("|cff00ff00Merged:|r " .. added .. " mobs from default database.")
-	
-	-- Refresh UI
-	if TankMark.UpdateMobList then TankMark:UpdateMobList() end
+    if not TankMarkDefaults then
+        TankMark:Print("|cffff0000Error|r Default database not loaded.")
+        return
+    end
+    
+    local added = 0
+    for zoneName, defaultMobs in pairs(TankMarkDefaults) do
+        if not TankMarkDB.Zones[zoneName] then
+            TankMarkDB.Zones[zoneName] = {}
+        end
+        
+        for mobName, mobData in pairs(defaultMobs) do
+            if not TankMarkDB.Zones[zoneName][mobName] then
+                -- [v0.23] Deep copy marks array
+                local marksCopy = {}
+                if mobData.marks then
+                    for i, mark in ipairs(mobData.marks) do
+                        marksCopy[i] = mark
+                    end
+                end
+                
+                TankMarkDB.Zones[zoneName][mobName] = {
+                    prio = mobData.prio,
+                    marks = marksCopy,
+                    type = mobData.type,
+                    class = mobData.class
+                }
+                added = added + 1
+            end
+        end
+    end
+    
+    TankMark:Print("|cff00ff00Merged|r " .. added .. " mobs from default database.")
+    
+    if TankMark.UpdateMobList then
+        TankMark:UpdateMobList()
+    end
 end
 
 -- ==========================================================
@@ -364,7 +386,7 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
 	for _, playerName in _ipairs(candidates) do
 		local isAssigned = false
 		for _, data in _pairs(TankMark.sessionAssignments) do
-			local assignedName = (type(data) == "table") and data.tank or data
+			local assignedName = (_type(data) == "table") and data.tank or data
 			if assignedName == playerName then
 				isAssigned = true
 				break
