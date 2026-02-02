@@ -737,6 +737,7 @@ TankMark.batchMarkQueue = {}
 TankMark.batchQueueTimer = 0
 TankMark.batchCandidates = {} -- Temporary collection during Shift-hold
 TankMark.batchSequence = 0 -- [v0.21] Track mouseover order
+TankMark.batchSkipCounters = {}
 
 -- Add candidate to batch collection (called during Shift-hold)
 function TankMark:AddBatchCandidate(guid)
@@ -803,6 +804,15 @@ function TankMark:ExecuteBatchMarking()
     -- [v0.23] Reset sequential cursor
     TankMark.sequentialMarkCursor = {}
     
+    -- [v0.24] Initialize skip counters
+    TankMark.batchSkipCounters = {
+        alreadyMarked = 0,
+        dead = 0,
+        inCombat = 0,
+        normalMob = 0,
+        total = 0
+    }
+
     -- Convert hashmap to array
     local sortedCandidates = {}
     for guid, data in _pairs(TankMark.batchCandidates) do
@@ -855,6 +865,25 @@ function TankMark:StartBatchProcessor()
         if TankMark.batchCurrentIndex > _tgetn(TankMark.batchMarkQueue) then
             TankMark.batchProcessorFrame:SetScript("OnUpdate", nil)
             TankMark.batchCurrentIndex = 1
+            
+            -- [v0.23] Print skip summary if any mobs were skipped
+            if TankMark.batchSkipCounters and TankMark.batchSkipCounters.total > 0 then
+                local skipMsg = "|cffffaa00Skipped " .. TankMark.batchSkipCounters.total .. " mob(s):|r"
+                if TankMark.batchSkipCounters.alreadyMarked > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.alreadyMarked .. " already marked"
+                end
+                if TankMark.batchSkipCounters.dead > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.dead .. " dead/gone"
+                end
+                if TankMark.batchSkipCounters.inCombat > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.inCombat .. " in combat"
+                end
+                if TankMark.batchSkipCounters.normalMob > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.normalMob .. " normal mobs"
+                end
+                TankMark:Print(skipMsg)
+            end
+            
             return
         end
         
@@ -875,14 +904,20 @@ function TankMark:ProcessBatchMark(candidateData)
     
     -- Validate GUID still exists and is unmarked
     if not _UnitExists(guid) then
+        TankMark.batchSkipCounters.dead = TankMark.batchSkipCounters.dead + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
-    
+
     if _UnitIsDead(guid) then
+        TankMark.batchSkipCounters.dead = TankMark.batchSkipCounters.dead + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
-    
+
     if _GetRaidTargetIndex(guid) then
+        TankMark.batchSkipCounters.alreadyMarked = TankMark.batchSkipCounters.alreadyMarked + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
     
@@ -890,6 +925,8 @@ function TankMark:ProcessBatchMark(candidateData)
     -- WITH SuperWoW: Skip combat mobs (let scanner handle them)
     -- WITHOUT SuperWoW: Process combat mobs (batch marking is the only option)
     if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
+        TankMark.batchSkipCounters.inCombat = TankMark.batchSkipCounters.inCombat + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
     
@@ -897,6 +934,8 @@ function TankMark:ProcessBatchMark(candidateData)
     if not TankMark.MarkNormals then
         local cls = UnitClassification(guid)
         if cls == "normal" or cls == "trivial" or cls == "minus" then
+            TankMark.batchSkipCounters.normalMob = TankMark.batchSkipCounters.normalMob + 1
+            TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
             return -- Skip normal mobs if filter is active
         end
     end
