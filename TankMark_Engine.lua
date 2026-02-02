@@ -365,6 +365,20 @@ function TankMark:FindUnitByName(name)
     return nil
 end
 
+-- [v0.24] Helper: Check if player is alive and in raid
+function TankMark:IsPlayerAliveAndInRaid(playerName)
+    if not playerName or playerName == "" then return false end
+    
+    -- Find unit token
+    local unit = TankMark:FindUnitByName(playerName)
+    if not unit then return false end  -- Not in raid/party
+    
+    -- Check if alive (includes ghost check)
+    if UnitIsDeadOrGhost(unit) then return false end
+    
+    return true
+end
+
 function TankMark:GetAssigneeForMark(markID)
     local zone = TankMark:GetCachedZone()
     local list = TankMarkProfileDB[zone]
@@ -448,14 +462,25 @@ function TankMark:HandleDeath(unitID)
     end
     
     if deadTankIndex then
-        -- Alert next tank in line
         local deadMarkStr = TankMark:GetMarkString(list[deadTankIndex].mark)
-        local nextEntry = list[deadTankIndex + 1]
         
-        if nextEntry and nextEntry.tank and nextEntry.tank ~= "" then
+        -- [v0.24] Find next ALIVE tank in sequence
+        local nextTank = nil
+        for i = deadTankIndex + 1, _tgetn(list) do
+            if list[i].tank and list[i].tank ~= "" then
+                if TankMark:IsPlayerAliveAndInRaid(list[i].tank) then
+                    nextTank = list[i].tank
+                    break
+                end
+            end
+        end
+        
+        if nextTank then
             local msg = "ALERT: " .. deadPlayerName .. " ("..deadMarkStr..") has died! Take over!"
-            SendChatMessage(msg, "WHISPER", nil, nextEntry.tank)
-            TankMark:Print("Alerted " .. nextEntry.tank .. " to cover for " .. deadPlayerName)
+            SendChatMessage(msg, "WHISPER", nil, nextTank)
+            TankMark:Print("Alerted " .. nextTank .. " to cover for " .. deadPlayerName)
+        else
+            TankMark:Print("|cffff0000WARNING:|r " .. deadPlayerName .. " died, but no alive backup tank found!")
         end
         return
     end
@@ -466,14 +491,15 @@ function TankMark:HandleDeath(unitID)
             -- Parse healer list (space-delimited)
             for healerName in _gfind(entry.healers, "[^ ]+") do
                 if healerName == deadPlayerName then
-                    -- Check if healer is in raid/party (roster validation)
                     if TankMark:IsPlayerInRaid(healerName) then
-                        -- Alert the tank
                         local tankName = entry.tank
-                        if tankName and tankName ~= "" then
+                        -- [v0.24] Only alert if tank is alive
+                        if tankName and tankName ~= "" and TankMark:IsPlayerAliveAndInRaid(tankName) then
                             local msg = "ALERT: Your healer " .. healerName .. " has died!"
                             SendChatMessage(msg, "WHISPER", nil, tankName)
                             TankMark:Print("Alerted " .. tankName .. " about healer death: " .. healerName)
+                        else
+                            TankMark:Print("|cffffaa00INFO:|r Healer " .. healerName .. " died, but tank " .. (tankName or "Unknown") .. " is unavailable.")
                         end
                     end
                     return
