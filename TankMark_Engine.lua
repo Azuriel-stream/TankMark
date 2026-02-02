@@ -441,13 +441,19 @@ function TankMark:HandleDeath(unitID)
         return
     end
     
-    -- Handle PLAYER death
-    local hp = UnitHealth(unitID)
-    if hp and hp > 0 then return end
+    -- [v0.24] Handle PLAYER death
+    -- Check if player is actually dead/ghost (not just 0 HP from HoT ticks)
+    if not UnitIsDeadOrGhost(unitID) then return end
     
     local deadPlayerName = _UnitName(unitID)
     if not deadPlayerName then return end
     
+    -- [v0.24] Check if we already alerted about this death
+    if TankMark.alertedDeaths[deadPlayerName] then return end
+    
+    -- Mark death as processed
+    TankMark.alertedDeaths[deadPlayerName] = true
+
     local zone = TankMark:GetCachedZone()
     local list = TankMarkProfileDB[zone]
     if not list then return end
@@ -506,6 +512,13 @@ function TankMark:HandleDeath(unitID)
                 end
             end
         end
+    end
+end
+
+-- [v0.24] Clear death alert when player is alive again
+function TankMark:ClearDeathAlert(playerName)
+    if TankMark.alertedDeaths and playerName then
+        TankMark.alertedDeaths[playerName] = nil
     end
 end
 
@@ -707,6 +720,7 @@ function TankMark:ResetSession()
     TankMark.activeGUIDs = {}
     TankMark.recordedGUIDs = {} -- [v0.21] Clear recorder GUID tracking
     TankMark.sequentialMarkCursor = {} -- [v0.23] Clear sequential cursor
+    TankMark.alertedDeaths = {} -- [v0.24] Death alert tracking (prevent whisper spam)
     
     if TankMark.visibleTargets then
         for k in _pairs(TankMark.visibleTargets) do
