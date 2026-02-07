@@ -45,6 +45,9 @@ TankMark.recordedGUIDs = {}
 -- [v0.23] Sequential marking cursor
 TankMark.sequentialMarkCursor = {}
 
+-- [v0.24] Death alert tracking (prevent whisper spam)
+TankMark.alertedDeaths = {}
+
 TankMark.MarkInfo = {
     [8] = { name = "SKULL", color = "|cffffffff" },
     [7] = { name = "CROSS", color = "|cffff0000" },
