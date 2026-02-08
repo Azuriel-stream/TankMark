@@ -1,4 +1,4 @@
--- TankMark: v0.23
+-- TankMark: v0.24
 -- File: TankMark_Engine.lua
 -- Core marking logic and assignment algorithms
 
@@ -14,7 +14,20 @@ local _UnitIsFriend = UnitIsFriend
 local _UnitName = UnitName
 local _UnitExists = UnitExists
 local _UnitPowerType = UnitPowerType
+local _UnitClass = UnitClass
+local _UnitRace = UnitRace
+local _UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local _UnitAffectingCombat = UnitAffectingCombat
+local _UnitCreatureType = UnitCreatureType
+local _UnitClassification = UnitClassification
+local _UnitHealth = UnitHealth
+local _UnitInRaid = UnitInRaid
 local _GetRaidTargetIndex = GetRaidTargetIndex
+local _GetNumRaidMembers = GetNumRaidMembers
+local _GetNumPartyMembers = GetNumPartyMembers
+local _IsRaidLeader = IsRaidLeader
+local _IsRaidOfficer = IsRaidOfficer
+local _IsPartyLeader = IsPartyLeader
 local _strfind = string.find
 local _gsub = string.gsub
 local _gfind = string.gfind
@@ -45,6 +58,9 @@ TankMark.recordedGUIDs = {}
 -- [v0.23] Sequential marking cursor
 TankMark.sequentialMarkCursor = {}
 
+-- [v0.24] Death alert tracking (prevent whisper spam)
+TankMark.alertedDeaths = {}
+
 TankMark.MarkInfo = {
     [8] = { name = "SKULL", color = "|cffffffff" },
     [7] = { name = "CROSS", color = "|cffff0000" },
@@ -61,12 +77,12 @@ TankMark.MarkInfo = {
 -- ==========================================================
 
 function TankMark:HasPermissions()
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
+    local numRaid = _GetNumRaidMembers()
+    local numParty = _GetNumPartyMembers()
     
     if numRaid == 0 and numParty == 0 then return true end
-    if numRaid > 0 then return (IsRaidLeader() or IsRaidOfficer()) end
-    if numParty > 0 then return IsPartyLeader() end
+    if numRaid > 0 then return (_IsRaidLeader() or _IsRaidOfficer()) end
+    if numParty > 0 then return _IsPartyLeader() end
     
     return false
 end
@@ -117,9 +133,9 @@ function TankMark:ProcessUnit(guid, mode)
     
     -- Normal/Trivial Mob Filter
     if not TankMark.MarkNormals then
-        local cls = UnitClassification(guid)
+        local cls = _UnitClassification(guid)
         if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
-            cls = UnitClassification("mouseover")
+            cls = _UnitClassification("mouseover")
         end
         if cls == "normal" or cls == "trivial" or cls == "minus" then return end
     end
@@ -196,46 +212,56 @@ end
 function TankMark:ProcessKnownMob(mobData, guid, mode)
     -- [v0.23] Skip auto-marking for sequential mobs
     if mobData.marks and _tgetn(mobData.marks) > 1 then
-        return  -- Sequential mobs only marked via batch marking
+        return -- Sequential mobs only marked via batch marking
     end
     
     -- [v0.23] Extract single mark from array
     local markToUse = mobData.marks and mobData.marks[1] or 8
-    
     if markToUse == 0 then return end
     
     -- [v0.22] COMBAT GATING: Only mark mobs when combat is happening
     if mode == "SCANNER" then
-        -- Check if mob is targeting raid OR player is in combat
-        local playerInCombat = UnitAffectingCombat("player")
+        local playerInCombat = _UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
         
         if not mobInCombat and not playerInCombat then
-            return -- Don't mark peaceful mobs
+            return
         end
     end
     
     local iconToApply = nil
-    local isCCBlocked = (mobData.type == "CC" and TankMark.disabledMarks[markToUse])
     
-    if mobData.type == "KILL" or isCCBlocked then
-        -- [v0.22 FIX] Priority 1: Use mob's database mark if free (regardless of Team Profile)
-        if not TankMark.usedIcons[markToUse] then
+    -- [v0.24] CC ASSIGNMENT LOGIC
+    if mobData.type == "CC" and mobData.class then
+        -- Step 1: Try to find CC player matching required class
+        local ccMark = TankMark:FindCCPlayerForClass(mobData.class)
+        if ccMark then
+            iconToApply = ccMark
+        end
+        
+        -- Step 2: Fallback to tank assignment if no CC player available
+        if not iconToApply then
+            -- Try DB mark first (if not disabled)
+            if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
+                iconToApply = markToUse
+            end
+            
+            -- Then try tank marks
+            if not iconToApply then
+                iconToApply = TankMark:GetFreeTankIcon()
+            end
+        end
+    
+    -- [v0.24] KILL ASSIGNMENT LOGIC (or CC with no class specified)
+    else
+        -- Priority 1: Use mob's database mark if free
+        if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
             iconToApply = markToUse
         end
         
-        -- [v0.22 FIX] Priority 2: Only if mark is taken, get next available from Team Profile
+        -- Priority 2: Get next available tank mark
         if not iconToApply then
             iconToApply = TankMark:GetFreeTankIcon()
-        end
-        
-    elseif mobData.type == "CC" then
-        if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
-            local assignee = TankMark:GetAssigneeForMark(markToUse)
-            if assignee then
-                iconToApply = markToUse
-                TankMark:AssignCC(iconToApply, assignee, mobData.type)
-            end
         end
     end
     
@@ -249,7 +275,7 @@ function TankMark:ProcessUnknownMob(guid, mode)
     -- [v0.22 FIX] Combat gating (only for SCANNER mode)
     -- FORCE mode (batch marking) bypasses this check
     if mode == "SCANNER" then
-        local playerInCombat = UnitAffectingCombat("player")
+        local playerInCombat = _UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
         
         if not mobInCombat and not playerInCombat then
@@ -346,15 +372,21 @@ function TankMark:GetFreeTankIcon()
         local tankName = entry.tank
         
         if markID and not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+            -- [v0.24] Skip marks assigned to CC classes
             if tankName and tankName ~= "" then
                 local u = TankMark:FindUnitByName(tankName)
-                if u and not UnitIsDeadOrGhost(u) then return markID end
+                if u then
+                    -- Only return mark if player is alive AND not a CC class
+                    if not _UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
+                        return markID
+                    end
+                end
             else
+                -- No player assigned - mark is free for use
                 return markID
             end
         end
     end
-    
     return nil
 end
 
@@ -363,6 +395,76 @@ function TankMark:FindUnitByName(name)
     for i=1,4 do if _UnitName("party"..i) == name then return "party"..i end end
     for i=1,40 do if _UnitName("raid"..i) == name then return "raid"..i end end
     return nil
+end
+
+-- [v0.24] Check if player is a CC-capable class
+function TankMark:IsPlayerCCClass(playerName)
+    if not playerName or playerName == "" then return false end
+    
+    local unit = TankMark:FindUnitByName(playerName)
+    if not unit then return false end
+    
+    local class = _UnitClass(unit)
+    
+    -- CC-capable classes (long-duration CC abilities)
+    if class == "Mage" or class == "Warlock" or class == "Hunter" or 
+       class == "Priest" or class == "Druid" then
+        return true
+    end
+    
+    -- Shaman: Only Troll race can CC (Hex ability)
+    if class == "Shaman" then
+        local race = _UnitRace(unit)
+        return race == "Troll"
+    end
+    
+    return false
+end
+
+-- [v0.24] Find CC player in Team Profile matching required class
+function TankMark:FindCCPlayerForClass(requiredClass)
+    local zone = TankMark:GetCachedZone()
+    local list = TankMarkProfileDB[zone]
+    if not list then return nil end
+    
+    for _, entry in _ipairs(list) do
+        local playerName = entry.tank
+        local markID = entry.mark
+        
+        if playerName and playerName ~= "" then
+            local unit = TankMark:FindUnitByName(playerName)
+            if unit then
+                local playerClass = _UnitClass(unit)
+                
+                -- Match required class
+                if playerClass == requiredClass then
+                    -- Check if mark is available (not used and not disabled)
+                    if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+                        -- Check if player is alive
+                        if not _UnitIsDeadOrGhost(unit) then
+                            return markID
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- [v0.24] Helper: Check if player is alive and in raid
+function TankMark:IsPlayerAliveAndInRaid(playerName)
+    if not playerName or playerName == "" then return false end
+    
+    -- Find unit token
+    local unit = TankMark:FindUnitByName(playerName)
+    if not unit then return false end  -- Not in raid/party
+    
+    -- Check if alive (includes ghost check)
+    if _UnitIsDeadOrGhost(unit) then return false end
+    
+    return true
 end
 
 function TankMark:GetAssigneeForMark(markID)
@@ -417,7 +519,7 @@ function TankMark:HandleDeath(unitID)
     -- Handle MOB death
     if not _UnitIsPlayer(unitID) then
         local icon = _GetRaidTargetIndex(unitID)
-        local hp = UnitHealth(unitID)
+        local hp = _UnitHealth(unitID)
         if icon and hp and hp <= 0 then
             TankMark:EvictMarkOwner(icon)
             if TankMark.IsSuperWoW and icon == 8 then
@@ -427,13 +529,19 @@ function TankMark:HandleDeath(unitID)
         return
     end
     
-    -- Handle PLAYER death
-    local hp = UnitHealth(unitID)
-    if hp and hp > 0 then return end
+    -- [v0.24] Handle PLAYER death
+    -- Check if player is actually dead/ghost (not just 0 HP from HoT ticks)
+    if not _UnitIsDeadOrGhost(unitID) then return end
     
     local deadPlayerName = _UnitName(unitID)
     if not deadPlayerName then return end
     
+    -- [v0.24] Check if we already alerted about this death
+    if TankMark.alertedDeaths[deadPlayerName] then return end
+    
+    -- Mark death as processed
+    TankMark.alertedDeaths[deadPlayerName] = true
+
     local zone = TankMark:GetCachedZone()
     local list = TankMarkProfileDB[zone]
     if not list then return end
@@ -448,14 +556,25 @@ function TankMark:HandleDeath(unitID)
     end
     
     if deadTankIndex then
-        -- Alert next tank in line
         local deadMarkStr = TankMark:GetMarkString(list[deadTankIndex].mark)
-        local nextEntry = list[deadTankIndex + 1]
         
-        if nextEntry and nextEntry.tank and nextEntry.tank ~= "" then
+        -- [v0.24] Find next ALIVE tank in sequence
+        local nextTank = nil
+        for i = deadTankIndex + 1, _tgetn(list) do
+            if list[i].tank and list[i].tank ~= "" then
+                if TankMark:IsPlayerAliveAndInRaid(list[i].tank) then
+                    nextTank = list[i].tank
+                    break
+                end
+            end
+        end
+        
+        if nextTank then
             local msg = "ALERT: " .. deadPlayerName .. " ("..deadMarkStr..") has died! Take over!"
-            SendChatMessage(msg, "WHISPER", nil, nextEntry.tank)
-            TankMark:Print("Alerted " .. nextEntry.tank .. " to cover for " .. deadPlayerName)
+            SendChatMessage(msg, "WHISPER", nil, nextTank)
+            TankMark:Print("Alerted " .. nextTank .. " to cover for " .. deadPlayerName)
+        else
+            TankMark:Print("|cffff0000WARNING:|r " .. deadPlayerName .. " died, but no alive backup tank found!")
         end
         return
     end
@@ -466,20 +585,28 @@ function TankMark:HandleDeath(unitID)
             -- Parse healer list (space-delimited)
             for healerName in _gfind(entry.healers, "[^ ]+") do
                 if healerName == deadPlayerName then
-                    -- Check if healer is in raid/party (roster validation)
                     if TankMark:IsPlayerInRaid(healerName) then
-                        -- Alert the tank
                         local tankName = entry.tank
-                        if tankName and tankName ~= "" then
+                        -- [v0.24] Only alert if tank is alive
+                        if tankName and tankName ~= "" and TankMark:IsPlayerAliveAndInRaid(tankName) then
                             local msg = "ALERT: Your healer " .. healerName .. " has died!"
                             SendChatMessage(msg, "WHISPER", nil, tankName)
                             TankMark:Print("Alerted " .. tankName .. " about healer death: " .. healerName)
+                        else
+                            TankMark:Print("|cffffaa00INFO:|r Healer " .. healerName .. " died, but tank " .. (tankName or "Unknown") .. " is unavailable.")
                         end
                     end
                     return
                 end
             end
         end
+    end
+end
+
+-- [v0.24] Clear death alert when player is alive again
+function TankMark:ClearDeathAlert(playerName)
+    if TankMark.alertedDeaths and playerName then
+        TankMark.alertedDeaths[playerName] = nil
     end
 end
 
@@ -492,8 +619,8 @@ function TankMark:VerifyMarkExistence(iconID)
         end
     end
     
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
+    local numRaid = _GetNumRaidMembers()
+    local numParty = _GetNumPartyMembers()
     
     local function Check(unit)
         return _UnitExists(unit) and _GetRaidTargetIndex(unit) == iconID and not _UnitIsDead(unit)
@@ -594,7 +721,7 @@ function TankMark:ReviewSkullState()
             if isEligible then
                 -- [v0.22] Respect MarkNormals filter
                 if not TankMark.MarkNormals then
-                    local cls = UnitClassification(guid)
+                    local cls = _UnitClassification(guid)
                     if cls == "normal" or cls == "trivial" or cls == "minus" then
                         name = nil
                     end
@@ -604,7 +731,7 @@ function TankMark:ReviewSkullState()
                 if name and TankMark.activeDB[name] then
                     local data = TankMark.activeDB[name]
                     local mobPrio = data.prio or 99
-                    local mobHP = UnitHealth(guid)
+                    local mobHP = _UnitHealth(guid)
                     
                     if mobPrio < bestPrio then
                         bestPrio = mobPrio
@@ -639,8 +766,8 @@ function TankMark:ReviewSkullState()
             if bestPrio < currentSkullPrio then
                 shouldSwap = true
             elseif bestPrio == currentSkullPrio then
-                local currentHP = UnitHealth(skullGUID) or 1
-                local candidateHP = UnitHealth(bestGUID)
+                local currentHP = _UnitHealth(skullGUID) or 1
+                local candidateHP = _UnitHealth(bestGUID)
                 
                 -- [v0.22] Changed HP threshold from 10% to 30% (0.90 → 0.70)
                 if currentHP > 0 and candidateHP < (currentHP * 0.70) then
@@ -681,6 +808,7 @@ function TankMark:ResetSession()
     TankMark.activeGUIDs = {}
     TankMark.recordedGUIDs = {} -- [v0.21] Clear recorder GUID tracking
     TankMark.sequentialMarkCursor = {} -- [v0.23] Clear sequential cursor
+    TankMark.alertedDeaths = {} -- [v0.24] Death alert tracking (prevent whisper spam)
     
     if TankMark.visibleTargets then
         for k in _pairs(TankMark.visibleTargets) do
@@ -706,7 +834,7 @@ function TankMark:ResetSession()
         ClearUnit("target")
         ClearUnit("mouseover")
         
-        if UnitInRaid("player") then
+        if _UnitInRaid("player") then
             for i = 1, 40 do
                 ClearUnit("raid"..i)
                 ClearUnit("raid"..i.."target")
@@ -737,6 +865,7 @@ TankMark.batchMarkQueue = {}
 TankMark.batchQueueTimer = 0
 TankMark.batchCandidates = {} -- Temporary collection during Shift-hold
 TankMark.batchSequence = 0 -- [v0.21] Track mouseover order
+TankMark.batchSkipCounters = {}
 
 -- Add candidate to batch collection (called during Shift-hold)
 function TankMark:AddBatchCandidate(guid)
@@ -803,6 +932,15 @@ function TankMark:ExecuteBatchMarking()
     -- [v0.23] Reset sequential cursor
     TankMark.sequentialMarkCursor = {}
     
+    -- [v0.24] Initialize skip counters
+    TankMark.batchSkipCounters = {
+        alreadyMarked = 0,
+        dead = 0,
+        inCombat = 0,
+        normalMob = 0,
+        total = 0
+    }
+
     -- Convert hashmap to array
     local sortedCandidates = {}
     for guid, data in _pairs(TankMark.batchCandidates) do
@@ -855,6 +993,25 @@ function TankMark:StartBatchProcessor()
         if TankMark.batchCurrentIndex > _tgetn(TankMark.batchMarkQueue) then
             TankMark.batchProcessorFrame:SetScript("OnUpdate", nil)
             TankMark.batchCurrentIndex = 1
+            
+            -- [v0.23] Print skip summary if any mobs were skipped
+            if TankMark.batchSkipCounters and TankMark.batchSkipCounters.total > 0 then
+                local skipMsg = "|cffffaa00Skipped " .. TankMark.batchSkipCounters.total .. " mob(s):|r"
+                if TankMark.batchSkipCounters.alreadyMarked > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.alreadyMarked .. " already marked"
+                end
+                if TankMark.batchSkipCounters.dead > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.dead .. " dead/gone"
+                end
+                if TankMark.batchSkipCounters.inCombat > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.inCombat .. " in combat"
+                end
+                if TankMark.batchSkipCounters.normalMob > 0 then
+                    skipMsg = skipMsg .. " " .. TankMark.batchSkipCounters.normalMob .. " normal mobs"
+                end
+                TankMark:Print(skipMsg)
+            end
+            
             return
         end
         
@@ -875,14 +1032,20 @@ function TankMark:ProcessBatchMark(candidateData)
     
     -- Validate GUID still exists and is unmarked
     if not _UnitExists(guid) then
+        TankMark.batchSkipCounters.dead = TankMark.batchSkipCounters.dead + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
-    
+
     if _UnitIsDead(guid) then
+        TankMark.batchSkipCounters.dead = TankMark.batchSkipCounters.dead + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
-    
+
     if _GetRaidTargetIndex(guid) then
+        TankMark.batchSkipCounters.alreadyMarked = TankMark.batchSkipCounters.alreadyMarked + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
     
@@ -890,13 +1053,17 @@ function TankMark:ProcessBatchMark(candidateData)
     -- WITH SuperWoW: Skip combat mobs (let scanner handle them)
     -- WITHOUT SuperWoW: Process combat mobs (batch marking is the only option)
     if TankMark.IsSuperWoW and TankMark:IsGUIDInCombat(guid) then
+        TankMark.batchSkipCounters.inCombat = TankMark.batchSkipCounters.inCombat + 1
+        TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
     end
     
     -- [v0.21] Respect MarkNormals filter for batch marking
     if not TankMark.MarkNormals then
-        local cls = UnitClassification(guid)
+        local cls = _UnitClassification(guid)
         if cls == "normal" or cls == "trivial" or cls == "minus" then
+            TankMark.batchSkipCounters.normalMob = TankMark.batchSkipCounters.normalMob + 1
+            TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
             return -- Skip normal mobs if filter is active
         end
     end

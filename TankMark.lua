@@ -12,6 +12,8 @@ end
 
 local _UnitExists = UnitExists
 local _GetRaidTargetIndex = GetRaidTargetIndex
+local _UnitName = UnitName
+local _UnitIsPlayer = UnitIsPlayer
 local _strfind = string.find
 local _lower = string.lower
 local _pairs = pairs
@@ -177,6 +179,16 @@ TankMark:SetScript("OnEvent", function()
         TankMark:HandleMouseover()
         
     elseif (event == "UNIT_HEALTH") then
+        -- [v0.24] Clear death alert cache when player becomes alive
+        if _UnitIsPlayer(arg1) then
+            local hp = UnitHealth(arg1)
+            if hp and hp > 0 then
+                local playerName = _UnitName(arg1)
+                if playerName and TankMark.ClearDeathAlert then
+                    TankMark:ClearDeathAlert(playerName)
+                end
+            end
+        end
         TankMark:HandleDeath(arg1)
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
