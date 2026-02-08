@@ -10,8 +10,8 @@ if not TankMark then return end
 -- LOCALIZATIONS
 -- ==========================================================
 
-local _ipairs = ipairs
-local _getn = table.getn
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- OPTIONS PANEL
@@ -126,7 +126,7 @@ function TankMark:CreateOptionsFrame()
 	}
 	
 	local tabButtons = {}
-	for i = 1, _getn(tabs) do
+	for i = 1, L._tgetn(tabs) do
 		local tabInfo = tabs[i]
 		local btn = CreateFrame("Button", "TMTab"..i, f, "UIPanelButtonTemplate")
 		btn:SetWidth(120)
@@ -161,7 +161,7 @@ function TankMark:SwitchTab(tabIndex)
 	if not TankMark.tabFrames or not TankMark.tabButtons then return end
 	
 	-- Hide all tabs
-	for i = 1, _getn(TankMark.tabFrames) do
+	for i = 1, L._tgetn(TankMark.tabFrames) do
 		if TankMark.tabFrames[i] then
 			TankMark.tabFrames[i]:Hide()
 		end
@@ -175,7 +175,7 @@ function TankMark:SwitchTab(tabIndex)
 	TankMark.activeTab = tabIndex
 	
 	-- Update button states
-	for i = 1, _getn(TankMark.tabButtons) do
+	for i = 1, L._tgetn(TankMark.tabButtons) do
 		if TankMark.tabButtons[i] then
 			if i == tabIndex then
 				TankMark.tabButtons[i]:Disable()

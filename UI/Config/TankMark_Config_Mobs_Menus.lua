@@ -7,8 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _ipairs = ipairs
-local _getn = table.getn
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- LOGIC CONSTANTS (duplicated from main file for menu logic)
@@ -52,7 +53,7 @@ function TankMark:InitIconMenu()
 	}
 
 	-- [v0.23] IGNORE option only for single-mark mobs
-	if _getn(TankMark.editingSequentialMarks) == 0 then
+	if L._tgetn(TankMark.editingSequentialMarks) == 0 then
 		iconNames[0] = "|cff888888Disabled (Ignore)|r"
 	end
 
@@ -102,7 +103,7 @@ function TankMark:InitClassMenu()
 		info = { text = "--- Recommended ---", isTitle = 1 }
 		UIDropDownMenu_AddButton(info)
 
-		for _, class in _ipairs(CC_MAP[TankMark.detectedCreatureType]) do
+		for _, class in L._ipairs(CC_MAP[TankMark.detectedCreatureType]) do
 			local capturedClass = class
 			info = {
 				text = "|cff00ff00" .. capturedClass .. "|r",
@@ -119,7 +120,7 @@ function TankMark:InitClassMenu()
 	info = { text = "--- All Classes ---", isTitle = 1 }
 	UIDropDownMenu_AddButton(info)
 
-	for _, class in _ipairs(ALL_CLASSES) do
+	for _, class in L._ipairs(ALL_CLASSES) do
 		local capturedClass = class
 		info = {
 			text = capturedClass,
@@ -158,7 +159,7 @@ function TankMark:InitSequentialClassMenu(seqIndex)
 		info = { text = "--- Recommended ---", isTitle = 1 }
 		UIDropDownMenu_AddButton(info)
 
-		for _, class in _ipairs(CC_MAP[TankMark.detectedCreatureType]) do
+		for _, class in L._ipairs(CC_MAP[TankMark.detectedCreatureType]) do
 			local capturedClass = class
 			info = {
 				text = "|cff00ff00" .. capturedClass .. "|r",
@@ -177,7 +178,7 @@ function TankMark:InitSequentialClassMenu(seqIndex)
 	info = { text = "--- All Classes ---", isTitle = 1 }
 	UIDropDownMenu_AddButton(info)
 
-	for _, class in _ipairs(ALL_CLASSES) do
+	for _, class in L._ipairs(ALL_CLASSES) do
 		local capturedClass = class
 		info = {
 			text = capturedClass,

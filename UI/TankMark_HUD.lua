@@ -4,16 +4,12 @@
 
 if not TankMark then return end
 
--- Localizations
-local _pairs = pairs
-local _ipairs = ipairs
-local _insert = table.insert
-local _sort = table.sort
-local _getn = table.getn
-local _gsub = string.gsub
-local _UnitName = UnitName
-local _UnitClass = UnitClass
-local _UnitIsPlayer = UnitIsPlayer
+-- ==========================================================
+-- LOCALIZATIONS
+-- ==========================================================
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- UI State
 TankMark.hudFrame = nil
@@ -74,8 +70,8 @@ function TankMark:InitRowMenu()
 	UIDropDownMenu_AddButton(info)
 	
 	-- 1. Assign Target
-	local targetName = _UnitName("target")
-    local canAssign = (targetName and _UnitIsPlayer("target"))
+	local targetName = L._UnitName("target")
+    local canAssign = (targetName and L._UnitIsPlayer("target"))
 	local assignText = "Assign Target"
 	if canAssign then assignText = assignText .. " |cff00ff00(" .. targetName .. ")|r" end
 	
@@ -125,7 +121,7 @@ function TankMark:SetProfileAssignment(iconID, playerName)
 	
 	-- 1. Find existing entry or create new
 	local found = false
-	for _, entry in _ipairs(list) do
+	for _, entry in L._ipairs(list) do
 		if entry.mark == iconID then
 			entry.tank = playerName
 			found = true
@@ -134,9 +130,9 @@ function TankMark:SetProfileAssignment(iconID, playerName)
 	end
 	
 	if not found then
-		_insert(list, { mark = iconID, tank = playerName, healers = "" })
+		L._tinsert(list, { mark = iconID, tank = playerName, healers = "" })
 		-- Sort new list by ID desc (Skull first)
-		_sort(list, function(a,b) return a.mark > b.mark end)
+		L._tsort(list, function(a,b) return a.mark > b.mark end)
 	end
 	
 	-- 2. Update Live Session
@@ -276,7 +272,7 @@ function TankMark:RenderHUDRow(row, markID, isProfileMark)
         
         if unit and isInRaid then
             -- Get class color
-            local class = _UnitClass(unit)
+            local class = L._UnitClass(unit)
             local classColor = TankMark:GetClassColor(class)
             textToShow = classColor .. assignedPlayer .. "|r"
         elseif isInRaid then
@@ -298,8 +294,8 @@ function TankMark:RenderHUDRow(row, markID, isProfileMark)
         SetRaidTargetIconTexture(row.icon, markID)
         row.icon:SetVertexColor(0.3, 0.3, 0.3)
         if textToShow then
-            local plainText = _gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
-            plainText = _gsub(plainText, "|r", "")
+            local plainText = L._gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
+            plainText = L._gsub(plainText, "|r", "")
             textToShow = "|cff888888" .. plainText .. " (OFF)|r"
         else
             textToShow = "|cff888888(Disabled)|r"
@@ -336,23 +332,23 @@ function TankMark:UpdateHUD()
     
     -- 1. Build Lists from Profile (separate tank/CC)
     if TankMarkProfileDB and TankMarkProfileDB[zone] then
-        for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+        for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
             if entry.mark then
                 added[entry.mark] = true
                 local playerName = entry.tank
                 
                 -- [v0.24] Classify as tank or CC based on player class
                 if playerName and playerName ~= "" and TankMark:IsPlayerCCClass(playerName) then
-                    _insert(ccMarks, entry.mark)
+                    L._tinsert(ccMarks, entry.mark)
                 else
-                    _insert(tankMarks, entry.mark)
+                    L._tinsert(tankMarks, entry.mark)
                 end
             end
         end
     end
     
     -- 2. Empty Profile Warning
-	if _getn(tankMarks) == 0 and _getn(ccMarks) == 0 then
+	if L._tgetn(tankMarks) == 0 and L._tgetn(ccMarks) == 0 then
 		local warningRow = TankMark.hudRows[8]
 		warningRow.icon:SetTexture(nil)
 		warningRow.text:SetText("|cffff0000NO PROFILE LOADED|r")
@@ -380,7 +376,7 @@ function TankMark:UpdateHUD()
     local activeRows = 0
     
     -- 4A. Render TANK Section
-    if _getn(tankMarks) > 0 then
+    if L._tgetn(tankMarks) > 0 then
         -- Create tank header if it doesn't exist
         if not TankMark.hudFrame.tankHeader then
             TankMark.hudFrame.tankHeader = TankMark.hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -399,7 +395,7 @@ function TankMark:UpdateHUD()
         activeRows = activeRows + 1
         
         -- Render tank marks
-        for _, i in _ipairs(tankMarks) do
+        for _, i in L._ipairs(tankMarks) do
             local row = TankMark.hudRows[i]
             TankMark:RenderHUDRow(row, i, added[i])
             row:ClearAllPoints()
@@ -413,7 +409,7 @@ function TankMark:UpdateHUD()
     end
     
     -- 4B. Render CC Section
-    if _getn(ccMarks) > 0 then
+    if L._tgetn(ccMarks) > 0 then
         -- Create CC header if it doesn't exist
         if not TankMark.hudFrame.ccHeader then
             TankMark.hudFrame.ccHeader = TankMark.hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -432,7 +428,7 @@ function TankMark:UpdateHUD()
         activeRows = activeRows + 1
         
         -- Render CC marks
-        for _, i in _ipairs(ccMarks) do
+        for _, i in L._ipairs(ccMarks) do
             local row = TankMark.hudRows[i]
             TankMark:RenderHUDRow(row, i, added[i])
             row:ClearAllPoints()
