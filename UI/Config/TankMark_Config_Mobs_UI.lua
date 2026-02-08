@@ -7,8 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _pairs = pairs
-local _getn = table.getn
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- UI CONSTRUCTION HELPERS
@@ -52,7 +53,7 @@ local function CreateZoneControls(parent)
 	UIDropDownMenu_SetWidth(150, drop)
 	
 	UIDropDownMenu_Initialize(drop, function()
-		local curr = GetRealZoneText()
+		local curr = L._GetRealZoneText()
 		local info = {}
 		
 		-- Current zone first
@@ -68,7 +69,7 @@ local function CreateZoneControls(parent)
 		UIDropDownMenu_AddButton(info)
 		
 		-- All other saved zones
-		for zName, _ in _pairs(TankMarkDB.Zones) do
+		for zName, _ in L._pairs(TankMarkDB.Zones) do
 			if zName ~= curr then
 				info = {}
 				info.text = zName
@@ -85,7 +86,7 @@ local function CreateZoneControls(parent)
 		end
 	end)
 	
-	UIDropDownMenu_SetText(GetRealZoneText(), drop)
+	UIDropDownMenu_SetText(L._GetRealZoneText(), drop)
 	TankMark.zoneDropDown = drop
 	
 	-- Manage Zones Checkbox (wireframe: absolute x=300, y=47, w=120, h=24)
@@ -364,12 +365,12 @@ local function CreateMobEditorControls(editor)
 	targetBtn:SetPoint("TOPLEFT", 169, -8)
 	targetBtn:SetText("Target")
 	targetBtn:SetScript("OnClick", function()
-		if UnitExists("target") then
-			nameBox:SetText(UnitName("target"))
+		if L._UnitExists("target") then
+			nameBox:SetText(L._UnitName("target"))
 			nameBox:SetTextColor(1, 1, 1)
-			TankMark.detectedCreatureType = UnitCreatureType("target")
+			TankMark.detectedCreatureType = L._UnitCreatureType("target")
 			
-			local currentIcon = GetRaidTargetIndex("target")
+			local currentIcon = L._GetRaidTargetIndex("target")
 			if currentIcon then
 				TankMark.selectedIcon = currentIcon
 				if TankMark.iconBtn and TankMark.iconBtn.tex then
@@ -459,7 +460,7 @@ local function CreateMobEditorControls(editor)
 	lBtn:Disable()
 	
 	lBtn:SetScript("OnEnter", function()
-		if not this:IsEnabled() and _getn(TankMark.editingSequentialMarks) > 0 then
+		if not this:IsEnabled() and L._tgetn(TankMark.editingSequentialMarks) > 0 then
 			GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
 			GameTooltip:SetText("GUID locking is unavailable for mobs with sequential marks. Remove all sequential marks to enable locking.", 1, 1, 1, 1, true)
 			GameTooltip:Show()

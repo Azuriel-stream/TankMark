@@ -10,12 +10,8 @@ if not TankMark then return end
 -- LOCALIZATIONS
 -- ==========================================================
 
-local _pairs = pairs
-local _ipairs = ipairs
-local _insert = table.insert
-local _remove = table.remove
-local _getn = table.getn
-local _strfind = string.find
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- STATE
@@ -72,11 +68,11 @@ TankMarkProfileTemplates = {
 
 function TankMark:LoadProfileToCache()
 	if not TankMarkProfileDB then TankMarkProfileDB = {} end
-	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	TankMark.profileCache = {}
 	if TankMarkProfileDB[zone] then
-		for _, entry in _ipairs(TankMarkProfileDB[zone]) do
-			_insert(TankMark.profileCache, {
+		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
+			L._tinsert(TankMark.profileCache, {
 				mark = entry.mark or 8,
 				tank = entry.tank or "",
 				healers = entry.healers or ""
@@ -86,10 +82,10 @@ function TankMark:LoadProfileToCache()
 end
 
 function TankMark:SaveProfileCache()
-	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	TankMarkProfileDB[zone] = {}
-	for i, entry in _ipairs(TankMark.profileCache) do
-		_insert(TankMarkProfileDB[zone], {
+	for i, entry in L._ipairs(TankMark.profileCache) do
+		L._tinsert(TankMarkProfileDB[zone], {
 			mark = entry.mark,
 			tank = entry.tank,
 			healers = entry.healers
@@ -97,10 +93,10 @@ function TankMark:SaveProfileCache()
 	end
 	
 	-- Update session if current zone
-	if zone == GetRealZoneText() then
+	if zone == L._GetRealZoneText() then
 		TankMark.sessionAssignments = {}
 		TankMark.usedIcons = {}
-		for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
 			if entry.tank and entry.tank ~= "" then
 				TankMark.sessionAssignments[entry.mark] = entry.tank
 				TankMark.usedIcons[entry.mark] = true
@@ -116,13 +112,13 @@ function TankMark:SaveProfileCache()
 end
 
 function TankMark:RequestResetProfile()
-	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	if zone and TankMarkProfileDB[zone] then
 		TankMark.pendingWipeAction = function()
 			TankMarkProfileDB[zone] = {}
 			TankMark:LoadProfileToCache()
 			TankMark:UpdateProfileList()
-			if zone == GetRealZoneText() then
+			if zone == L._GetRealZoneText() then
 				TankMark.sessionAssignments = {}
 				TankMark.usedIcons = {}
 				if TankMark.UpdateHUD then
@@ -138,20 +134,20 @@ function TankMark:RequestResetProfile()
 end
 
 function TankMark:ProfileAddRow()
-	_insert(TankMark.profileCache, {mark = 8, tank = "", healers = ""})
+	L._tinsert(TankMark.profileCache, {mark = 8, tank = "", healers = ""})
 	TankMark:UpdateProfileList()
 end
 
 function TankMark:ProfileDeleteRow(index)
 	if not index or not TankMark.profileCache[index] then return end
-	_remove(TankMark.profileCache, index)
+	L._tremove(TankMark.profileCache, index)
 	TankMark:UpdateProfileList()
 end
 
 function TankMark:ProfileMoveRow(index, direction)
 	if not index then return end
 	local target = index + direction
-	if target < 1 or target > _getn(TankMark.profileCache) then return end
+	if target < 1 or target > L._tgetn(TankMark.profileCache) then return end
 	local temp = TankMark.profileCache[index]
 	TankMark.profileCache[index] = TankMark.profileCache[target]
 	TankMark.profileCache[target] = temp
@@ -165,17 +161,17 @@ end
 function TankMark:AddHealerToRow(rowIndex)
 	if not rowIndex or not TankMark.profileCache[rowIndex] then return end
 	
-	if not UnitExists("target") then
+	if not L._UnitExists("target") then
 		TankMark:Print("|cffffaa00Notice:|r No target selected.")
 		return
 	end
 	
-	if not UnitIsPlayer("target") then
+	if not L._UnitIsPlayer("target") then
 		TankMark:Print("|cffffaa00Notice:|r Target must be a player.")
 		return
 	end
 	
-	local healerName = UnitName("target")
+	local healerName = L._UnitName("target")
 	if not healerName then return end
 	
 	local currentHealers = TankMark.profileCache[rowIndex].healers or ""
@@ -183,8 +179,8 @@ function TankMark:AddHealerToRow(rowIndex)
 	-- Check if healer already in list
 	if currentHealers ~= "" then
 		local healerList = {}
-		for name in string.gfind(currentHealers, "[^ ]+") do
-			_insert(healerList, name)
+		for name in L._sgfind(currentHealers, "[^ ]+") do
+			L._tinsert(healerList, name)
 			if name == healerName then
 				TankMark:Print("|cffffaa00Notice:|r " .. healerName .. " is already in the healer list.")
 				return
@@ -209,7 +205,7 @@ end
 function TankMark:ShowTemplateMenu()
 	local templateDrop = CreateFrame("Frame", "TMTemplateDropDown", UIParent, "UIDropDownMenuTemplate")
 	UIDropDownMenu_Initialize(templateDrop, function()
-		for templateName, _ in _pairs(TankMarkProfileTemplates) do
+		for templateName, _ in L._pairs(TankMarkProfileTemplates) do
 			local capturedTemplate = templateName
 			local info = {}
 			info.text = templateName
@@ -232,8 +228,8 @@ function TankMark:LoadTemplate(templateName)
 	
 	-- Clear and rebuild cache
 	TankMark.profileCache = {}
-	for _, entry in _ipairs(template) do
-		_insert(TankMark.profileCache, {
+	for _, entry in L._ipairs(template) do
+		L._tinsert(TankMark.profileCache, {
 			mark = entry.mark,
 			tank = entry.tank or "",
 			healers = entry.healers or ""
@@ -246,7 +242,7 @@ function TankMark:LoadTemplate(templateName)
 	end
 	
 	TankMark:UpdateProfileList()
-	TankMark:Print("|cff00ff00Loaded:|r Template '" .. templateName .. "' (" .. _getn(TankMark.profileCache) .. " marks)")
+	TankMark:Print("|cff00ff00Loaded:|r Template '" .. templateName .. "' (" .. L._tgetn(TankMark.profileCache) .. " marks)")
 end
 
 -- ==========================================================
@@ -254,32 +250,32 @@ end
 -- ==========================================================
 
 function TankMark:ShowCopyProfileDialog()
-	local currentZone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or GetRealZoneText()
+	local currentZone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	
 	-- Build list of zones that have profiles
 	local sourceZones = {}
-	for zoneName, profile in _pairs(TankMarkProfileDB) do
+	for zoneName, profile in L._pairs(TankMarkProfileDB) do
 		-- Skip current zone and empty profiles
-		if zoneName ~= currentZone and type(profile) == "table" and _getn(profile) > 0 then
-			_insert(sourceZones, zoneName)
+		if zoneName ~= currentZone and type(profile) == "table" and L._tgetn(profile) > 0 then
+			L._tinsert(sourceZones, zoneName)
 		end
 	end
 	
-	if _getn(sourceZones) == 0 then
+	if L._tgetn(sourceZones) == 0 then
 		TankMark:Print("|cffffaa00Notice:|r No other profiles found to copy from.")
 		return
 	end
 	
 	-- Sort zones alphabetically
-	table.sort(sourceZones)
+	L._tsort(sourceZones)
 	
 	-- Create dropdown menu
 	local copyDrop = CreateFrame("Frame", "TMCopyProfileDropDown", UIParent, "UIDropDownMenuTemplate")
 	UIDropDownMenu_Initialize(copyDrop, function()
-		for _, zoneName in _ipairs(sourceZones) do
+		for _, zoneName in L._ipairs(sourceZones) do
 			local capturedZone = zoneName
 			local info = {}
-			info.text = zoneName .. " |cff888888(" .. _getn(TankMarkProfileDB[zoneName]) .. " marks)|r"
+			info.text = zoneName .. " |cff888888(" .. L._tgetn(TankMarkProfileDB[zoneName]) .. " marks)|r"
 			info.func = function()
 				TankMark:CopyProfileFrom(capturedZone, currentZone)
 				CloseDropDownMenus()
@@ -295,22 +291,22 @@ function TankMark:CopyProfileFrom(sourceZone, targetZone)
 	if not TankMarkProfileDB[sourceZone] then
 		TankMark:Print("|cffff0000Error:|r Source profile '" .. sourceZone .. "' not found in database.")
 		TankMark:Print("|cffffaa00Debug:|r Available zones:")
-		for zName, _ in _pairs(TankMarkProfileDB) do
+		for zName, _ in L._pairs(TankMarkProfileDB) do
 			TankMark:Print("  - '" .. zName .. "'")
 		end
 		return
 	end
 	
 	-- Check if source has data
-	if _getn(TankMarkProfileDB[sourceZone]) == 0 then
+	if L._tgetn(TankMarkProfileDB[sourceZone]) == 0 then
 		TankMark:Print("|cffffaa00Notice:|r Source zone '" .. sourceZone .. "' has no profile data.")
 		return
 	end
 	
 	-- Deep copy profile
 	TankMark.profileCache = {}
-	for _, entry in _ipairs(TankMarkProfileDB[sourceZone]) do
-		_insert(TankMark.profileCache, {
+	for _, entry in L._ipairs(TankMarkProfileDB[sourceZone]) do
+		L._tinsert(TankMark.profileCache, {
 			mark = entry.mark,
 			tank = entry.tank or "",
 			healers = entry.healers or ""
@@ -323,7 +319,7 @@ function TankMark:CopyProfileFrom(sourceZone, targetZone)
 	end
 	
 	TankMark:UpdateProfileList()
-	TankMark:Print("|cff00ff00Copied:|r " .. _getn(TankMark.profileCache) .. " marks from '" .. sourceZone .. "'")
+	TankMark:Print("|cff00ff00Copied:|r " .. L._tgetn(TankMark.profileCache) .. " marks from '" .. sourceZone .. "'")
 end
 
 -- ==========================================================
@@ -365,7 +361,7 @@ function TankMark:UpdateProfileList()
 	if not TankMark.profileScroll then return end
 	
 	local list = TankMark.profileCache
-	local numItems = _getn(list)
+	local numItems = L._tgetn(list)
 	local MAX_ROWS = 6
 	FauxScrollFrame_Update(TankMark.profileScroll, numItems, MAX_ROWS, 44)
 	local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
@@ -395,7 +391,7 @@ function TankMark:UpdateProfileList()
             if row.warnIcon then
                 local showWarning = false
                 if data.healers and data.healers ~= "" then
-                    for healerName in string.gfind(data.healers, "[^ ]+") do
+                    for healerName in L._sgfind(data.healers, "[^ ]+") do
                         if not TankMark:IsPlayerInRaid(healerName) then
                             showWarning = true
                             break
@@ -460,7 +456,7 @@ function TankMark:CreateProfileTab(parent)
 	pDrop:SetPoint("TOPLEFT", 0, -10)
 	UIDropDownMenu_SetWidth(150, pDrop)
 	UIDropDownMenu_Initialize(pDrop, function()
-		local curr = GetRealZoneText()
+		local curr = L._GetRealZoneText()
 		local info = {}
 		info.text = curr
 		info.func = function()
@@ -473,7 +469,7 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end
 		UIDropDownMenu_AddButton(info)
-		for zName, _ in _pairs(TankMarkProfileDB) do
+		for zName, _ in L._pairs(TankMarkProfileDB) do
 			if zName ~= curr then
 				info = {}
 				info.text = zName
@@ -490,7 +486,7 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end
 	end)
-	UIDropDownMenu_SetText(GetRealZoneText(), pDrop)
+	UIDropDownMenu_SetText(L._GetRealZoneText(), pDrop)
 	TankMark.profileZoneDropdown = pDrop
 	
 	-- Column Headers
@@ -570,8 +566,8 @@ function TankMark:CreateProfileTab(parent)
 		tbtn:SetPoint("LEFT", teb, "RIGHT", 2, 0)
 		tbtn:SetText("T")
 		tbtn:SetScript("OnClick", function()
-			if UnitExists("target") then
-				teb:SetText(UnitName("target"))
+			if L._UnitExists("target") then
+				teb:SetText(L._UnitName("target"))
 			end
 		end)
 		
@@ -619,7 +615,7 @@ function TankMark:CreateProfileTab(parent)
             GameTooltip:AddLine(" ", 1, 1, 1) -- Spacing
             
             local hasOffline = false
-            for healerName in string.gfind(healers, "[^ ]+") do
+            for healerName in L._sgfind(healers, "[^ ]+") do
                 local isOnline = TankMark:IsPlayerInRaid(healerName)
                 if isOnline then
                     GameTooltip:AddLine(healerName .. " [Online]", 0, 1, 0)

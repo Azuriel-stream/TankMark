@@ -1,5 +1,5 @@
--- TankMark: v0.21
--- File: TankMark_Scanner.lua
+-- TankMark: v0.25
+-- File: Core/TankMark_Scanner.lua
 -- SuperWoW nameplate scanner with hybrid range detection
 
 if not TankMark then return end
@@ -7,15 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _IsSpellInRange = IsSpellInRange
-local _CheckInteractDistance = CheckInteractDistance
-local _UnitExists = UnitExists
-local _UnitIsPlayer = UnitIsPlayer
-local _UnitName = UnitName
-local _UnitPlayerControlled = UnitPlayerControlled
-local _strfind = string.find
-local _ipairs = ipairs
-local _pairs = pairs
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- CONFIG
@@ -60,17 +54,17 @@ function TankMark:StartSuperScanner()
         -- Only run if active & in group (or recording)
         if not TankMark.IsRecorderActive then
             if not TankMark:CanAutomate() then return end
-            if GetNumRaidMembers() == 0 and GetNumPartyMembers() == 0 then return end
+            if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
         end
         
         -- Wipe table manually (Lua 5.0)
-        for k in _pairs(TankMark.visibleTargets) do
+        for k in L._pairs(TankMark.visibleTargets) do
             TankMark.visibleTargets[k] = nil
         end
         
         -- SuperWoW Feature: frame:GetName(1) -> GUID
         local frames = {WorldFrame:GetChildren()}
-        for _, plate in _ipairs(frames) do
+        for _, plate in L._ipairs(frames) do
             if plate:IsVisible() and TankMark:IsNameplate(plate) then
                 local guid = plate:GetName(1)
                 if guid then
@@ -103,22 +97,22 @@ function TankMark:IsGUIDInCombat(guid)
     
     -- Check if mob is targeting a unit
     local targetUnit = guid.."target"
-    if not _UnitExists(targetUnit) then return false end
+    if not L._UnitExists(targetUnit) then return false end
     
     -- PATH 1: Mob is targeting a player
-    if _UnitIsPlayer(targetUnit) then
-        local targetName = _UnitName(targetUnit)
+    if L._UnitIsPlayer(targetUnit) then
+        local targetName = L._UnitName(targetUnit)
         if targetName and TankMark:IsPlayerInRaid(targetName) then
             return true
         end
     end
     
     -- PATH 2: Mob is targeting a pet (check owner)
-    if _UnitPlayerControlled(targetUnit) then
+    if L._UnitPlayerControlled(targetUnit) then
         -- SuperWoW: unitid.."owner" suffix
         local ownerUnit = targetUnit.."owner"
-        if _UnitExists(ownerUnit) and _UnitIsPlayer(ownerUnit) then
-            local ownerName = _UnitName(ownerUnit)
+        if L._UnitExists(ownerUnit) and L._UnitIsPlayer(ownerUnit) then
+            local ownerName = L._UnitName(ownerUnit)
             if ownerName and TankMark:IsPlayerInRaid(ownerName) then
                 return true
             end
@@ -133,7 +127,7 @@ function TankMark:IsNameplate(frame)
         return false
     end
     local children = {frame:GetChildren()}
-    for _, child in _ipairs(children) do
+    for _, child in L._ipairs(children) do
         if child.GetValue and child.GetMinMaxValues and child.SetMinMaxValues then
             return true
         end
@@ -195,16 +189,16 @@ end
 -- ==========================================================
 function TankMark:Driver_IsDistanceValid(unitOrGuid)
     -- PATH 1: SuperWoW GUID Spell Check (40 yard range)
-    if TankMark.IsSuperWoW and TankMark.RangeSpellID and _IsSpellInRange then
-        local inRange = _IsSpellInRange(TankMark.RangeSpellID, unitOrGuid)
+    if TankMark.IsSuperWoW and TankMark.RangeSpellID and L._IsSpellInRange then
+        local inRange = L._IsSpellInRange(TankMark.RangeSpellID, unitOrGuid)
         if inRange == 1 then return true end
     end
     
     -- PATH 1.5: GUID Fallback - Trust Scanner visibility
     -- Nameplates in SuperWoW appear at ~20 yards (vanilla default)
     -- If the Scanner detected it and mouseover works, it's in valid range
-    if type(unitOrGuid) == "string" and _strfind(unitOrGuid, "^0x") then
-        local exists, mouseoverGuid = _UnitExists("mouseover")
+    if type(unitOrGuid) == "string" and L._strfind(unitOrGuid, "^0x") then
+        local exists, mouseoverGuid = L._UnitExists("mouseover")
         if exists and mouseoverGuid == unitOrGuid then
             return true
         end
@@ -212,14 +206,14 @@ function TankMark:Driver_IsDistanceValid(unitOrGuid)
     end
     
     -- PATH 2: Vanilla Spell Check
-    if TankMark.RangeSpellIndex and _IsSpellInRange then
-        local inRange = _IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid)
+    if TankMark.RangeSpellIndex and L._IsSpellInRange then
+        local inRange = L._IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid)
         if inRange == 1 then return true end
     end
     
     -- PATH 3: Vanilla Nameplate Check (unit tokens only)
-    if type(unitOrGuid) == "string" and not _strfind(unitOrGuid, "^0x") then
-        return _CheckInteractDistance(unitOrGuid, 4)
+    if type(unitOrGuid) == "string" and not L._strfind(unitOrGuid, "^0x") then
+        return L._CheckInteractDistance(unitOrGuid, 4)
     end
     
     return false

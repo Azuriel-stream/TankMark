@@ -1,6 +1,6 @@
--- TankMark: v0.22
--- File: TankMark_Data.lua
--- [v0.21] Database initialization, snapshot system, and corruption detection
+-- TankMark: v0.25
+-- File: Data/TankMark_Data.lua
+-- Database initialization, snapshot system, and corruption detection
 
 if not TankMark then
 	TankMark = CreateFrame("Frame", "TankMarkFrame")
@@ -15,12 +15,9 @@ TankMark:RegisterEvent("CHAT_MSG_ADDON")
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _insert = table.insert
-local _remove = table.remove
-local _type = type
-local _ipairs = ipairs
-local _pairs = pairs
-local _getn = table.getn
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- SESSION STATE
@@ -64,50 +61,50 @@ function TankMark:ValidateDB()
     local isCorrupt = false
     
     -- Check 1: Primary DB exists
-    if not TankMarkDB or _type(TankMarkDB) ~= "table" then
-        _insert(errors, "Primary database missing or corrupt")
+    if not TankMarkDB or L._type(TankMarkDB) ~= "table" then
+        L._tinsert(errors, "Primary database missing or corrupt")
         isCorrupt = true
         return isCorrupt, errors
     end
     
     -- Check 2: Required keys exist
-    if not TankMarkDB.Zones or _type(TankMarkDB.Zones) ~= "table" then
-        _insert(errors, "Zones table missing or corrupt")
+    if not TankMarkDB.Zones or L._type(TankMarkDB.Zones) ~= "table" then
+        L._tinsert(errors, "Zones table missing or corrupt")
         isCorrupt = true
     end
     
-    if not TankMarkDB.StaticGUIDs or _type(TankMarkDB.StaticGUIDs) ~= "table" then
-        _insert(errors, "StaticGUIDs table missing or corrupt")
+    if not TankMarkDB.StaticGUIDs or L._type(TankMarkDB.StaticGUIDs) ~= "table" then
+        L._tinsert(errors, "StaticGUIDs table missing or corrupt")
         isCorrupt = true
     end
     
     -- Check 3: Data type validation (sample check for first zone)
-    if TankMarkDB.Zones and _type(TankMarkDB.Zones) == "table" then
-        for zoneName, mobs in _pairs(TankMarkDB.Zones) do
-            if _type(mobs) ~= "table" then
-                _insert(errors, "Zone '" .. zoneName .. "' has invalid data")
+    if TankMarkDB.Zones and L._type(TankMarkDB.Zones) == "table" then
+        for zoneName, mobs in L._pairs(TankMarkDB.Zones) do
+            if L._type(mobs) ~= "table" then
+                L._tinsert(errors, "Zone '" .. zoneName .. "' has invalid data")
                 isCorrupt = true
                 break
             end
             
             -- Sample mob validation (check first mob only for performance)
-            for mobName, data in _pairs(mobs) do
-                if _type(data) ~= "table" then
-                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure")
+            for mobName, data in L._pairs(mobs) do
+                if L._type(data) ~= "table" then
+                    L._tinsert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure")
                     isCorrupt = true
                     break
                 end
                 
                 -- [v0.23] Validate required fields (marks is now an array)
-                if not data.prio or not data.marks or _type(data.marks) ~= "table" then
-                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure (missing prio or marks array)")
+                if not data.prio or not data.marks or L._type(data.marks) ~= "table" then
+                    L._tinsert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has invalid structure (missing prio or marks array)")
                     isCorrupt = true
                     break
                 end
                 
                 -- Validate marks array has at least one entry
-                if _getn(data.marks) == 0 then
-                    _insert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has empty marks array")
+                if L._tgetn(data.marks) == 0 then
+                    L._tinsert(errors, "Mob '" .. mobName .. "' in zone '" .. zoneName .. "' has empty marks array")
                     isCorrupt = true
                     break
                 end
@@ -124,7 +121,7 @@ end
 
 function TankMark:ShowCorruptionDialog(errors)
 	local errorText = "Database corruption detected!\n\n"
-	for i, err in _ipairs(errors) do
+	for i, err in L._ipairs(errors) do
 		errorText = errorText .. "- " .. err .. "\n"
 	end
 	errorText = errorText .. "\nChoose recovery option:"
@@ -162,9 +159,9 @@ function TankMark:CreateSnapshot()
 	
 	-- Deep copy helper (Lua 5.0 compatible)
 	local function DeepCopy(original)
-		if _type(original) ~= "table" then return original end
+		if L._type(original) ~= "table" then return original end
 		local copy = {}
-		for k, v in _pairs(original) do
+		for k, v in L._pairs(original) do
 			copy[k] = DeepCopy(v)
 		end
 		return copy
@@ -172,7 +169,7 @@ function TankMark:CreateSnapshot()
 	
 	-- Build snapshot
 	local snapshot = {
-		timestamp = time(),
+		timestamp = L._time(),
 		zones = DeepCopy(TankMarkDB.Zones),
 		guids = DeepCopy(TankMarkDB.StaticGUIDs),
 		profile = nil -- Add current zone profile if in a known zone
@@ -188,14 +185,14 @@ function TankMark:CreateSnapshot()
 	end
 	
 	-- Insert at front of list
-	_insert(TankMarkDB_Snapshot, 1, snapshot)
+	L._tinsert(TankMarkDB_Snapshot, 1, snapshot)
 	
 	-- Keep only last 3 snapshots
-	while _getn(TankMarkDB_Snapshot) > 3 do
-		_remove(TankMarkDB_Snapshot)
+	while L._tgetn(TankMarkDB_Snapshot) > 3 do
+		L._tremove(TankMarkDB_Snapshot)
 	end
 	
-	TankMark:Print("Snapshot created (" .. _getn(TankMarkDB_Snapshot) .. "/3 slots used).")
+	TankMark:Print("Snapshot created (" .. L._tgetn(TankMarkDB_Snapshot) .. "/3 slots used).")
 end
 
 function TankMark:RestoreFromSnapshot(index)
@@ -208,9 +205,9 @@ function TankMark:RestoreFromSnapshot(index)
 	
 	-- Deep copy helper
 	local function DeepCopy(original)
-		if _type(original) ~= "table" then return original end
+		if L._type(original) ~= "table" then return original end
 		local copy = {}
-		for k, v in _pairs(original) do
+		for k, v in L._pairs(original) do
 			copy[k] = DeepCopy(v)
 		end
 		return copy
@@ -227,8 +224,8 @@ function TankMark:RestoreFromSnapshot(index)
 	
 	-- Count restored mobs
 	local mobCount = 0
-	for _, mobs in _pairs(TankMarkDB.Zones) do
-		for _ in _pairs(mobs) do
+	for _, mobs in L._pairs(TankMarkDB.Zones) do
+		for _ in L._pairs(mobs) do
 			mobCount = mobCount + 1
 		end
 	end
@@ -247,17 +244,17 @@ function TankMark:MergeDefaults()
     end
     
     local added = 0
-    for zoneName, defaultMobs in pairs(TankMarkDefaults) do
+    for zoneName, defaultMobs in L._pairs(TankMarkDefaults) do
         if not TankMarkDB.Zones[zoneName] then
             TankMarkDB.Zones[zoneName] = {}
         end
         
-        for mobName, mobData in pairs(defaultMobs) do
+        for mobName, mobData in L._pairs(defaultMobs) do
             if not TankMarkDB.Zones[zoneName][mobName] then
                 -- [v0.23] Deep copy marks array
                 local marksCopy = {}
                 if mobData.marks then
-                    for i, mark in ipairs(mobData.marks) do
+                    for i, mark in L._ipairs(mobData.marks) do
                         marksCopy[i] = mark
                     end
                 end
@@ -291,14 +288,14 @@ function TankMark:LoadZoneData(zoneName)
 	
 	-- Priority 1: User data (always wins)
 	if TankMarkDB.Zones[zoneName] then
-		for mobName, data in _pairs(TankMarkDB.Zones[zoneName]) do
+		for mobName, data in L._pairs(TankMarkDB.Zones[zoneName]) do
 			TankMark.activeDB[mobName] = data
 		end
 	end
 	
 	-- Priority 2: Default data (fill gaps only)
 	if TankMarkDefaults and TankMarkDefaults[zoneName] then
-		for mobName, data in _pairs(TankMarkDefaults[zoneName]) do
+		for mobName, data in L._pairs(TankMarkDefaults[zoneName]) do
 			if not TankMark.activeDB[mobName] then
 				TankMark.activeDB[mobName] = data
 			end
@@ -318,16 +315,16 @@ function TankMark:RefreshActiveDB()
 end
 
 function TankMark:FormatTimestamp(timestamp)
-	local diff = time() - timestamp
+	local diff = L._time() - timestamp
 	
 	if diff < 60 then
 		return diff .. " seconds ago"
 	elseif diff < 3600 then
-		return math.floor(diff / 60) .. " minutes ago"
+		return L._floor(diff / 60) .. " minutes ago"
 	elseif diff < 86400 then
-		return math.floor(diff / 3600) .. " hours ago"
+		return L._floor(diff / 3600) .. " hours ago"
 	else
-		return math.floor(diff / 86400) .. " days ago"
+		return L._floor(diff / 86400) .. " days ago"
 	end
 end
 
@@ -335,7 +332,7 @@ end
 function TankMark:GetProfileData(zone, iconID)
 	if not TankMarkProfileDB[zone] then return nil end
 	
-	for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+	for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
 		if entry.mark == iconID then
 			return entry
 		end
@@ -355,19 +352,19 @@ function TankMark:UpdateRoster()
 	TankMark.runtimeCache.classRoster = {}
 	
 	local function addPlayer(unitID)
-		if UnitExists(unitID) and UnitIsConnected(unitID) then
-			local _, classEng = UnitClass(unitID)
-			local name = UnitName(unitID)
+		if L._UnitExists(unitID) and L._UnitIsConnected(unitID) then
+			local _, classEng = L._UnitClass(unitID)
+			local name = L._UnitName(unitID)
 			if classEng and name then
 				if not TankMark.runtimeCache.classRoster[classEng] then
 					TankMark.runtimeCache.classRoster[classEng] = {}
 				end
-				_insert(TankMark.runtimeCache.classRoster[classEng], name)
+				L._tinsert(TankMark.runtimeCache.classRoster[classEng], name)
 			end
 		end
 	end
 	
-	local numRaid = GetNumRaidMembers()
+	local numRaid = L._GetNumRaidMembers()
 	if numRaid > 0 then
 		for i=1, 40 do addPlayer("raid"..i) end
 	else
@@ -383,10 +380,10 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
 	local candidates = TankMark.runtimeCache.classRoster[requiredClass]
 	if not candidates then return nil end
 	
-	for _, playerName in _ipairs(candidates) do
+	for _, playerName in L._ipairs(candidates) do
 		local isAssigned = false
-		for _, data in _pairs(TankMark.sessionAssignments) do
-			local assignedName = (_type(data) == "table") and data.tank or data
+		for _, data in L._pairs(TankMark.sessionAssignments) do
+			local assignedName = (L._type(data) == "table") and data.tank or data
 			if assignedName == playerName then
 				isAssigned = true
 				break

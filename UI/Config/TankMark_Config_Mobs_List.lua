@@ -7,13 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _pairs = pairs
-local _ipairs = ipairs
-local _insert = table.insert
-local _sort = table.sort
-local _getn = table.getn
-local _lower = string.lower
-local _strfind = string.find
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- MOB LIST DATA BUILDER
@@ -26,17 +22,17 @@ local function BuildListData(db, zone, filter)
 	-- Lock view for specific zone
 	if TankMark.isZoneListMode and TankMark.lockViewZone then
 		local z = TankMark.lockViewZone
-		_insert(listData, { type="BACK", label="<< Back to Zones" })
+		L._tinsert(listData, { type="BACK", label="<< Back to Zones" })
 		
 		if db.StaticGUIDs[z] then
-			for guid, data in _pairs(db.StaticGUIDs[z]) do
-				local icon = (type(data) == "table") and data.mark or data
-				local mobName = (type(data) == "table") and data.name or "Unknown Mob"
-				_insert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
+			for guid, data in L._pairs(db.StaticGUIDs[z]) do
+				local icon = (L._type(data) == "table") and data.mark or data
+				local mobName = (L._type(data) == "table") and data.name or "Unknown Mob"
+				L._tinsert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
 			end
 		end
 		
-		_sort(listData, function(a,b)
+		L._tsort(listData, function(a,b)
 			if not a or not b then return false end
 			if a.type=="BACK" then return true end
 			if b.type=="BACK" then return false end
@@ -47,30 +43,30 @@ local function BuildListData(db, zone, filter)
 	
 	-- Zone list mode
 	elseif TankMark.isZoneListMode then
-		for zoneName, _ in _pairs(db.Zones) do
-			if filter == "" or _strfind(_lower(zoneName), filter, 1, true) then
+		for zoneName, _ in L._pairs(db.Zones) do
+			if filter == "" or L._strfind(L._lower(zoneName), filter, 1, true) then
 				local locks = 0
 				if db.StaticGUIDs[zoneName] then
-					for k,v in _pairs(db.StaticGUIDs[zoneName]) do
+					for k,v in L._pairs(db.StaticGUIDs[zoneName]) do
 						locks = locks + 1
 					end
 				end
-				_insert(listData, { label = zoneName, type = "ZONE", lockCount = locks })
+				L._tinsert(listData, { label = zoneName, type = "ZONE", lockCount = locks })
 			end
 		end
 		
-		_sort(listData, function(a,b) return a.label < b.label end)
+		L._tsort(listData, function(a,b) return a.label < b.label end)
 	
 	-- Normal mob list for selected zone
 	else
 		local mobsData = db.Zones[zone] or {}
-		for name, info in _pairs(mobsData) do
-			if filter == "" or _strfind(_lower(name), filter, 1, true) then
+		for name, info in L._pairs(mobsData) do
+			if filter == "" or L._strfind(L._lower(name), filter, 1, true) then
 				-- [v0.23] Extract first mark from array for display
 				local displayMark = info.marks and info.marks[1] or 8
-				local isSequential = info.marks and _getn(info.marks) > 1
+				local isSequential = info.marks and L._tgetn(info.marks) > 1
 				
-				_insert(listData, {
+				L._tinsert(listData, {
 					name=name,
 					prio=info.prio,
 					mark=displayMark,
@@ -82,7 +78,7 @@ local function BuildListData(db, zone, filter)
 			end
 		end
 		
-		_sort(listData, function(a, b)
+		L._tsort(listData, function(a, b)
 			if not a or not b then return false end
 			local pA = a.prio or 99
 			local pB = b.prio or 99
@@ -119,7 +115,7 @@ end
 local function RenderLockRow(row, data)
 	TankMark:SetIconTexture(row.icon, data.mark)
 	row.icon:Show()
-	row.text:SetText(data.name .. " |cff888888(" .. string.sub(data.guid, -6) .. ")|r")
+	row.text:SetText(data.name .. " |cff888888(" .. L._sub(data.guid, -6) .. ")|r")
 	
 	row.del:Show()
 	row.del:SetText("X")
@@ -227,10 +223,10 @@ local function RenderMobRow(row, data, zone)
 		TankMark.editingSequentialMarks = {}
 		local hasSequentialMarks = false  -- NEW: Track if mob has sequential marks
 		
-		if data.marks and _getn(data.marks) > 1 then
+		if data.marks and L._tgetn(data.marks) > 1 then
 			hasSequentialMarks = true  -- NEW
-			for i = 2, _getn(data.marks) do
-				_insert(TankMark.editingSequentialMarks, {
+			for i = 2, L._tgetn(data.marks) do
+				L._tinsert(TankMark.editingSequentialMarks, {
 					icon = data.marks[i],
 					class = data.class, -- Share class (can be changed per row)
 					type = data.type
@@ -303,14 +299,14 @@ function TankMark:UpdateMobList()
 	if not TankMarkDB then TankMarkDB = {} end
 	
 	local db = TankMarkDB
-	local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or GetRealZoneText()
+	local zone = UIDropDownMenu_GetText(TankMark.zoneDropDown) or L._GetRealZoneText()
 	local filter = ""
 	
 	if TankMark.searchBox then
 		local searchText = TankMark.searchBox:GetText()
 		-- Ignore placeholder text
 		if searchText ~= "Search Mob Database" then
-			filter = _lower(searchText)
+			filter = L._lower(searchText)
 		end
 	end
 	
@@ -318,7 +314,7 @@ function TankMark:UpdateMobList()
 	local listData = BuildListData(db, zone, filter)
 	
 	-- Render list (6 rows)
-	local numItems = _getn(listData)
+	local numItems = L._tgetn(listData)
 	local MAX_ROWS = 6
 	
 	FauxScrollFrame_Update(TankMark.scrollFrame, numItems, MAX_ROWS, 22)
