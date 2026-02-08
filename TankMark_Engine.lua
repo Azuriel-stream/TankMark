@@ -1,4 +1,4 @@
--- TankMark: v0.23
+-- TankMark: v0.24
 -- File: TankMark_Engine.lua
 -- Core marking logic and assignment algorithms
 
@@ -14,6 +14,8 @@ local _UnitIsFriend = UnitIsFriend
 local _UnitName = UnitName
 local _UnitExists = UnitExists
 local _UnitPowerType = UnitPowerType
+local _UnitClass = UnitClass
+local _UnitRace = UnitRace
 local _GetRaidTargetIndex = GetRaidTargetIndex
 local _strfind = string.find
 local _gsub = string.gsub
@@ -349,15 +351,21 @@ function TankMark:GetFreeTankIcon()
         local tankName = entry.tank
         
         if markID and not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+            -- [v0.24] Skip marks assigned to CC classes
             if tankName and tankName ~= "" then
                 local u = TankMark:FindUnitByName(tankName)
-                if u and not UnitIsDeadOrGhost(u) then return markID end
+                if u then
+                    -- Only return mark if player is alive AND not a CC class
+                    if not UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
+                        return markID
+                    end
+                end
             else
+                -- No player assigned - mark is free for use
                 return markID
             end
         end
     end
-    
     return nil
 end
 
@@ -366,6 +374,30 @@ function TankMark:FindUnitByName(name)
     for i=1,4 do if _UnitName("party"..i) == name then return "party"..i end end
     for i=1,40 do if _UnitName("raid"..i) == name then return "raid"..i end end
     return nil
+end
+
+-- [v0.24] Check if player is a CC-capable class
+function TankMark:IsPlayerCCClass(playerName)
+    if not playerName or playerName == "" then return false end
+    
+    local unit = TankMark:FindUnitByName(playerName)
+    if not unit then return false end
+    
+    local class = _UnitClass(unit)
+    
+    -- CC-capable classes (long-duration CC abilities)
+    if class == "Mage" or class == "Warlock" or class == "Hunter" or 
+       class == "Priest" or class == "Druid" then
+        return true
+    end
+    
+    -- Shaman: Only Troll race can CC (Hex ability)
+    if class == "Shaman" then
+        local race = _UnitRace(unit)
+        return race == "Troll"
+    end
+    
+    return false
 end
 
 -- [v0.24] Helper: Check if player is alive and in raid
