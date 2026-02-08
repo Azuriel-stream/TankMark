@@ -16,7 +16,18 @@ local _UnitExists = UnitExists
 local _UnitPowerType = UnitPowerType
 local _UnitClass = UnitClass
 local _UnitRace = UnitRace
+local _UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local _UnitAffectingCombat = UnitAffectingCombat
+local _UnitCreatureType = UnitCreatureType
+local _UnitClassification = UnitClassification
+local _UnitHealth = UnitHealth
+local _UnitInRaid = UnitInRaid
 local _GetRaidTargetIndex = GetRaidTargetIndex
+local _GetNumRaidMembers = GetNumRaidMembers
+local _GetNumPartyMembers = GetNumPartyMembers
+local _IsRaidLeader = IsRaidLeader
+local _IsRaidOfficer = IsRaidOfficer
+local _IsPartyLeader = IsPartyLeader
 local _strfind = string.find
 local _gsub = string.gsub
 local _gfind = string.gfind
@@ -66,12 +77,12 @@ TankMark.MarkInfo = {
 -- ==========================================================
 
 function TankMark:HasPermissions()
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
+    local numRaid = _GetNumRaidMembers()
+    local numParty = _GetNumPartyMembers()
     
     if numRaid == 0 and numParty == 0 then return true end
-    if numRaid > 0 then return (IsRaidLeader() or IsRaidOfficer()) end
-    if numParty > 0 then return IsPartyLeader() end
+    if numRaid > 0 then return (_IsRaidLeader() or _IsRaidOfficer()) end
+    if numParty > 0 then return _IsPartyLeader() end
     
     return false
 end
@@ -122,9 +133,9 @@ function TankMark:ProcessUnit(guid, mode)
     
     -- Normal/Trivial Mob Filter
     if not TankMark.MarkNormals then
-        local cls = UnitClassification(guid)
+        local cls = _UnitClassification(guid)
         if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
-            cls = UnitClassification("mouseover")
+            cls = _UnitClassification("mouseover")
         end
         if cls == "normal" or cls == "trivial" or cls == "minus" then return end
     end
@@ -210,7 +221,7 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     
     -- [v0.22] COMBAT GATING: Only mark mobs when combat is happening
     if mode == "SCANNER" then
-        local playerInCombat = UnitAffectingCombat("player")
+        local playerInCombat = _UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
         
         if not mobInCombat and not playerInCombat then
@@ -264,7 +275,7 @@ function TankMark:ProcessUnknownMob(guid, mode)
     -- [v0.22 FIX] Combat gating (only for SCANNER mode)
     -- FORCE mode (batch marking) bypasses this check
     if mode == "SCANNER" then
-        local playerInCombat = UnitAffectingCombat("player")
+        local playerInCombat = _UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
         
         if not mobInCombat and not playerInCombat then
@@ -366,7 +377,7 @@ function TankMark:GetFreeTankIcon()
                 local u = TankMark:FindUnitByName(tankName)
                 if u then
                     -- Only return mark if player is alive AND not a CC class
-                    if not UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
+                    if not _UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
                         return markID
                     end
                 end
@@ -430,7 +441,7 @@ function TankMark:FindCCPlayerForClass(requiredClass)
                     -- Check if mark is available (not used and not disabled)
                     if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
                         -- Check if player is alive
-                        if not UnitIsDeadOrGhost(unit) then
+                        if not _UnitIsDeadOrGhost(unit) then
                             return markID
                         end
                     end
@@ -451,7 +462,7 @@ function TankMark:IsPlayerAliveAndInRaid(playerName)
     if not unit then return false end  -- Not in raid/party
     
     -- Check if alive (includes ghost check)
-    if UnitIsDeadOrGhost(unit) then return false end
+    if _UnitIsDeadOrGhost(unit) then return false end
     
     return true
 end
@@ -508,7 +519,7 @@ function TankMark:HandleDeath(unitID)
     -- Handle MOB death
     if not _UnitIsPlayer(unitID) then
         local icon = _GetRaidTargetIndex(unitID)
-        local hp = UnitHealth(unitID)
+        local hp = _UnitHealth(unitID)
         if icon and hp and hp <= 0 then
             TankMark:EvictMarkOwner(icon)
             if TankMark.IsSuperWoW and icon == 8 then
@@ -520,7 +531,7 @@ function TankMark:HandleDeath(unitID)
     
     -- [v0.24] Handle PLAYER death
     -- Check if player is actually dead/ghost (not just 0 HP from HoT ticks)
-    if not UnitIsDeadOrGhost(unitID) then return end
+    if not _UnitIsDeadOrGhost(unitID) then return end
     
     local deadPlayerName = _UnitName(unitID)
     if not deadPlayerName then return end
@@ -608,8 +619,8 @@ function TankMark:VerifyMarkExistence(iconID)
         end
     end
     
-    local numRaid = GetNumRaidMembers()
-    local numParty = GetNumPartyMembers()
+    local numRaid = _GetNumRaidMembers()
+    local numParty = _GetNumPartyMembers()
     
     local function Check(unit)
         return _UnitExists(unit) and _GetRaidTargetIndex(unit) == iconID and not _UnitIsDead(unit)
@@ -710,7 +721,7 @@ function TankMark:ReviewSkullState()
             if isEligible then
                 -- [v0.22] Respect MarkNormals filter
                 if not TankMark.MarkNormals then
-                    local cls = UnitClassification(guid)
+                    local cls = _UnitClassification(guid)
                     if cls == "normal" or cls == "trivial" or cls == "minus" then
                         name = nil
                     end
@@ -720,7 +731,7 @@ function TankMark:ReviewSkullState()
                 if name and TankMark.activeDB[name] then
                     local data = TankMark.activeDB[name]
                     local mobPrio = data.prio or 99
-                    local mobHP = UnitHealth(guid)
+                    local mobHP = _UnitHealth(guid)
                     
                     if mobPrio < bestPrio then
                         bestPrio = mobPrio
@@ -755,8 +766,8 @@ function TankMark:ReviewSkullState()
             if bestPrio < currentSkullPrio then
                 shouldSwap = true
             elseif bestPrio == currentSkullPrio then
-                local currentHP = UnitHealth(skullGUID) or 1
-                local candidateHP = UnitHealth(bestGUID)
+                local currentHP = _UnitHealth(skullGUID) or 1
+                local candidateHP = _UnitHealth(bestGUID)
                 
                 -- [v0.22] Changed HP threshold from 10% to 30% (0.90 → 0.70)
                 if currentHP > 0 and candidateHP < (currentHP * 0.70) then
@@ -823,7 +834,7 @@ function TankMark:ResetSession()
         ClearUnit("target")
         ClearUnit("mouseover")
         
-        if UnitInRaid("player") then
+        if _UnitInRaid("player") then
             for i = 1, 40 do
                 ClearUnit("raid"..i)
                 ClearUnit("raid"..i.."target")
@@ -1049,7 +1060,7 @@ function TankMark:ProcessBatchMark(candidateData)
     
     -- [v0.21] Respect MarkNormals filter for batch marking
     if not TankMark.MarkNormals then
-        local cls = UnitClassification(guid)
+        local cls = _UnitClassification(guid)
         if cls == "normal" or cls == "trivial" or cls == "minus" then
             TankMark.batchSkipCounters.normalMob = TankMark.batchSkipCounters.normalMob + 1
             TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
