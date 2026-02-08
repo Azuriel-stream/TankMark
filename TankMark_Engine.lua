@@ -201,46 +201,56 @@ end
 function TankMark:ProcessKnownMob(mobData, guid, mode)
     -- [v0.23] Skip auto-marking for sequential mobs
     if mobData.marks and _tgetn(mobData.marks) > 1 then
-        return  -- Sequential mobs only marked via batch marking
+        return -- Sequential mobs only marked via batch marking
     end
     
     -- [v0.23] Extract single mark from array
     local markToUse = mobData.marks and mobData.marks[1] or 8
-    
     if markToUse == 0 then return end
     
     -- [v0.22] COMBAT GATING: Only mark mobs when combat is happening
     if mode == "SCANNER" then
-        -- Check if mob is targeting raid OR player is in combat
         local playerInCombat = UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
         
         if not mobInCombat and not playerInCombat then
-            return -- Don't mark peaceful mobs
+            return
         end
     end
     
     local iconToApply = nil
-    local isCCBlocked = (mobData.type == "CC" and TankMark.disabledMarks[markToUse])
     
-    if mobData.type == "KILL" or isCCBlocked then
-        -- [v0.22 FIX] Priority 1: Use mob's database mark if free (regardless of Team Profile)
-        if not TankMark.usedIcons[markToUse] then
+    -- [v0.24] CC ASSIGNMENT LOGIC
+    if mobData.type == "CC" and mobData.class then
+        -- Step 1: Try to find CC player matching required class
+        local ccMark = TankMark:FindCCPlayerForClass(mobData.class)
+        if ccMark then
+            iconToApply = ccMark
+        end
+        
+        -- Step 2: Fallback to tank assignment if no CC player available
+        if not iconToApply then
+            -- Try DB mark first (if not disabled)
+            if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
+                iconToApply = markToUse
+            end
+            
+            -- Then try tank marks
+            if not iconToApply then
+                iconToApply = TankMark:GetFreeTankIcon()
+            end
+        end
+    
+    -- [v0.24] KILL ASSIGNMENT LOGIC (or CC with no class specified)
+    else
+        -- Priority 1: Use mob's database mark if free
+        if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
             iconToApply = markToUse
         end
         
-        -- [v0.22 FIX] Priority 2: Only if mark is taken, get next available from Team Profile
+        -- Priority 2: Get next available tank mark
         if not iconToApply then
             iconToApply = TankMark:GetFreeTankIcon()
-        end
-        
-    elseif mobData.type == "CC" then
-        if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
-            local assignee = TankMark:GetAssigneeForMark(markToUse)
-            if assignee then
-                iconToApply = markToUse
-                TankMark:AssignCC(iconToApply, assignee, mobData.type)
-            end
         end
     end
     
@@ -398,6 +408,38 @@ function TankMark:IsPlayerCCClass(playerName)
     end
     
     return false
+end
+
+-- [v0.24] Find CC player in Team Profile matching required class
+function TankMark:FindCCPlayerForClass(requiredClass)
+    local zone = TankMark:GetCachedZone()
+    local list = TankMarkProfileDB[zone]
+    if not list then return nil end
+    
+    for _, entry in _ipairs(list) do
+        local playerName = entry.tank
+        local markID = entry.mark
+        
+        if playerName and playerName ~= "" then
+            local unit = TankMark:FindUnitByName(playerName)
+            if unit then
+                local playerClass = _UnitClass(unit)
+                
+                -- Match required class
+                if playerClass == requiredClass then
+                    -- Check if mark is available (not used and not disabled)
+                    if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+                        -- Check if player is alive
+                        if not UnitIsDeadOrGhost(unit) then
+                            return markID
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil
 end
 
 -- [v0.24] Helper: Check if player is alive and in raid
