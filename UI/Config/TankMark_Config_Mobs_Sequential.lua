@@ -7,9 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _getn = table.getn
-local _insert = table.insert
-local _remove = table.remove
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- SEQUENTIAL MARKING HELPERS
@@ -19,7 +19,7 @@ local _remove = table.remove
 function TankMark:RefreshSequentialRows()
 	if not TankMark.sequentialScrollFrame then return end
 	
-	local numMarks = _getn(TankMark.editingSequentialMarks)
+	local numMarks = L._tgetn(TankMark.editingSequentialMarks)
 	
 	if numMarks == 0 then
 		-- Hide all sequential rows when empty
@@ -96,7 +96,7 @@ end
 -- Add a new sequential mark row
 function TankMark:OnAddMoreMarksClicked()
 	-- Check limit: max 7 additional marks (8 total)
-	if _getn(TankMark.editingSequentialMarks) >= 7 then
+	if L._tgetn(TankMark.editingSequentialMarks) >= 7 then
 		TankMark:Print("|cffff0000Error:|r Maximum 8 marks total (1 main + 7 additional).")
 		return
 	end
@@ -114,7 +114,7 @@ function TankMark:OnAddMoreMarksClicked()
 	end
 	
 	-- Add new entry
-	_insert(TankMark.editingSequentialMarks, {
+	L._tinsert(TankMark.editingSequentialMarks, {
 		icon = 8,  -- Default to SKULL
 		class = nil,
 		type = "KILL"
@@ -131,11 +131,11 @@ end
 
 -- Remove a sequential mark row by index
 function TankMark:RemoveSequentialRow(index)
-	_remove(TankMark.editingSequentialMarks, index)
+	L._tremove(TankMark.editingSequentialMarks, index)
 	TankMark:RefreshSequentialRows()
 	
 	-- Re-enable Lock button if no sequential marks remain
-	if _getn(TankMark.editingSequentialMarks) == 0 and TankMark.lockBtn then
+	if L._tgetn(TankMark.editingSequentialMarks) == 0 and TankMark.lockBtn then
 		TankMark.lockBtn:Enable()
 		TankMark.lockBtn:SetText("Lock Mark")  -- Reset normal text
 	end

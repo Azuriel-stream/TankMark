@@ -7,12 +7,9 @@ if not TankMark then return end
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _pairs = pairs
-local _ipairs = ipairs
-local _insert = table.insert
-local _gsub = string.gsub
-local _tonumber = tonumber
-local _getn = table.getn
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- LOGIC HELPERS
@@ -63,7 +60,7 @@ end
 
 -- Toggle GUID lock state for current target
 function TankMark:ToggleLockState()
-    if not UnitExists("target") and not TankMark.editingLockGUID then
+    if not L._UnitExists("target") and not TankMark.editingLockGUID then
         TankMark:Print("|cffff0000Error:|r You must target a mob to lock it.")
         return
     end
@@ -150,7 +147,7 @@ function TankMark:ResetEditorState()
 	
 	-- Hide all sequential row frames
 	if TankMark.sequentialRows then
-		for i = 1, _getn(TankMark.sequentialRows) do
+		for i = 1, L._tgetn(TankMark.sequentialRows) do
 			if TankMark.sequentialRows[i] then
 				TankMark.sequentialRows[i]:Hide()
 			end
@@ -297,7 +294,7 @@ function TankMark:ToggleZoneBrowser()
 		UIDropDownMenu_SetText("Manage Saved Zones", TankMark.zoneDropDown)
 	else
 		TankMark:SetDropdownState(true)
-		UIDropDownMenu_SetText(GetRealZoneText(), TankMark.zoneDropDown)
+		UIDropDownMenu_SetText(L._GetRealZoneText(), TankMark.zoneDropDown)
 	end
 	
 	if TankMark.zoneModeCheck then
@@ -339,7 +336,7 @@ local function PerformSave(zone, mob, mobEntry)
     
     TankMarkDB.Zones[zone][mob] = mobEntry
     
-    local markCountStr = _getn(mobEntry.marks) > 1 and (", " .. _getn(mobEntry.marks) .. " marks") or ""
+    local markCountStr = L._tgetn(mobEntry.marks) > 1 and (", " .. L._tgetn(mobEntry.marks) .. " marks") or ""
     TankMark:Print("|cff00ff00Saved:|r " .. mob .. " |cff888888(P" .. mobEntry.prio .. markCountStr .. ")|r")
     
     -- Refresh activeDB
@@ -400,11 +397,11 @@ function TankMark:SaveFormData()
 			return
 		end
 		
-		local mob = _gsub(TankMark.editMob:GetText(), "%s+", "")
+		local mob = L._gsub(TankMark.editMob:GetText(), "%s+", "")
 		local icon = TankMark.selectedIcon
-		local exists, guid = UnitExists("target"), UnitGUID("target")
+		local exists, guid = L._UnitExists("target"), L._UnitGUID("target")
 		
-		if exists and guid and not UnitIsPlayer("target") and UnitName("target") == mob then
+		if exists and guid and not L._UnitIsPlayer("target") and L._UnitName("target") == mob then
 			if not TankMarkDB.StaticGUIDs[zone] then
 				TankMarkDB.StaticGUIDs[zone] = {}
 			end
@@ -434,8 +431,8 @@ function TankMark:SaveFormData()
 	end
 	
 	local rawMob = TankMark.editMob:GetText()
-	local mob = _gsub(rawMob, ";", "")
-	local prio = _tonumber(TankMark.editPrio:GetText()) or 1
+	local mob = L._gsub(rawMob, ";", "")
+	local prio = L._tonumber(TankMark.editPrio:GetText()) or 1
 	
 	if mob == "" or mob == "Mob Name" then return end
 	
@@ -448,16 +445,16 @@ function TankMark:SaveFormData()
 	}
 	
 	-- Add main row mark
-	_insert(mobEntry.marks, TankMark.selectedIcon)
+	L._tinsert(mobEntry.marks, TankMark.selectedIcon)
 	
 	-- Add sequential marks
-	for i, seqData in _ipairs(TankMark.editingSequentialMarks) do
-		_insert(mobEntry.marks, seqData.icon)
+	for i, seqData in L._ipairs(TankMark.editingSequentialMarks) do
+		L._tinsert(mobEntry.marks, seqData.icon)
 	end
 	
 	-- Validation: No IGNORE mark (0) in sequences
-	if _getn(mobEntry.marks) > 1 then
-		for _, mark in _ipairs(mobEntry.marks) do
+	if L._tgetn(mobEntry.marks) > 1 then
+		for _, mark in L._ipairs(mobEntry.marks) do
 			if mark == 0 then
 				TankMark:Print("|cffff0000Error:|r Sequential marks cannot contain IGNORE.")
 				return
@@ -563,7 +560,7 @@ end
 
 -- Show dialog to add current zone to database
 function TankMark:ShowAddCurrentZoneDialog()
-	local currentZone = GetRealZoneText()
+	local currentZone = L._GetRealZoneText()
 	
 	-- Check if zone already exists
 	if TankMarkDB.Zones[currentZone] then

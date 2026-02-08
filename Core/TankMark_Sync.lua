@@ -1,6 +1,6 @@
--- TankMark: v0.23
--- File: TankMark_Sync.lua
--- [v0.23] Updated for marks array schema
+-- TankMark: v0.25
+-- File: Core/TankMark_Sync.lua
+-- Raid data synchronization and TWA integration
 
 if not TankMark then return end
 
@@ -10,32 +10,24 @@ local TWA_BW_PREFIX = "TWABW"
 -- ==========================================================
 -- LOCALIZATIONS
 -- ==========================================================
-local _strfind = string.find
-local _gsub = string.gsub
-local _sub = string.sub
-local _gfind = string.gfind
-local _insert = table.insert
-local _remove = table.remove
-local _getn = table.getn
-local _pairs = pairs
-local _ipairs = ipairs
-local _sort = table.sort
-local _tonumber = tonumber
+
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- HELPER: Permissions
 -- ==========================================================
 function TankMark:IsTrustedSender(name)
-	local numRaid = GetNumRaidMembers()
+	local numRaid = L._GetNumRaidMembers()
 	if numRaid > 0 then
 		for i = 1, 40 do
-			local n, rank = GetRaidRosterInfo(i)
+			local n, rank = L._GetRaidRosterInfo(i)
 			if n == name then return (rank >= 1) end -- 1=Assist, 2=Leader
 		end
 	else
-		if GetNumPartyMembers() > 0 then
+		if L._GetNumPartyMembers() > 0 then
 			for i = 1, 4 do
-				if UnitName("party"..i) == name and UnitIsPartyLeader("party"..i) then
+				if L._UnitName("party"..i) == name and L._UnitIsPartyLeader("party"..i) then
 					return true
 				end
 			end
@@ -54,43 +46,43 @@ TankMark.TWA_MarkMap = {
 
 function TankMark:HandleTWABW(msg, sender)
 	-- Pattern: BWSynch=MarkName: Tank || Healers: Healer
-	local _, _, content = _strfind(msg, "^BWSynch=(.*)")
+	local _, _, content = L._strfind(msg, "^BWSynch=(.*)")
 	if not content or content == "start" or content == "end" then return end
 
-	local _, _, markName, rest = _strfind(content, "^%s*(.-)%s*:%s*(.*)")
+	local _, _, markName, rest = L._strfind(content, "^%s*(.-)%s*:%s*(.*)")
 	if not markName or not TankMark.TWA_MarkMap[markName] then return end
 
 	local iconID = TankMark.TWA_MarkMap[markName]
-	local _, _, tankPart, healPart = _strfind(rest, "^(.-)%s*[|][|]%s*Healers:%s*(.*)$")
+	local _, _, tankPart, healPart = L._strfind(rest, "^(.-)%s*[|][|]%s*Healers:%s*(.*)$")
 	
 	if not tankPart then
 		tankPart = rest
 		healPart = ""
 	end
 
-	local tankStr = _gsub(tankPart, "-", "")
-	tankStr = _gsub(tankStr, "[|]", "")
-	tankStr = _gsub(tankStr, "^%s*(.-)%s*$", "%1")
+	local tankStr = L._gsub(tankPart, "-", "")
+	tankStr = L._gsub(tankStr, "[|]", "")
+	tankStr = L._gsub(tankStr, "^%s*(.-)%s*$", "%1")
 
 	local healStr = ""
 	if healPart then
-		healStr = _gsub(healPart, "-", "")
-		healStr = _gsub(healStr, "^%s*(.-)%s*$", "%1")
+		healStr = L._gsub(healPart, "-", "")
+		healStr = L._gsub(healStr, "^%s*(.-)%s*$", "%1")
 	end
 
 	local primaryTank = nil
-	for word in _gfind(tankStr, "%S+") do
+	for word in L._gfind(tankStr, "%S+") do
 		if word ~= "" then primaryTank = word; break end
 	end
 
 	-- [v0.15] Insert/Update into Ordered List
-	local zone = GetRealZoneText()
+	local zone = L._GetRealZoneText()
 	if not TankMarkProfileDB[zone] then TankMarkProfileDB[zone] = {} end
 	local list = TankMarkProfileDB[zone]
 
 	-- 1. Check if this mark already exists in the list
 	local found = false
-	for _, entry in _ipairs(list) do
+	for _, entry in L._ipairs(list) do
 		if entry.mark == iconID then
 			entry.tank = primaryTank or ""
 			entry.healers = healStr
@@ -101,7 +93,7 @@ function TankMark:HandleTWABW(msg, sender)
 
 	-- 2. If not found, add it
 	if not found and primaryTank then
-		_insert(list, {
+		L._tinsert(list, {
 			mark = iconID,
 			tank = primaryTank,
 			healers = healStr
@@ -109,10 +101,10 @@ function TankMark:HandleTWABW(msg, sender)
 	end
 
 	-- 3. Sort List: Skull(8) > Cross(7) > ... Star(1)
-	_sort(list, function(a,b) return a.mark > b.mark end)
+	L._tsort(list, function(a,b) return a.mark > b.mark end)
 
 	-- 4. Update Session if active zone
-	if zone == GetRealZoneText() then
+	if zone == L._GetRealZoneText() then
 		if primaryTank then
 			TankMark.sessionAssignments[iconID] = primaryTank
 			TankMark.usedIcons[iconID] = true
@@ -130,7 +122,7 @@ end
 -- CORE SYNC HANDLER
 -- ==========================================================
 function TankMark:HandleSync(prefix, msg, sender)
-	if sender == UnitName("player") then return end
+	if sender == L._UnitName("player") then return end
 
 	if prefix == TWA_BW_PREFIX then
 		if TankMark:IsTrustedSender(sender) then
@@ -142,15 +134,15 @@ function TankMark:HandleSync(prefix, msg, sender)
 	if prefix ~= SYNC_PREFIX then return end
 	if not TankMark:IsTrustedSender(sender) then return end
 
-	local dataType = _sub(msg, 1, 1) -- 'M' or 'L'
-	local content = _sub(msg, 3) -- Strip prefix + separator
+	local dataType = L._sub(msg, 1, 1) -- 'M' or 'L'
+	local content = L._sub(msg, 3) -- Strip prefix + separator
 
 	if dataType == "M" then
-		local _, _, zone, mob, prio, mark, mType, mClass = _strfind(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
+		local _, _, zone, mob, prio, mark, mType, mClass = L._strfind(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
 		if zone and mob then
 			-- [PHASE 1 FIX] Validate incoming sync data
-			local numPrio = _tonumber(prio)
-			local numMark = _tonumber(mark)
+			local numPrio = L._tonumber(prio)
+			local numMark = L._tonumber(mark)
 			if not numPrio or not numMark then return end -- Reject malformed data
 			if numMark < 0 or numMark > 8 then return end -- Invalid mark range
 
@@ -166,10 +158,10 @@ function TankMark:HandleSync(prefix, msg, sender)
 		end
 
 	elseif dataType == "L" then
-		local _, _, zone, guid, mark, name = _strfind(content, "^(.-);(.-);(%d+);(.-)$")
+		local _, _, zone, guid, mark, name = L._strfind(content, "^(.-);(.-);(%d+);(.-)$")
 		if zone and guid then
 			-- [PHASE 1 FIX] Validate incoming lock data
-			local numMark = _tonumber(mark)
+			local numMark = L._tonumber(mark)
 			if not numMark or numMark < 0 or numMark > 8 then return end
 
 			if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
@@ -191,20 +183,20 @@ local THROTTLE_INTERVAL = 0.3
 local throttleFrame = CreateFrame("Frame", "TankMarkThrottleFrame")
 throttleFrame:Hide()
 throttleFrame:SetScript("OnUpdate", function()
-	if _getn(TankMark.MsgQueue) == 0 then
+	if L._tgetn(TankMark.MsgQueue) == 0 then
 		this:Hide(); return
 	end
 
-	local now = GetTime()
+	local now = L._GetTime()
 	if (now - TankMark.LastSendTime) >= THROTTLE_INTERVAL then
-		local msgData = _remove(TankMark.MsgQueue, 1)
+		local msgData = L._tremove(TankMark.MsgQueue, 1)
 		SendAddonMessage(msgData.prefix, msgData.text, msgData.channel)
 		TankMark.LastSendTime = now
 	end
 end)
 
 function TankMark:QueueMessage(prefix, text, channel)
-	_insert(TankMark.MsgQueue, {prefix=prefix, text=text, channel=channel})
+	L._tinsert(TankMark.MsgQueue, {prefix=prefix, text=text, channel=channel})
 	throttleFrame:Show()
 end
 
@@ -215,14 +207,14 @@ function TankMark:BroadcastZone()
 		return
 	end
 
-	local zone = GetRealZoneText()
+	local zone = L._GetRealZoneText()
 	local count = 0
 	local channel = "PARTY"
-	if GetNumRaidMembers() > 0 then channel = "RAID" end
+	if L._GetNumRaidMembers() > 0 then channel = "RAID" end
 
 	-- A. Broadcast Mobs (Prefix: M)
 	if TankMarkDB.Zones[zone] then
-		for mob, data in _pairs(TankMarkDB.Zones[zone]) do
+		for mob, data in L._pairs(TankMarkDB.Zones[zone]) do
 			local safeClass = data.class or "NIL"
 			local safeType = data.type or "KILL"
 
@@ -239,9 +231,9 @@ function TankMark:BroadcastZone()
 
 	-- B. Broadcast Locks (Prefix: L)
 	if TankMarkDB.StaticGUIDs[zone] then
-		for guid, data in _pairs(TankMarkDB.StaticGUIDs[zone]) do
-			local mark = (type(data) == "table") and data.mark or data
-			local name = (type(data) == "table") and data.name or "Unknown"
+		for guid, data in L._pairs(TankMarkDB.StaticGUIDs[zone]) do
+			local mark = (L._type(data) == "table") and data.mark or data
+			local name = (L._type(data) == "table") and data.name or "Unknown"
 			local payload = "L;" .. zone .. ";" .. guid .. ";" .. mark .. ";" .. name
 			TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
 			count = count + 1

@@ -10,10 +10,8 @@ if not TankMark then return end
 -- LOCALIZATIONS
 -- ==========================================================
 
-local _pairs = pairs
-local _ipairs = ipairs
-local _getn = table.getn
-local _insert = table.insert
+-- Import shared localizations
+local L = TankMark.Locals
 
 -- ==========================================================
 -- UI STATE
@@ -60,15 +58,15 @@ function TankMark:BuildDataManagementTab(parent)
             if snapshot then
                 -- Count mobs
                 local mobCount = 0
-                for _, mobs in _pairs(snapshot.zones) do
-                    for _ in _pairs(mobs) do
+                for _, mobs in L._pairs(snapshot.zones) do
+                    for _ in L._pairs(mobs) do
                         mobCount = mobCount + 1
                     end
                 end
 
                 -- Count zones
                 local zoneCount = 0
-                for _ in _pairs(snapshot.zones) do
+                for _ in L._pairs(snapshot.zones) do
                     zoneCount = zoneCount + 1
                 end
 
@@ -137,22 +135,22 @@ function TankMark:BuildDataManagementTab(parent)
 
         -- Count mobs
         local mobCount = 0
-        for _, mobs in _pairs(snapshot.zones) do
-            for _ in _pairs(mobs) do
+        for _, mobs in L._pairs(snapshot.zones) do
+            for _ in L._pairs(mobs) do
                 mobCount = mobCount + 1
             end
         end
 
         -- Count zones
         local zoneCount = 0
-        for _ in _pairs(snapshot.zones) do
+        for _ in L._pairs(snapshot.zones) do
             zoneCount = zoneCount + 1
         end
 
         -- Count GUIDs
         local guidCount = 0
-        for _, guids in _pairs(snapshot.guids) do
-            for _ in _pairs(guids) do
+        for _, guids in L._pairs(snapshot.guids) do
+            for _ in L._pairs(guids) do
                 guidCount = guidCount + 1
             end
         end
@@ -207,13 +205,13 @@ function TankMark:BuildDataManagementTab(parent)
 				TankMarkDB.Zones = {}
 				
 				-- Copy all defaults (v0.23 structure)
-				for zoneName, defaultMobs in pairs(TankMarkDefaults) do
+				for zoneName, defaultMobs in L._pairs(TankMarkDefaults) do
 					TankMarkDB.Zones[zoneName] = {}
-					for mobName, mobData in pairs(defaultMobs) do
+					for mobName, mobData in L._pairs(defaultMobs) do
 						-- [v0.23] Deep copy marks array
 						local marksCopy = {}
 						if mobData.marks then
-							for i, mark in ipairs(mobData.marks) do
+							for i, mark in L._ipairs(mobData.marks) do
 								marksCopy[i] = mark
 							end
 						end
@@ -300,15 +298,15 @@ function TankMark:RefreshSnapshotList()
 			if snapshot then
 				-- Count mobs
 				local mobCount = 0
-				for _, mobs in _pairs(snapshot.zones) do
-					for _ in _pairs(mobs) do
+				for _, mobs in L._pairs(snapshot.zones) do
+					for _ in L._pairs(mobs) do
 						mobCount = mobCount + 1
 					end
 				end
 
 				-- Count zones
 				local zoneCount = 0
-				for _ in _pairs(snapshot.zones) do
+				for _ in L._pairs(snapshot.zones) do
 					zoneCount = zoneCount + 1
 				end
 
@@ -350,7 +348,7 @@ function TankMark:ShowExportDialog()
 	-- Serialize zone data (simple Lua table format)
 	local exportData = "{\n"
 	exportData = exportData .. '  ["' .. zone .. '"] = {\n'
-	for mobName, mobData in _pairs(TankMarkDB.Zones[zone]) do
+	for mobName, mobData in L._pairs(TankMarkDB.Zones[zone]) do
 		exportData = exportData .. '    ["' .. mobName .. '"] = {prio=' .. mobData.prio .. ', mark=' .. mobData.mark .. ', type="' .. mobData.type .. '"},\n'
 	end
 	exportData = exportData .. "  }\n}"
@@ -415,18 +413,18 @@ function TankMark:ImportZoneData(luaString)
 	end
 
 	local success, importData = pcall(func)
-	if not success or type(importData) ~= "table" then
+	if not success or L._type(importData) ~= "table" then
 		TankMark:Print("|cffff0000Error:|r Could not parse data.")
 		return
 	end
 
 	-- Merge imported data
 	local added = 0
-	for zoneName, mobs in _pairs(importData) do
+	for zoneName, mobs in L._pairs(importData) do
 		if not TankMarkDB.Zones[zoneName] then
 			TankMarkDB.Zones[zoneName] = {}
 		end
-		for mobName, mobData in _pairs(mobs) do
+		for mobName, mobData in L._pairs(mobs) do
 			TankMarkDB.Zones[zoneName][mobName] = {
 				prio = mobData.prio or 5,
 				mark = mobData.mark or 8,
