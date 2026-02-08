@@ -1,24 +1,108 @@
--- TankMark: v0.23
+-- TankMark: v0.25
 -- File: TankMark.lua
 -- Entry point, Event Handlers, and Slash Commands
 
-if not TankMark then
-    TankMark = CreateFrame("Frame", "TankMarkFrame")
+if not TankMark then 
+    TankMark = CreateFrame("Frame", "TankMarkFrame") 
 end
 
 -- ==========================================================
--- LOCALIZATIONS
+-- SHARED LOCALIZATIONS
+-- ==========================================================
+-- All Core modules import this via: local L = TankMark.Locals
+
+TankMark.Locals = {
+    -- ==========================================================
+    -- UNIT FUNCTIONS
+    -- ==========================================================
+    _UnitIsDead = UnitIsDead,
+    _UnitIsPlayer = UnitIsPlayer,
+    _UnitIsFriend = UnitIsFriend,
+    _UnitName = UnitName,
+    _UnitExists = UnitExists,
+    _UnitPowerType = UnitPowerType,
+    _UnitClass = UnitClass,
+    _UnitRace = UnitRace,
+    _UnitIsDeadOrGhost = UnitIsDeadOrGhost,
+    _UnitAffectingCombat = UnitAffectingCombat,
+    _UnitCreatureType = UnitCreatureType,
+    _UnitClassification = UnitClassification,
+    _UnitHealth = UnitHealth,
+    _UnitInRaid = UnitInRaid,
+    _UnitIsConnected = UnitIsConnected,
+    _UnitPlayerControlled = UnitPlayerControlled,
+    _UnitIsPartyLeader = UnitIsPartyLeader,
+    _UnitGUID = UnitGUID,
+    
+    -- ==========================================================
+    -- RAID/PARTY FUNCTIONS
+    -- ==========================================================
+    _GetRaidTargetIndex = GetRaidTargetIndex,
+    _GetNumRaidMembers = GetNumRaidMembers,
+    _GetNumPartyMembers = GetNumPartyMembers,
+    _GetRaidRosterInfo = GetRaidRosterInfo,
+    _IsRaidLeader = IsRaidLeader,
+    _IsRaidOfficer = IsRaidOfficer,
+    _IsPartyLeader = IsPartyLeader,
+    
+    -- ==========================================================
+    -- WORLD/ZONE FUNCTIONS
+    -- ==========================================================
+    _GetRealZoneText = GetRealZoneText,
+    
+    -- ==========================================================
+    -- SPELL/RANGE FUNCTIONS
+    -- ==========================================================
+    _IsSpellInRange = IsSpellInRange,
+    _CheckInteractDistance = CheckInteractDistance,
+    
+    -- ==========================================================
+    -- CHAT/MESSAGE FUNCTIONS
+    -- ==========================================================
+    _SendAddonMessage = SendAddonMessage,
+    
+    -- ==========================================================
+    -- TIME FUNCTIONS
+    -- ==========================================================
+    _GetTime = GetTime,
+    _time = time,
+    
+    -- ==========================================================
+    -- STRING FUNCTIONS
+    -- ==========================================================
+    _strfind = string.find,
+    _gsub = string.gsub,
+    _gfind = string.gfind,
+    _sub = string.sub,
+    _lower = string.lower,
+    
+    -- ==========================================================
+    -- TABLE FUNCTIONS
+    -- ==========================================================
+    _pairs = pairs,
+    _ipairs = ipairs,
+    _tinsert = table.insert,
+    _tremove = table.remove,
+    _tsort = table.sort,
+    _tgetn = table.getn,
+    
+    -- ==========================================================
+    -- MATH FUNCTIONS
+    -- ==========================================================
+    _floor = math.floor,
+    
+    -- ==========================================================
+    -- TYPE/CONVERSION FUNCTIONS
+    -- ==========================================================
+    _type = type,
+    _tonumber = tonumber,
+}
+
+-- ==========================================================
+-- LOCAL ALIASES (For use within this file)
 -- ==========================================================
 
-local _UnitExists = UnitExists
-local _GetRaidTargetIndex = GetRaidTargetIndex
-local _UnitName = UnitName
-local _UnitIsPlayer = UnitIsPlayer
-local _strfind = string.find
-local _lower = string.lower
-local _pairs = pairs
-local _ipairs = ipairs
-local _getn = table.getn
+local L = TankMark.Locals
 
 -- ==========================================================
 -- ZONE CACHING
@@ -28,7 +112,7 @@ TankMark.currentZone = nil
 
 function TankMark:GetCachedZone()
     if not TankMark.currentZone then
-        TankMark.currentZone = GetRealZoneText()
+        TankMark.currentZone = L._GetRealZoneText()
     end
     return TankMark.currentZone
 end
@@ -45,11 +129,11 @@ TankMark.isShiftHeld = false
 -- ==========================================================
 
 function TankMark:HandleMouseover()
-    if not _UnitExists("mouseover") then return end
+    if not L._UnitExists("mouseover") then return end
     
     -- [v0.21] PRIORITY 1: Ctrl to unmark (always available)
     if IsControlKeyDown() then
-        if _GetRaidTargetIndex("mouseover") then
+        if L._GetRaidTargetIndex("mouseover") then
             TankMark:UnmarkUnit("mouseover")
         end
         return
@@ -138,10 +222,10 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.InitializeDB then TankMark:InitializeDB() end
         
     elseif (event == "PLAYER_LOGIN") then
-        math.randomseed(time())
+        math.randomseed(L._time())
         
         -- Initialize zone cache
-        TankMark.currentZone = GetRealZoneText()
+        TankMark.currentZone = L._GetRealZoneText()
         
         -- [v0.21] Load zone data (merge defaults + user DB)
         if TankMark.LoadZoneData then
@@ -161,7 +245,7 @@ TankMark:SetScript("OnEvent", function()
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
-        TankMark.currentZone = GetRealZoneText()
+        TankMark.currentZone = L._GetRealZoneText()
         
         -- [v0.21] Load zone data for new zone
         if TankMark.LoadZoneData then
@@ -180,10 +264,10 @@ TankMark:SetScript("OnEvent", function()
         
     elseif (event == "UNIT_HEALTH") then
         -- [v0.24] Clear death alert cache when player becomes alive
-        if _UnitIsPlayer(arg1) then
-            local hp = UnitHealth(arg1)
+        if L._UnitIsPlayer(arg1) then
+            local hp = L._UnitHealth(arg1)
             if hp and hp > 0 then
-                local playerName = _UnitName(arg1)
+                local playerName = L._UnitName(arg1)
                 if playerName and TankMark.ClearDeathAlert then
                     TankMark:ClearDeathAlert(playerName)
                 end
@@ -193,8 +277,8 @@ TankMark:SetScript("OnEvent", function()
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
         -- [v0.22] Check if player left party/raid
-        local numRaid = GetNumRaidMembers()
-        local numParty = GetNumPartyMembers()
+        local numRaid = L._GetNumRaidMembers()
+        local numParty = L._GetNumPartyMembers()
         
         if numRaid == 0 and numParty == 0 then
             -- Player is now solo (left group)
@@ -238,8 +322,8 @@ TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
 -- ==========================================================
 
 function TankMark:SlashHandler(msg)
-    local _, _, cmd, args = _strfind(msg, "^(%S*)%s*(.*)$")
-    cmd = _lower(cmd or "")
+    local _, _, cmd, args = L._strfind(msg, "^(%S*)%s*(.*)$")
+    cmd = L._lower(cmd or "")
     
     local iconNames = {
         ["skull"] = 8, ["cross"] = 7, ["square"] = 6, ["moon"] = 5,
@@ -290,16 +374,16 @@ function TankMark:SlashHandler(msg)
         TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
         if TankMark.IsSuperWoW then
             local count = 0
-            for k,v in _pairs(TankMark.visibleTargets) do count = count + 1 end
+            for k,v in L._pairs(TankMark.visibleTargets) do count = count + 1 end
             TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
         end
         TankMark:Print("Schema Version: " .. (TankMarkDB.SchemaVersion or "Legacy"))
         
     elseif cmd == "assign" then
-        local _, _, markStr, targetPlayer = _strfind(args, "^(%S+)%s+(%S+)$")
+        local _, _, markStr, targetPlayer = L._strfind(args, "^(%S+)%s+(%S+)$")
         if markStr and targetPlayer then
-            markStr = _lower(markStr)
-            local iconID = tonumber(markStr) or iconNames[markStr]
+            markStr = L._lower(markStr)
+            local iconID = L._tonumber(markStr) or iconNames[markStr]
             if iconID and iconID >= 1 and iconID <= 8 then
                 TankMark.sessionAssignments[iconID] = targetPlayer
                 TankMark.usedIcons[iconID] = true
@@ -339,13 +423,13 @@ function TankMark:IsPlayerInRaid(playerName)
     if not playerName or playerName == "" then return true end
     
     -- Check player
-    if UnitName("player") == playerName then return true end
+    if L._UnitName("player") == playerName then return true end
     
     -- Check raid
-    local numRaid = GetNumRaidMembers()
+    local numRaid = L._GetNumRaidMembers()
     if numRaid > 0 then
         for i = 1, 40 do
-            if UnitName("raid"..i) == playerName then
+            if L._UnitName("raid"..i) == playerName then
                 return true
             end
         end
@@ -353,10 +437,10 @@ function TankMark:IsPlayerInRaid(playerName)
     end
     
     -- Check party
-    local numParty = GetNumPartyMembers()
+    local numParty = L._GetNumPartyMembers()
     if numParty > 0 then
         for i = 1, 4 do
-            if UnitName("party"..i) == playerName then
+            if L._UnitName("party"..i) == playerName then
                 return true
             end
         end
@@ -371,19 +455,19 @@ function TankMark:AnnounceAssignments()
     local zone = TankMark:GetCachedZone()
     local profile = TankMarkProfileDB[zone]
     
-    if not profile or _getn(profile) == 0 then
+    if not profile or L._tgetn(profile) == 0 then
         TankMark:Print("No profile assignments found for " .. zone .. ".")
         return
     end
     
     local channel = "SAY"
-    if GetNumRaidMembers() > 0 then channel = "RAID"
-    elseif GetNumPartyMembers() > 0 then channel = "PARTY" end
+    if L._GetNumRaidMembers() > 0 then channel = "RAID"
+    elseif L._GetNumPartyMembers() > 0 then channel = "PARTY" end
     
     SendChatMessage("== " .. zone .. " Assignments ==", channel)
     SendChatMessage("Mark || Tank || Healers", channel)
     
-    for _, data in _ipairs(profile) do
+    for _, data in L._ipairs(profile) do
         if data.mark and data.tank ~= "" then
             local info = TankMark.MarkInfo[data.mark]
             local markDisplay = ""
