@@ -1,4 +1,4 @@
--- TankMark: v0.22 (Release Candidate)
+-- TankMark: v0.24 (Release Candidate)
 -- File: TankMark_HUD.lua
 -- [PHASE 2] Use cached zone lookups
 
@@ -9,6 +9,11 @@ local _pairs = pairs
 local _ipairs = ipairs
 local _insert = table.insert
 local _sort = table.sort
+local _getn = table.getn
+local _gsub = string.gsub
+local _UnitName = UnitName
+local _UnitClass = UnitClass
+local _UnitIsPlayer = UnitIsPlayer
 
 -- UI State
 TankMark.hudFrame = nil
@@ -69,8 +74,8 @@ function TankMark:InitRowMenu()
 	UIDropDownMenu_AddButton(info)
 	
 	-- 1. Assign Target
-	local targetName = UnitName("target")
-	local canAssign = (targetName and UnitIsPlayer("target"))
+	local targetName = _UnitName("target")
+    local canAssign = (targetName and _UnitIsPlayer("target"))
 	local assignText = "Assign Target"
 	if canAssign then assignText = assignText .. " |cff00ff00(" .. targetName .. ")|r" end
 	
@@ -238,6 +243,82 @@ function TankMark:CreateHUD()
 end
 
 -- ==========================================================
+-- [v0.24] CLASS COLOR HELPER
+-- ==========================================================
+
+function TankMark:GetClassColor(class)
+    -- Vanilla WoW class colors
+    if class == "Warrior" then return "|cffC79C6E" end      -- Tan
+    if class == "Paladin" then return "|cffF58CBA" end      -- Pink
+    if class == "Hunter" then return "|cffABD473" end       -- Green
+    if class == "Rogue" then return "|cffFFF569" end        -- Yellow
+    if class == "Priest" then return "|cffFFFFFF" end       -- White
+    if class == "Shaman" then return "|cff0070DE" end       -- Blue
+    if class == "Mage" then return "|cff69CCF0" end         -- Light Blue
+    if class == "Warlock" then return "|cff9482C9" end      -- Purple
+    if class == "Druid" then return "|cffFF7D0A" end        -- Orange
+    return "|cff00ff00"  -- Default green if class unknown
+end
+
+-- ==========================================================
+-- [v0.24] HUD ROW RENDERING HELPER
+-- ==========================================================
+
+function TankMark:RenderHUDRow(row, markID, isProfileMark)
+    local assignedPlayer = TankMark.sessionAssignments[markID]
+    local activeMob = TankMark.activeMobNames[markID]
+    local textToShow = nil
+    
+    if assignedPlayer then
+        -- [v0.24] Apply class-colored names
+        local unit = TankMark:FindUnitByName(assignedPlayer)
+        local isInRaid = TankMark:IsPlayerInRaid(assignedPlayer)
+        
+        if unit and isInRaid then
+            -- Get class color
+            local class = _UnitClass(unit)
+            local classColor = TankMark:GetClassColor(class)
+            textToShow = classColor .. assignedPlayer .. "|r"
+        elseif isInRaid then
+            -- In raid but unit not found (shouldn't happen, but fallback to green)
+            textToShow = "|cff00ff00" .. assignedPlayer .. "|r"
+        else
+            -- Not in raid (red)
+            textToShow = "|cffff0000" .. assignedPlayer .. "|r"
+        end
+    elseif activeMob then
+        textToShow = "|cffffffff" .. activeMob .. "|r"
+    end
+    
+    local isDisabled = TankMark.disabledMarks[markID]
+    
+    -- Apply Visual Disable (Dimming)
+    if isDisabled then
+        row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        SetRaidTargetIconTexture(row.icon, markID)
+        row.icon:SetVertexColor(0.3, 0.3, 0.3)
+        if textToShow then
+            local plainText = _gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
+            plainText = _gsub(plainText, "|r", "")
+            textToShow = "|cff888888" .. plainText .. " (OFF)|r"
+        else
+            textToShow = "|cff888888(Disabled)|r"
+        end
+    else
+        row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        SetRaidTargetIconTexture(row.icon, markID)
+        row.icon:SetVertexColor(1, 1, 1)
+    end
+    
+    -- Default text for empty marks
+    if not textToShow then
+        textToShow = "|cff888888(Free)|r"
+    end
+    
+    row.text:SetText(textToShow)
+end
+
+-- ==========================================================
 -- 3. TOGGLE & UPDATE LOGIC
 -- ==========================================================
 function TankMark:ToggleMarkState(iconID)
@@ -246,27 +327,32 @@ function TankMark:ToggleMarkState(iconID)
 end
 
 function TankMark:UpdateHUD()
-	if not TankMark.hudFrame then TankMark:CreateHUD() end
-	
-	local activeRows = 0
-	local lastVisibleRow = nil
-	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
-	
-	local renderList = {}
-	local added = {} -- Tracks if mark exists in Profile
-	
-	-- 1. Build List from Profile
-	if TankMarkProfileDB and TankMarkProfileDB[zone] then
-		for _, entry in _ipairs(TankMarkProfileDB[zone]) do
-			if entry.mark then
-				_insert(renderList, entry.mark)
-				added[entry.mark] = true
-			end
-		end
-	end
-	
-	-- 2. Empty Profile Warning
-	if table.getn(renderList) == 0 then
+    if not TankMark.hudFrame then TankMark:CreateHUD() end
+    
+    local zone = TankMark:GetCachedZone()
+    local tankMarks = {}
+    local ccMarks = {}
+    local added = {}
+    
+    -- 1. Build Lists from Profile (separate tank/CC)
+    if TankMarkProfileDB and TankMarkProfileDB[zone] then
+        for _, entry in _ipairs(TankMarkProfileDB[zone]) do
+            if entry.mark then
+                added[entry.mark] = true
+                local playerName = entry.tank
+                
+                -- [v0.24] Classify as tank or CC based on player class
+                if playerName and playerName ~= "" and TankMark:IsPlayerCCClass(playerName) then
+                    _insert(ccMarks, entry.mark)
+                else
+                    _insert(tankMarks, entry.mark)
+                end
+            end
+        end
+    end
+    
+    -- 2. Empty Profile Warning
+	if _getn(tankMarks) == 0 and _getn(ccMarks) == 0 then
 		local warningRow = TankMark.hudRows[8]
 		warningRow.icon:SetTexture(nil)
 		warningRow.text:SetText("|cffff0000NO PROFILE LOADED|r")
@@ -274,92 +360,104 @@ function TankMark:UpdateHUD()
 		warningRow:SetPoint("TOPLEFT", TankMark.hudFrame, "TOPLEFT", 10, -25)
 		warningRow:Show()
 		
+		-- Hide all mark rows
 		for i = 7, 1, -1 do TankMark.hudRows[i]:Hide() end
+		
+		-- [v0.24] Hide section headers
+		if TankMark.hudFrame.tankHeader then TankMark.hudFrame.tankHeader:Hide() end
+		if TankMark.hudFrame.ccHeader then TankMark.hudFrame.ccHeader:Hide() end
 		
 		TankMark.hudFrame:Show()
 		TankMark.hudFrame:SetHeight(50)
 		return
 	end
-	
-	-- 3. Add Leftovers (Standard desc order)
-	for i = 8, 1, -1 do
+    
+    -- 3. Add Leftovers (marks not in profile)
+    -- (Removed leftover marks - HUD only displays assigned marks)
+    
+    -- 4. Render Sections
+    local lastVisibleRow = nil
+    local activeRows = 0
+    
+    -- 4A. Render TANK Section
+    if _getn(tankMarks) > 0 then
+        -- Create tank header if it doesn't exist
+        if not TankMark.hudFrame.tankHeader then
+            TankMark.hudFrame.tankHeader = TankMark.hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            TankMark.hudFrame.tankHeader:SetTextColor(1.0, 0.82, 0)
+        end
+        
+        TankMark.hudFrame.tankHeader:SetText("TANKS")
+        TankMark.hudFrame.tankHeader:ClearAllPoints()
+        if not lastVisibleRow then
+            TankMark.hudFrame.tankHeader:SetPoint("TOPLEFT", TankMark.hudFrame, "TOPLEFT", 10, -25)
+        else
+            TankMark.hudFrame.tankHeader:SetPoint("TOPLEFT", lastVisibleRow, "BOTTOMLEFT", 0, -5)
+        end
+        TankMark.hudFrame.tankHeader:Show()
+        lastVisibleRow = TankMark.hudFrame.tankHeader
+        activeRows = activeRows + 1
+        
+        -- Render tank marks
+        for _, i in _ipairs(tankMarks) do
+            local row = TankMark.hudRows[i]
+            TankMark:RenderHUDRow(row, i, added[i])
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", lastVisibleRow, "BOTTOMLEFT", 0, lastVisibleRow == TankMark.hudFrame.tankHeader and -2 or 0)
+            row:Show()
+            lastVisibleRow = row
+            activeRows = activeRows + 1
+        end
+    else
+        if TankMark.hudFrame.tankHeader then TankMark.hudFrame.tankHeader:Hide() end
+    end
+    
+    -- 4B. Render CC Section
+    if _getn(ccMarks) > 0 then
+        -- Create CC header if it doesn't exist
+        if not TankMark.hudFrame.ccHeader then
+            TankMark.hudFrame.ccHeader = TankMark.hudFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            TankMark.hudFrame.ccHeader:SetTextColor(1.0, 0.82, 0)
+        end
+        
+        TankMark.hudFrame.ccHeader:SetText("CROWD CONTROL")
+        TankMark.hudFrame.ccHeader:ClearAllPoints()
+        if not lastVisibleRow then
+            TankMark.hudFrame.ccHeader:SetPoint("TOPLEFT", TankMark.hudFrame, "TOPLEFT", 10, -25)
+        else
+            TankMark.hudFrame.ccHeader:SetPoint("TOPLEFT", lastVisibleRow, "BOTTOMLEFT", 0, -8)
+        end
+        TankMark.hudFrame.ccHeader:Show()
+        lastVisibleRow = TankMark.hudFrame.ccHeader
+        activeRows = activeRows + 1
+        
+        -- Render CC marks
+        for _, i in _ipairs(ccMarks) do
+            local row = TankMark.hudRows[i]
+            TankMark:RenderHUDRow(row, i, added[i])
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", lastVisibleRow, "BOTTOMLEFT", 0, lastVisibleRow == TankMark.hudFrame.ccHeader and -2 or 0)
+            row:Show()
+            lastVisibleRow = row
+            activeRows = activeRows + 1
+        end
+    else
+        if TankMark.hudFrame.ccHeader then TankMark.hudFrame.ccHeader:Hide() end
+    end
+    
+    -- [v0.24] Hide all rows not rendered above (safety cleanup)
+	for i = 1, 8 do
 		if not added[i] then
-			_insert(renderList, i)
+			TankMark.hudRows[i]:Hide()
 		end
 	end
-	
-	-- 4. Render Loop
-	for _, i in _ipairs(renderList) do
-		local row = TankMark.hudRows[i]
-		local assignedPlayer = TankMark.sessionAssignments[i]
-		local activeMob = TankMark.activeMobNames[i]
-		local textToShow = nil
-		
-		if assignedPlayer then
-			-- Apply roster validation
-			local isInRaid = TankMark:IsPlayerInRaid(assignedPlayer)
-			if isInRaid then
-				textToShow = "|cff00ff00" .. assignedPlayer .. "|r"
-			else
-				textToShow = "|cffff0000" .. assignedPlayer .. "|r"
-			end
-		elseif activeMob then
-			textToShow = "|cffffffff" .. activeMob .. "|r"
-		end
-
-		
-		local isProfileMark = added[i]
-		local hasAssignment = (textToShow ~= nil)
-		local isDisabled = TankMark.disabledMarks[i]
-		
-		-- Apply Visual Disable (Dimming)
-		if isDisabled then
-			row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-			SetRaidTargetIconTexture(row.icon, i)
-			row.icon:SetVertexColor(0.3, 0.3, 0.3)
-			
-			if textToShow then
-				local plainText = string.gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
-				plainText = string.gsub(plainText, "|r", "")
-				textToShow = "|cff888888" .. plainText .. " (OFF)|r"
-			else
-				textToShow = "|cff888888(Disabled)|r"
-			end
-		else
-			row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-			SetRaidTargetIconTexture(row.icon, i)
-			row.icon:SetVertexColor(1, 1, 1)
-		end
-		
-		-- Display Decision
-		if isProfileMark or hasAssignment or isDisabled then
-			if not textToShow then
-				textToShow = "|cff888888(Free)|r"
-			end
-			
-			row.text:SetText(textToShow)
-			row:ClearAllPoints()
-			
-			if not lastVisibleRow then
-				row:SetPoint("TOPLEFT", TankMark.hudFrame, "TOPLEFT", 10, -25)
-			else
-				row:SetPoint("TOPLEFT", lastVisibleRow, "BOTTOMLEFT", 0, 0)
-			end
-			
-			row:Show()
-			lastVisibleRow = row
-			activeRows = activeRows + 1
-		else
-			row:Hide()
-		end
-	end
-	
-	if activeRows > 0 then
-		TankMark.hudFrame:Show()
-		TankMark.hudFrame:SetHeight((activeRows * 20) + 30)
-	else
-		TankMark.hudFrame:Hide()
-	end
+    
+    if activeRows > 0 then
+        TankMark.hudFrame:Show()
+        TankMark.hudFrame:SetHeight((activeRows * 20) + 30)
+    else
+        TankMark.hudFrame:Hide()
+    end
 end
 
 -- ==========================================================
