@@ -102,7 +102,7 @@ local function CreateZoneControls(parent)
 	
 	mzCheck:SetScript("OnClick", function()
 		TankMark:ToggleZoneBrowser()
-		PlaySound("igMainMenuOptionCheckBoxOn")
+		L._PlaySound("igMainMenuOptionCheckBoxOn")
 	end)
 	TankMark.zoneModeCheck = mzCheck
 	
@@ -421,7 +421,7 @@ local function CreateMobEditorControls(editor)
 	prioUp:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up")
 	prioUp:SetScript("OnClick", function()
 		local current = tonumber(prioBox:GetText()) or 1
-		prioBox:SetText(math.min(current + 1, 9))
+		prioBox:SetText(L._min(current + 1, 9))
 	end)
 	
 	-- Priority Spinner Down
@@ -432,7 +432,7 @@ local function CreateMobEditorControls(editor)
 	prioDown:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
 	prioDown:SetScript("OnClick", function()
 		local current = tonumber(prioBox:GetText()) or 1
-		prioBox:SetText(math.max(current - 1, 1))
+		prioBox:SetText(L._max(current - 1, 1))
 	end)
 	
 	-- CC Class Button

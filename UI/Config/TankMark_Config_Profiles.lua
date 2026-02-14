@@ -183,7 +183,7 @@ function TankMark:AddHealerToRow(rowIndex)
 	-- Check if healer already in list
 	if currentHealers ~= "" then
 		local healerList = {}
-		for name in L._sgfind(currentHealers, "[^ ]+") do
+		for name in L._gfind(currentHealers, "[^ ]+") do
 			L._tinsert(healerList, name)
 			if name == healerName then
 				TankMark:Print("|cffffaa00Notice:|r " .. healerName .. " is already in the healer list.")
@@ -395,7 +395,7 @@ function TankMark:UpdateProfileList()
             if row.warnIcon then
                 local showWarning = false
                 if data.healers and data.healers ~= "" then
-                    for healerName in L._sgfind(data.healers, "[^ ]+") do
+                    for healerName in L._gfind(data.healers, "[^ ]+") do
                         if not TankMark:IsPlayerInRaid(healerName) then
                             showWarning = true
                             break
@@ -619,7 +619,7 @@ function TankMark:CreateProfileTab(parent)
             GameTooltip:AddLine(" ", 1, 1, 1) -- Spacing
             
             local hasOffline = false
-            for healerName in L._sgfind(healers, "[^ ]+") do
+            for healerName in L._gfind(healers, "[^ ]+") do
                 local isOnline = TankMark:IsPlayerInRaid(healerName)
                 if isOnline then
                     GameTooltip:AddLine(healerName .. " [Online]", 0, 1, 0)

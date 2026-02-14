@@ -16,6 +16,7 @@ TankMark.Locals = {
     -- UNIT FUNCTIONS
     -- ==========================================================
     _SetRaidTarget = SetRaidTarget,
+    _SetRaidTargetIconTexture = SetRaidTargetIconTexture,
     _UnitIsDead = UnitIsDead,
     _UnitIsPlayer = UnitIsPlayer,
     _UnitIsFriend = UnitIsFriend,
@@ -61,6 +62,7 @@ TankMark.Locals = {
     -- ==========================================================
     -- CHAT/MESSAGE FUNCTIONS
     -- ==========================================================
+    _PlaySound = PlaySound,
     _SendAddonMessage = SendAddonMessage,
     _SendChatMessage = SendChatMessage,
     
@@ -94,6 +96,9 @@ TankMark.Locals = {
     -- ==========================================================
     -- MATH FUNCTIONS
     -- ==========================================================
+    _randomseed = math.randomseed,
+    _min = math.min,
+    _max = math.max,
     _floor = math.floor,
     
     -- ==========================================================
@@ -288,12 +293,13 @@ TankMark:SetScript("OnEvent", function()
         local numParty = L._GetNumPartyMembers()
         
         if numRaid == 0 and numParty == 0 then
-            -- Player is now solo (left group)
-            TankMark:ResetSession()
-            if TankMark.hudFrame then
-                TankMark.hudFrame:Hide()
+            -- Check if we are already in a "Solo" state to prevent multi-firing
+            if TankMark.currentZone ~= "SOLO_RESET" then 
+                TankMark:ResetSession()
+                TankMark.currentZone = "SOLO_RESET" -- Temporary flag
+                if TankMark.hudFrame then TankMark.hudFrame:Hide() end
             end
-            return -- Skip HUD update since we just hid it
+            return 
         end
         
         -- Update HUD colors when roster changes (still in group)
