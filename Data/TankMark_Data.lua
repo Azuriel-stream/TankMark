@@ -345,6 +345,21 @@ function TankMark:Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccff[TankMark]|r " .. msg)
 end
 
+function TankMark:UpdateZoneDropdowns()
+    -- Get the zone name (using your standard localization)
+    local zone = TankMark:GetCachedZone()
+    
+    -- Update Mob Database Dropdown (if UI exists)
+    if TankMark.zoneDropDown then
+        TankMark:UpdateMobZoneUI(zone)
+    end
+    
+    -- Update Team Profile Dropdown (if UI exists)
+    if TankMark.profileZoneDropdown then
+        TankMark:UpdateProfileZoneUI(zone)
+    end
+end
+
 -- ==========================================================
 -- ROSTER MANAGEMENT
 -- ==========================================================

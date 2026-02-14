@@ -14,7 +14,7 @@ local L = TankMark.Locals
 -- ==========================================================
 
 function TankMark:InitCombatLogParser()
-    local pattern = L._gsub(UNITDIESOTHER, "%%s", "(.*)")
+    local pattern = L._gsub(L._UNITDIESOTHER, "%%s", "(.*)")
     TankMark.DeathPattern = "^" .. pattern .. "$"
 end
 

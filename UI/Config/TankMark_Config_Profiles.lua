@@ -445,6 +445,25 @@ function TankMark:UpdateProfileList()
 	end
 end
 
+function TankMark:UpdateProfileZoneUI(zone)
+    -- Safety check for the specific widget found in this file
+    if not TankMark.profileZoneDropdown then return end
+    
+    -- Update the visual text on the dropdown button
+    UIDropDownMenu_SetText(zone, TankMark.profileZoneDropdown)
+    
+    -- Reload the profile data into the cache for the new zone
+    -- This function (lines 60+) uses UIDropDownMenu_GetText, so setting the text above is critical
+    if TankMark.LoadProfileToCache then
+        TankMark:LoadProfileToCache()
+    end
+    
+    -- Refresh the visual rows
+    if TankMark.UpdateProfileList then
+        TankMark:UpdateProfileList()
+    end
+end
+
 -- ==========================================================
 -- TAB CONSTRUCTION
 -- ==========================================================

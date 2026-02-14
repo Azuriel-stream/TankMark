@@ -82,6 +82,7 @@ TankMark.Locals = {
     _lower = string.lower,
     _strupper = string.upper,
     _format = string.format,
+    _UNITDIESOTHER = UNITDIESOTHER,
     
     -- ==========================================================
     -- TABLE FUNCTIONS
@@ -261,6 +262,8 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
+        
+        if TankMark.UpdateZoneDropdowns then TankMark:UpdateZoneDropdowns() end
         
         -- Disable Flight Recorder on zone change (safety)
         if TankMark.IsRecorderActive then

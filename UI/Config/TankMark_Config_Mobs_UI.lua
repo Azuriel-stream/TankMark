@@ -42,6 +42,21 @@ local function CreateSmallButton(parent, width, text)
 	return btn
 end
 
+function TankMark:UpdateMobZoneUI(zone)
+    -- Safety check for the specific widget found in this file
+    if not TankMark.zoneDropDown then return end
+    
+    -- Update the visual text on the dropdown button
+    -- Note: UIDropDownMenu_SetText is a standard UI function usually available globally
+    UIDropDownMenu_SetText(zone, TankMark.zoneDropDown)
+    
+    -- Refresh the mob list to match the new zone
+    -- This relies on the UpdateMobList function defined in this same file
+    if TankMark.UpdateMobList then
+        TankMark:UpdateMobList()
+    end
+end
+
 -- ==========================================================
 -- TOP SECTION: ZONE CONTROLS (Right-aligned)
 -- ==========================================================
