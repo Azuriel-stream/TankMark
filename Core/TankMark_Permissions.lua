@@ -50,6 +50,6 @@ end
 
 function TankMark:Driver_ApplyMark(unitOrGuid, icon)
     if TankMark:CanAutomate() then
-        SetRaidTarget(unitOrGuid, icon)
+        L._SetRaidTarget(unitOrGuid, icon)
     end
 end

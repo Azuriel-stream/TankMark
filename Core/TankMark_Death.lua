@@ -100,7 +100,7 @@ function TankMark:HandleDeath(unitID)
         
         if nextTank then
             local msg = "ALERT: " .. deadPlayerName .. " (" .. deadMarkStr .. ") has died! Take over!"
-            SendChatMessage(msg, "WHISPER", nil, nextTank)
+            L._SendChatMessage(msg, "WHISPER", nil, nextTank)
             TankMark:Print("Alerted " .. nextTank .. " to cover for " .. deadPlayerName)
         else
             TankMark:Print("|cffff0000WARNING:|r " .. deadPlayerName .. " died, but no alive backup tank found!")
@@ -120,7 +120,7 @@ function TankMark:HandleDeath(unitID)
                         -- [v0.24] Only alert if tank is alive
                         if tankName and tankName ~= "" and TankMark:IsPlayerAliveAndInRaid(tankName) then
                             local msg = "ALERT: Your healer " .. healerName .. " has died!"
-                            SendChatMessage(msg, "WHISPER", nil, tankName)
+                            L._SendChatMessage(msg, "WHISPER", nil, tankName)
                             TankMark:Print("Alerted " .. tankName .. " about healer death: " .. healerName)
                         else
                             TankMark:Print("|cffffaa00INFO:|r Healer " .. healerName .. " died, but tank " .. (tankName or "Unknown") .. " is unavailable.")
@@ -232,57 +232,54 @@ function TankMark:ReviewSkullState()
     -- [v0.22] Use activeDB instead of TankMarkDB.Zones[zone]
     if not TankMark.activeDB then return end
     
+    -- NEW CODE (v0.26: HP < 99% = combat for marked mobs):
     for guid, _ in L._pairs(TankMark.visibleTargets) do
-        -- [v0.22] COMBAT GATING: Only consider mobs in combat
-        if TankMark:IsGUIDInCombat(guid) then
-            local currentMark = L._GetRaidTargetIndex(guid)
-            local name = L._UnitName(guid)
+        if not L._UnitIsDead(guid) then
             
-            -- [v0.23] Check database mark to determine eligibility
-            local mobData = name and TankMark.activeDB[name]
-            local databaseMark = nil
-            if mobData and mobData.marks then
-                -- [v0.23] For sequential mobs, only first mark matters for Skull eligibility
-                databaseMark = mobData.marks[1]
+            -- Combat check: targeting player/pet OR already-marked with HP < 99%
+            local inCombat = TankMark:IsGUIDInCombat(guid)
+            if not inCombat and TankMark.activeGUIDs[guid] then
+                local maxHP = L._UnitHealthMax(guid)
+                local curHP = L._UnitHealth(guid)
+                if maxHP and maxHP > 0 and (curHP / maxHP) < 0.99 then
+                    inCombat = true
+                end
             end
             
-            -- Candidate eligibility:
-            -- 1. Unmarked mob with NO database entry OR database mark is SKULL
-            -- 2. Mob currently has SKULL (for dynamic swapping)
-            -- EXPLICITLY EXCLUDE: Mobs whose database mark is anything other than SKULL
-            local isEligible = not L._UnitIsDead(guid) and (
-                (not currentMark and (not databaseMark or databaseMark == 8)) or
-                currentMark == 8
-            )
-            
-            if isEligible then
+            -- Only proceed if the unit is effectively in combat
+            if inCombat then 
+                
                 -- [v0.22] Respect MarkNormals filter
+                local isEligible = true
                 if not TankMark.MarkNormals then
                     local cls = L._UnitClassification(guid)
-                    if cls == "normal" or cls == "trivial" or cls == "minus" then
-                        name = nil
+                    if cls == "normal" or cls == "trivial" or cls == "minus" then 
+                        isEligible = false 
                     end
                 end
                 
-                -- [v0.22] Lookup in activeDB
-                if name and TankMark.activeDB[name] then
-                    local data = TankMark.activeDB[name]
-                    local mobPrio = data.prio or 99
-                    local mobHP = L._UnitHealth(guid)
-                    
-                    if mobPrio < bestPrio then
-                        bestPrio = mobPrio
-                        lowestHP = mobHP
-                        bestGUID = guid
-                    elseif mobPrio == bestPrio then
-                        if mobHP and mobHP < lowestHP and mobHP > 0 then
+                -- [v0.22] Lookup in activeDB if eligible
+                if isEligible then
+                    local name = L._UnitName(guid)
+                    if name and TankMark.activeDB[name] then
+                        local data = TankMark.activeDB[name]
+                        local mobPrio = data.prio or 99
+                        local mobHP = L._UnitHealth(guid)
+                        
+                        if mobPrio < bestPrio then
+                            bestPrio = mobPrio
                             lowestHP = mobHP
                             bestGUID = guid
+                        elseif mobPrio == bestPrio then
+                            if mobHP and mobHP < lowestHP and mobHP > 0 then
+                                lowestHP = mobHP
+                                bestGUID = guid
+                            end
                         end
                     end
-                end
-            end
-        end
+                end -- end isEligible
+            end -- end inCombat
+        end -- end UnitIsDead check
     end
     
     -- 4. Decision: Swap or Keep?
@@ -361,14 +358,14 @@ function TankMark:ResetSession()
         if TankMark.IsSuperWoW then
             for i = 1, 8 do
                 if L._UnitExists("mark" .. i) then
-                    SetRaidTarget("mark" .. i, 0)
+                    L._SetRaidTarget("mark" .. i, 0)
                 end
             end
         end
         
         local function ClearUnit(unit)
             if L._UnitExists(unit) and L._GetRaidTargetIndex(unit) then
-                SetRaidTarget(unit, 0)
+                L._SetRaidTarget(unit, 0)
             end
         end
         

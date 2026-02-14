@@ -15,6 +15,7 @@ TankMark.Locals = {
     -- ==========================================================
     -- UNIT FUNCTIONS
     -- ==========================================================
+    _SetRaidTarget = SetRaidTarget,
     _UnitIsDead = UnitIsDead,
     _UnitIsPlayer = UnitIsPlayer,
     _UnitIsFriend = UnitIsFriend,
@@ -28,6 +29,7 @@ TankMark.Locals = {
     _UnitCreatureType = UnitCreatureType,
     _UnitClassification = UnitClassification,
     _UnitHealth = UnitHealth,
+    _UnitHealthMax = UnitHealthMax,
     _UnitInRaid = UnitInRaid,
     _UnitIsConnected = UnitIsConnected,
     _UnitPlayerControlled = UnitPlayerControlled,
@@ -60,6 +62,7 @@ TankMark.Locals = {
     -- CHAT/MESSAGE FUNCTIONS
     -- ==========================================================
     _SendAddonMessage = SendAddonMessage,
+    _SendChatMessage = SendChatMessage,
     
     -- ==========================================================
     -- TIME FUNCTIONS
@@ -75,6 +78,8 @@ TankMark.Locals = {
     _gfind = string.gfind,
     _sub = string.sub,
     _lower = string.lower,
+    _strupper = string.upper,
+    _format = string.format,
     
     -- ==========================================================
     -- TABLE FUNCTIONS
@@ -273,7 +278,9 @@ TankMark:SetScript("OnEvent", function()
                 end
             end
         end
-        TankMark:HandleDeath(arg1)
+        if TankMark.HandleDeath then
+            TankMark:HandleDeath(arg1)
+        end
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
         -- [v0.22] Check if player left party/raid
@@ -464,8 +471,8 @@ function TankMark:AnnounceAssignments()
     if L._GetNumRaidMembers() > 0 then channel = "RAID"
     elseif L._GetNumPartyMembers() > 0 then channel = "PARTY" end
     
-    SendChatMessage("== " .. zone .. " Assignments ==", channel)
-    SendChatMessage("Mark || Tank || Healers", channel)
+    L._SendChatMessage("== " .. zone .. " Assignments ==", channel)
+    L._SendChatMessage("Mark || Tank || Healers", channel)
     
     for _, data in L._ipairs(profile) do
         if data.mark and data.tank ~= "" then
@@ -480,7 +487,7 @@ function TankMark:AnnounceAssignments()
             else
                 msg = msg .. " || -"
             end
-            SendChatMessage(msg, channel)
+            L._SendChatMessage(msg, channel)
         end
     end
 end

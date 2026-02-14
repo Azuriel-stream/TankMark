@@ -94,14 +94,18 @@ function TankMark:SaveProfileCache()
 	
 	-- Update session if current zone
 	if zone == L._GetRealZoneText() then
+		-- [v0.26] Do NOT pre-mark icons as used.
+		-- Session assignments drive the HUD, usedIcons should reflect live mob marks only.
 		TankMark.sessionAssignments = {}
-		TankMark.usedIcons = {}
+
 		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
 			if entry.tank and entry.tank ~= "" then
 				TankMark.sessionAssignments[entry.mark] = entry.tank
-				TankMark.usedIcons[entry.mark] = true
 			end
 		end
+
+		-- Leave TankMark.usedIcons untouched here.
+		-- It will be populated when marks are actually applied to mobs.
 		if TankMark.UpdateHUD then
 			TankMark:UpdateHUD()
 		end

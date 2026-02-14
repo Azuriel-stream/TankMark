@@ -77,36 +77,43 @@ function TankMark:IsPlayerCCClass(playerName)
     return false
 end
 
--- [v0.24] Find CC player in Team Profile matching required class
+-- [v0.26] Find CC player in Team Profile matching required class
+-- FIX: Case-insensitive class comparison
 function TankMark:FindCCPlayerForClass(requiredClass)
-    local zone = TankMark:GetCachedZone()
-    local list = TankMarkProfileDB[zone]
-    if not list then return nil end
-    
-    for _, entry in L._ipairs(list) do
-        local playerName = entry.tank
-        local markID = entry.mark
-        
-        if playerName and playerName ~= "" then
-            local unit = TankMark:FindUnitByName(playerName)
-            if unit then
-                local playerClass = L._UnitClass(unit)
-                
-                -- Match required class
-                if playerClass == requiredClass then
-                    -- Check if mark is available (not used and not disabled)
-                    if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
-                        -- Check if player is alive
-                        if not L._UnitIsDeadOrGhost(unit) then
-                            return markID
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return nil
+	local zone = TankMark:GetCachedZone()
+	local list = TankMarkProfileDB[zone]
+	if not list then return nil end
+	
+	-- [v0.26] Normalize required class to uppercase for comparison
+	if requiredClass then
+		requiredClass = L._strupper(requiredClass)
+	end
+	
+	for _, entry in L._ipairs(list) do
+		local playerName = entry.tank
+		local markID = entry.mark
+		
+		if playerName and playerName ~= "" then
+			local unit = TankMark:FindUnitByName(playerName)
+			if unit then
+				local _, playerClassEng = L._UnitClass(unit)
+				
+				-- [v0.26] FIX: Use English class token (always uppercase) instead of localized name
+				-- Match required class (both now uppercase)
+				if playerClassEng == requiredClass then
+					-- Check if mark is available (not used and not disabled)
+					if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+						-- Check if player is alive
+						if not L._UnitIsDeadOrGhost(unit) then
+							return markID
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	return nil
 end
 
 -- [v0.24] Helper: Check if player is alive and in raid
