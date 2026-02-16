@@ -184,16 +184,30 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     if iconToApply == 8 and mode ~= "FORCE" then
         local blocked = false
         
-        -- Double check availability, but respect our Override decision
         local isBusy = TankMark:IsMarkBusy(8)
-        
-        -- Calculate Override again to satisfy the Governor
         local myPrio = mobData.prio or 5
-        local ownerPrio = TankMark:GetMarkOwnerPriority(8)
-        local overrideValid = (myPrio < ownerPrio)
         
-        if isBusy and not overrideValid then 
-            blocked = true 
+        if isBusy then
+            -- Path A: Mark is TAKEN. Can we steal it?
+            local ownerPrio = TankMark:GetMarkOwnerPriority(8)
+            local overrideValid = (myPrio < ownerPrio)
+            
+            if not overrideValid then
+                blocked = true
+            end
+        else
+            -- Path B: Mark is FREE. Is it blocked by a lower mark (Incumbency)?
+            -- [FIX] This section was missing in the previous version
+            if TankMark.GetBlockingMarkInfo then
+                local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
+                if blockIcon then
+                    -- If we are not strictly better than the blocker, we wait.
+                    -- 5 >= 5 means Cross (5) blocks Skull (5).
+                    if myPrio >= blockPrio then
+                        blocked = true
+                    end
+                end
+            end
         end
         
         if blocked then return end
