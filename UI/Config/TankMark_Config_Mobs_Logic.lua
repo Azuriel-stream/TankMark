@@ -54,7 +54,7 @@ function TankMark:ApplySmartDefaults(className)
 	end
 	
 	if TankMark.editPrio then
-		TankMark.editPrio:SetText(tostring(defaults.prio))
+		TankMark.editPrio:SetText(L._tostring(defaults.prio))
 	end
 end
 

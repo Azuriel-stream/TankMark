@@ -1,12 +1,11 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Core/TankMark_Processor.lua
--- Module Version: 1.0
--- Last Updated: 2026-02-08
+-- Module Version: 1.1
+-- Last Updated: 2026-02-16
 -- Core marking decision logic
 
 if not TankMark then return end
 
--- Import shared localizations
 local L = TankMark.Locals
 
 -- ==========================================================
@@ -32,7 +31,7 @@ function TankMark:ProcessUnit(guid, mode)
         if cls == "normal" or cls == "trivial" or cls == "minus" then return end
     end
     
-    -- Flight Recorder (record only, don't mark)
+    -- Flight Recorder
     if TankMark.IsRecorderActive then
         TankMark:RecordUnit(guid)
         return
@@ -40,8 +39,8 @@ function TankMark:ProcessUnit(guid, mode)
     
     -- 2. Check Database Existence
     local zone = TankMark:GetCachedZone()
-    local hasActiveDB = (TankMark.activeDB and next(TankMark.activeDB) ~= nil)
-    local hasGUIDLocks = (TankMarkDB.StaticGUIDs[zone] and next(TankMarkDB.StaticGUIDs[zone]) ~= nil)
+    local hasActiveDB = (TankMark.activeDB and L._next(TankMark.activeDB) ~= nil)
+    local hasGUIDLocks = (TankMarkDB.StaticGUIDs[zone] and L._next(TankMarkDB.StaticGUIDs[zone]) ~= nil)
     local dbExists = hasActiveDB or hasGUIDLocks
     
     if not dbExists and mode ~= "FORCE" then return end
@@ -67,9 +66,9 @@ function TankMark:ProcessUnit(guid, mode)
         local lockData = TankMarkDB.StaticGUIDs[zone][guid]
         local lockedIcon = nil
         
-        if type(lockData) == "table" then
+        if L._type(lockData) == "table" then
             lockedIcon = lockData.mark
-        elseif type(lockData) == "number" then
+        elseif L._type(lockData) == "number" then
             lockedIcon = lockData
         end
         
@@ -84,7 +83,6 @@ function TankMark:ProcessUnit(guid, mode)
     local mobName = L._UnitName(guid)
     if not mobName then return end
     
-    -- [v0.21] LOOKUP IN MERGED ZONE CACHE (activeDB)
     local mobData = nil
     if TankMark.activeDB and TankMark.activeDB[mobName] then
         mobData = TankMark.activeDB[mobName]
@@ -94,89 +92,131 @@ function TankMark:ProcessUnit(guid, mode)
         mobData.name = mobName
         TankMark:ProcessKnownMob(mobData, guid, mode)
     else
-        -- [v0.22 FIX] Allow SCANNER mode to mark unknown mobs
         if mode == "FORCE" or mode == "SCANNER" then
             TankMark:ProcessUnknownMob(guid, mode)
         end
     end
 end
 
-function TankMark:ProcessKnownMob(mobData, guid, mode)
-    -- [v0.23] Skip auto-marking for sequential mobs
-    if mobData.marks and L._tgetn(mobData.marks) > 1 then
-        return -- Sequential mobs only marked via batch marking
+-- [v0.26] Helper to check if a mark is truly busy
+function TankMark:IsMarkBusy(iconID)
+    -- 1. Check Memory (Persistence)
+    -- This catches "Ghost" blockers that are off-screen but known by the Scanner.
+    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
+        return true 
+    end
+
+    -- 2. SuperWoW Global Check (Ignore Dead)
+    -- This handles static GUIDs on corpses (TurtleWoW).
+    -- If the unit holding the mark is dead, the mark is NOT busy.
+    if TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) then
+        if not L._UnitIsDead("mark"..iconID) then
+            return true
+        end
     end
     
-    -- [v0.23] Extract single mark from array
+    -- 3. Standard Local Check
+    -- Fallback for standard vanilla clients or immediate usage.
+    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
+        return true
+    end
+    
+    return false
+end
+
+function TankMark:ProcessKnownMob(mobData, guid, mode)
+    if mobData.marks and L._tgetn(mobData.marks) > 1 then return end
+    
     local markToUse = mobData.marks and mobData.marks[1] or 8
     if markToUse == 0 then return end
     
-    -- [v0.22] COMBAT GATING: Only mark mobs when combat is happening
     if mode == "SCANNER" then
         local playerInCombat = L._UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
-        
-        if not mobInCombat and not playerInCombat then
-            return
-        end
+        if not mobInCombat and not playerInCombat then return end
     end
     
     local iconToApply = nil
     
-    -- [v0.24] CC ASSIGNMENT LOGIC
     if mobData.type == "CC" and mobData.class then
-        -- Step 1: Try to find CC player matching required class
         local ccMark = TankMark:FindCCPlayerForClass(mobData.class)
-        if ccMark then
-            iconToApply = ccMark
-        end
-        
-        -- Step 2: Fallback to tank assignment if no CC player available
-        if not iconToApply then
-            -- Try DB mark first (if not disabled)
-            if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
-                iconToApply = markToUse
-            end
-            
-            -- Then try tank marks
-            if not iconToApply then
-                iconToApply = TankMark:GetFreeTankIcon()
-            end
-        end
+        if ccMark then iconToApply = ccMark end
+    end
     
-    -- [v0.24] KILL ASSIGNMENT LOGIC (or CC with no class specified)
-    else
-        -- Priority 1: Use mob's database mark if free
-        if not TankMark.usedIcons[markToUse] and not TankMark.disabledMarks[markToUse] then
+    if not iconToApply then
+        if not TankMark:IsMarkBusy(markToUse) and not TankMark.disabledMarks[markToUse] then
             iconToApply = markToUse
         end
-        
-        -- Priority 2: Get next available tank mark
         if not iconToApply then
             iconToApply = TankMark:GetFreeTankIcon()
         end
     end
     
+    -- GOVERNOR CHECK
+    -- Prevents mark stealing based on Priority Incumbency
+    if iconToApply == 8 and mode ~= "FORCE" then
+        local blocked = false
+        
+        -- Double check availability just in case
+        if TankMark:IsMarkBusy(8) then 
+            blocked = true 
+        else
+            if TankMark.GetBlockingMarkInfo then
+                local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
+                if blockIcon then
+                    local mobPrio = mobData.prio or 99
+                    
+                    -- Strict Incumbency Rule:
+                    -- If the new mob's priority is equal (5) or worse (99) than the blocker (5),
+                    -- do NOT assign. Blockers win ties.
+                    if mobPrio >= blockPrio then
+                        blocked = true
+                    end
+                end
+            end
+        end
+        
+        if blocked then return end
+    end
+    
     if iconToApply then
+        -- Sync Memory immediately to prevent race conditions in the same frame
+        if TankMark.MarkMemory then
+            TankMark.MarkMemory[iconToApply] = guid 
+        end
+        
         TankMark:Driver_ApplyMark(guid, iconToApply)
         TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, (L._UnitPowerType(guid) == 0), false)
     end
 end
 
 function TankMark:ProcessUnknownMob(guid, mode)
-    -- [v0.22 FIX] Combat gating (only for SCANNER mode)
-    -- FORCE mode (batch marking) bypasses this check
     if mode == "SCANNER" then
         local playerInCombat = L._UnitAffectingCombat("player")
         local mobInCombat = TankMark:IsGUIDInCombat(guid)
-        
-        if not mobInCombat and not playerInCombat then
-            return -- Don't mark peaceful mobs via scanner
-        end
+        if not mobInCombat and not playerInCombat then return end
     end
     
     local iconToApply = TankMark:GetFreeTankIcon()
+    
+    if iconToApply == 8 and mode ~= "FORCE" then
+        if TankMark:IsMarkBusy(8) then return end
+        
+        if TankMark.GetBlockingMarkInfo then
+            local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
+            if blockIcon then
+                -- Unknown mobs are assumed Prio 5.
+                -- If Blocker is Prio 5, 5 >= 5 is TRUE -> Blocked.
+                local myPrio = 5 
+                if myPrio >= blockPrio then return end
+            end
+        end
+    end
+
     if iconToApply then
+        if TankMark.MarkMemory then
+            TankMark.MarkMemory[iconToApply] = guid 
+        end
         TankMark:Driver_ApplyMark(guid, iconToApply)
         TankMark:RegisterMarkUsage(iconToApply, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
     end
@@ -199,10 +239,8 @@ function TankMark:RegisterMarkUsage(icon, name, guid, isCaster, skipProfileLooku
 end
 
 function TankMark:RecordUnit(guid)
-    -- [v0.21] Skip if already recorded this session (prevent spam)
     if TankMark.recordedGUIDs[guid] then return end
     
-    -- Sanity check: Don't record players (even enemy faction)
     if L._UnitIsPlayer(guid) then return end
     if L._UnitIsFriend("player", guid) then return end
     
@@ -214,15 +252,12 @@ function TankMark:RecordUnit(guid)
     
     local zone = TankMark:GetCachedZone()
     
-    -- Safety: Ensure zone exists
     if not TankMarkDB.Zones[zone] then
         TankMarkDB.Zones[zone] = {}
     end
     
-    -- Check if mob already exists
     if TankMarkDB.Zones[zone][name] then return end
     
-    -- [v0.23] Record new mob with array schema
     TankMarkDB.Zones[zone][name] = {
         prio = 5,
         marks = {8},
@@ -232,10 +267,8 @@ function TankMark:RecordUnit(guid)
     
     TankMark:Print("|cff00ff00Recorded:|r " .. name .. " |cff888888(P5, Mark: Skull)|r")
     
-    -- [v0.21] Track GUID to prevent re-recording during this session
     TankMark.recordedGUIDs[guid] = true
     
-    -- [v0.21] Don't add to activeDB in Recorder mode (prevents immediate marking)
     if not TankMark.IsRecorderActive then
         if not TankMark.activeDB then
             TankMark.activeDB = {}
@@ -243,7 +276,6 @@ function TankMark:RecordUnit(guid)
         TankMark.activeDB[name] = TankMarkDB.Zones[zone][name]
     end
     
-    -- Refresh mob list if config window is open
     if TankMark.UpdateMobList then
         TankMark:UpdateMobList()
     end

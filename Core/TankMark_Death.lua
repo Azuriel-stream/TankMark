@@ -1,12 +1,11 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Core/TankMark_Death.lua
--- Module Version: 1.0
--- Last Updated: 2026-02-08
+-- Module Version: 1.1
+-- Last Updated: 2026-02-16
 -- Death detection, mark cleanup, and skull priority management
 
 if not TankMark then return end
 
--- Import shared localizations
 local L = TankMark.Locals
 
 -- ==========================================================
@@ -58,14 +57,14 @@ function TankMark:HandleDeath(unitID)
         return
     end
     
-    -- [v0.24] Handle PLAYER death
+    -- Handle PLAYER death
     -- Check if player is actually dead/ghost (not just 0 HP from HoT ticks)
     if not L._UnitIsDeadOrGhost(unitID) then return end
     
     local deadPlayerName = L._UnitName(unitID)
     if not deadPlayerName then return end
     
-    -- [v0.24] Check if we already alerted about this death
+    -- Check if we already alerted about this death
     if TankMark.alertedDeaths[deadPlayerName] then return end
     
     -- Mark death as processed
@@ -87,7 +86,7 @@ function TankMark:HandleDeath(unitID)
     if deadTankIndex then
         local deadMarkStr = TankMark:GetMarkString(list[deadTankIndex].mark)
         
-        -- [v0.24] Find next ALIVE tank in sequence
+        -- Find next ALIVE tank in sequence
         local nextTank = nil
         for i = deadTankIndex + 1, L._tgetn(list) do
             if list[i].tank and list[i].tank ~= "" then
@@ -117,7 +116,7 @@ function TankMark:HandleDeath(unitID)
                     if TankMark:IsPlayerInRaid(healerName) then
                         local tankName = entry.tank
                         
-                        -- [v0.24] Only alert if tank is alive
+                        -- Only alert if tank is alive
                         if tankName and tankName ~= "" and TankMark:IsPlayerAliveAndInRaid(tankName) then
                             local msg = "ALERT: Your healer " .. healerName .. " has died!"
                             L._SendChatMessage(msg, "WHISPER", nil, tankName)
@@ -133,7 +132,7 @@ function TankMark:HandleDeath(unitID)
     end
 end
 
--- [v0.24] Clear death alert when player is alive again
+-- Clear death alert when player is alive again
 function TankMark:ClearDeathAlert(playerName)
     if TankMark.alertedDeaths and playerName then
         TankMark.alertedDeaths[playerName] = nil
@@ -177,10 +176,14 @@ function TankMark:VerifyMarkExistence(iconID)
 end
 
 function TankMark:EvictMarkOwner(iconID)
-    local oldName = TankMark.activeMobNames[iconID]
     TankMark.activeMobNames[iconID] = nil
     TankMark.usedIcons[iconID] = nil
     TankMark.activeMobIsCaster[iconID] = nil
+    
+    -- [v0.26] Clear Persistent Memory
+    if TankMark.MarkMemory then
+        TankMark.MarkMemory[iconID] = nil
+    end
     
     for guid, mark in L._pairs(TankMark.activeGUIDs) do
         if mark == iconID then
@@ -196,128 +199,48 @@ end
 -- ==========================================================
 
 function TankMark:ReviewSkullState()
-    -- [v0.22] Skip skull management when Recorder is active
-    if TankMark.IsRecorderActive then return end
-    
-    -- 1. Identify Current Skull
-    local skullGUID = nil
-    for guid, mark in L._pairs(TankMark.activeGUIDs) do
-        if mark == 8 then
-            skullGUID = guid
-            break
-        end
+    -- 1. Basic Checks
+    if not TankMark:HasPermissions() then return end
+    if TankMark.IsSuperWoW and not TankMark.IsSuperWoW then return end
+
+    -- [v0.26] Sequential Marking Guard
+    -- Prevents auto-skull if the mob is part of a sequential kill list (e.g. Majordomo)
+    local skullName = TankMark.activeMobNames and TankMark.activeMobNames[8]
+    if skullName and TankMark.activeDB and TankMark.activeDB[skullName] then
+        local data = TankMark.activeDB[skullName]
+        if data.marks and L._tgetn(data.marks) > 1 then return end
     end
-    
-    -- 2. Logic: Promote Cross to Skull (Instant Priority)
-    for guid, mark in L._pairs(TankMark.activeGUIDs) do
-        if mark == 7 and TankMark.visibleTargets[guid] and not L._UnitIsDead(guid) then
-            if not skullGUID then
-                -- [v0.22] Check combat before promoting
-                if TankMark:IsGUIDInCombat(guid) then
-                    TankMark:Driver_ApplyMark(guid, 8)
-                    TankMark:EvictMarkOwner(7)
-                    TankMark:RegisterMarkUsage(8, L._UnitName(guid), guid, false, false)
-                    TankMark:Print("Auto-Promoted " .. L._UnitName(guid) .. " to SKULL.")
-                end
-                return
-            end
-        end
+
+    -- 2. Governor Check (The Blocker)
+    local blockIcon, _, blockPrio, _ = nil, nil, 99, nil
+    if TankMark.GetBlockingMarkInfo then
+        blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
     end
-    
-    -- 3. Find Best Candidate (Cascading Priority)
-    local bestGUID = nil
-    local lowestHP = 999999
-    local bestPrio = 99
-    
-    -- [v0.22] Use activeDB instead of TankMarkDB.Zones[zone]
-    if not TankMark.activeDB then return end
-    
-    -- NEW CODE (v0.26: HP < 99% = combat for marked mobs):
-    for guid, _ in L._pairs(TankMark.visibleTargets) do
-        if not L._UnitIsDead(guid) then
-            
-            -- Combat check: targeting player/pet OR already-marked with HP < 99%
-            local inCombat = TankMark:IsGUIDInCombat(guid)
-            if not inCombat and TankMark.activeGUIDs[guid] then
-                local maxHP = L._UnitHealthMax(guid)
-                local curHP = L._UnitHealth(guid)
-                if maxHP and maxHP > 0 and (curHP / maxHP) < 0.99 then
-                    inCombat = true
-                end
-            end
-            
-            -- Only proceed if the unit is effectively in combat
-            if inCombat then 
-                
-                -- [v0.22] Respect MarkNormals filter
-                local isEligible = true
-                if not TankMark.MarkNormals then
-                    local cls = L._UnitClassification(guid)
-                    if cls == "normal" or cls == "trivial" or cls == "minus" then 
-                        isEligible = false 
-                    end
-                end
-                
-                -- [v0.22] Lookup in activeDB if eligible
-                if isEligible then
-                    local name = L._UnitName(guid)
-                    if name and TankMark.activeDB[name] then
-                        local data = TankMark.activeDB[name]
-                        local mobPrio = data.prio or 99
-                        local mobHP = L._UnitHealth(guid)
-                        
-                        if mobPrio < bestPrio then
-                            bestPrio = mobPrio
-                            lowestHP = mobHP
-                            bestGUID = guid
-                        elseif mobPrio == bestPrio then
-                            if mobHP and mobHP < lowestHP and mobHP > 0 then
-                                lowestHP = mobHP
-                                bestGUID = guid
-                            end
-                        end
-                    end
-                end -- end isEligible
-            end -- end inCombat
-        end -- end UnitIsDead check
-    end
-    
-    -- 4. Decision: Swap or Keep?
-    if bestGUID then
-        local shouldSwap = false
+
+    -- 3. Find Best Candidate for Skull
+    if TankMark.FindEmergencyCandidate then
+        local candidateGUID, candidatePrio = TankMark:FindEmergencyCandidate()
         
-        if not skullGUID then
-            shouldSwap = true
-        elseif bestGUID ~= skullGUID then
-            local currentSkullName = L._UnitName(skullGUID)
-            local currentSkullPrio = 99
+        if candidateGUID then
+            local shouldAssign = true
             
-            -- [v0.22] Lookup current skull in activeDB
-            if currentSkullName and TankMark.activeDB[currentSkullName] then
-                currentSkullPrio = TankMark.activeDB[currentSkullName].prio or 99
-            end
-            
-            if bestPrio < currentSkullPrio then
-                shouldSwap = true
-            elseif bestPrio == currentSkullPrio then
-                local currentHP = L._UnitHealth(skullGUID) or 1
-                local candidateHP = L._UnitHealth(bestGUID)
+            -- [v0.26] STRICT INCUMBENCY RULE
+            if blockIcon then
+                -- Safe fallback if prio is nil
+                candidatePrio = candidatePrio or 5
+                blockPrio = blockPrio or 99
                 
-                -- [v0.22] Changed HP threshold from 10% to 30% (0.90 → 0.70)
-                if currentHP > 0 and candidateHP < (currentHP * 0.70) then
-                    shouldSwap = true
+                -- IF BLOCKER EXISTS:
+                -- Only assign if Candidate is STRICTLY better (Lower Prio #).
+                -- If Prio is Equal (5 vs 5), DO NOT ASSIGN.
+                if candidatePrio >= blockPrio then
+                    shouldAssign = false
                 end
             end
-        end
-        
-        if shouldSwap then
-            if skullGUID then TankMark:EvictMarkOwner(8) end
             
-            local oldMark = L._GetRaidTargetIndex(bestGUID)
-            if oldMark then TankMark:EvictMarkOwner(oldMark) end
-            
-            TankMark:Driver_ApplyMark(bestGUID, 8)
-            TankMark:RegisterMarkUsage(8, L._UnitName(bestGUID), bestGUID, false, false)
+            if shouldAssign then
+                TankMark:Driver_ApplyMark(candidateGUID, 8)
+            end
         end
     end
 end
@@ -330,7 +253,6 @@ function TankMark:UnmarkUnit(unit)
     if not TankMark:CanAutomate() then return end
     
     local currentIcon = L._GetRaidTargetIndex(unit)
-    local guid = TankMark:Driver_GetGUID(unit)
     
     TankMark:Driver_ApplyMark(unit, 0)
     
@@ -344,9 +266,10 @@ function TankMark:ResetSession()
     TankMark.sessionAssignments = {}
     TankMark.activeMobNames = {}
     TankMark.activeGUIDs = {}
-    TankMark.recordedGUIDs = {} -- [v0.21] Clear recorder GUID tracking
-    TankMark.sequentialMarkCursor = {} -- [v0.23] Clear sequential cursor
-    TankMark.alertedDeaths = {} -- [v0.24] Death alert tracking
+    TankMark.recordedGUIDs = {}
+    TankMark.sequentialMarkCursor = {}
+    TankMark.alertedDeaths = {}
+    TankMark.IsRecorderActive = false
     
     if TankMark.visibleTargets then
         for k in L._pairs(TankMark.visibleTargets) do
@@ -355,6 +278,12 @@ function TankMark:ResetSession()
     end
     
     if TankMark:HasPermissions() then
+        if TankMark.MarkMemory then
+            for k in L._pairs(TankMark.MarkMemory) do
+                TankMark.MarkMemory[k] = nil
+            end
+        end
+
         if TankMark.IsSuperWoW then
             for i = 1, 8 do
                 if L._UnitExists("mark" .. i) then

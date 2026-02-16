@@ -1,152 +1,170 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Core/TankMark_Scanner.lua
--- SuperWoW nameplate scanner with hybrid range detection
+-- SuperWoW nameplate scanner with Snapshot Batching and Table Reuse
 
 if not TankMark then return end
 
--- ==========================================================
--- LOCALIZATIONS
--- ==========================================================
-
--- Import shared localizations
 local L = TankMark.Locals
 
--- ==========================================================
--- CONFIG
--- ==========================================================
--- [PHASE 2] Configurable scan interval (in seconds)
--- Increase this value if experiencing performance issues with large nameplate counts
 local SCAN_INTERVAL = 0.5
 
--- ==========================================================
--- STATE
--- ==========================================================
+if not TankMark.MarkMemory then TankMark.MarkMemory = {} end
+
+-- [v0.26] Batch Buffers
+local batchCandidates = {}
+
 TankMark.visibleTargets = {}
 TankMark.RangeSpellID = nil
 TankMark.RangeSpellIndex = nil
 TankMark.IsSuperWoW = false
 
--- ==========================================================
--- SUPERWOW INITIALIZATION
--- ==========================================================
 function TankMark:InitDriver()
-    -- Check global variable exposed by SuperWoW
-    if type(SUPERWOW_VERSION) ~= "nil" then
+    if L._type(SUPERWOW_VERSION) ~= "nil" then
         TankMark.IsSuperWoW = true
-        TankMark:Print("SuperWoW Detected: |cff00ff00v0.21 Hybrid Driver Loaded.|r")
+        TankMark:Print("SuperWoW Detected: |cff00ff00v0.26 Hybrid Driver Loaded.|r")
         TankMark:StartSuperScanner()
     else
-        TankMark:Print("Standard Client: Hybrid features disabled. Falling back to v0.10 driver.")
+        TankMark:Print("Standard Client: Hybrid features disabled.")
     end
 end
 
 function TankMark:StartSuperScanner()
-    local f = CreateFrame("Frame", "TMScannerFrame")
+    local f = L._CreateFrame("Frame", "TMScannerFrame")
     local elapsed = 0
-    TankMark.visibleTargets = {}
     
     f:SetScript("OnUpdate", function()
-        -- [PHASE 2] Use configurable throttle interval
         elapsed = elapsed + arg1
         if elapsed < SCAN_INTERVAL then return end
         elapsed = 0
         
-        -- Only run if active & in group (or recording)
         if not TankMark.IsRecorderActive then
             if not TankMark:CanAutomate() then return end
             if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
         end
         
-        -- Wipe table manually (Lua 5.0)
-        for k in L._pairs(TankMark.visibleTargets) do
-            TankMark.visibleTargets[k] = nil
+        -- 1. RESET PHASE
+        -- Clear visible targets map
+        for k in L._pairs(TankMark.visibleTargets) do 
+            TankMark.visibleTargets[k] = nil 
         end
         
-        -- SuperWoW Feature: frame:GetName(1) -> GUID
+        local batchIndex = 0
+        
+        -- 2. SNAPSHOT PHASE
+        -- Capture current nameplates
         local frames = {WorldFrame:GetChildren()}
+        
         for _, plate in L._ipairs(frames) do
             if plate:IsVisible() and TankMark:IsNameplate(plate) then
                 local guid = plate:GetName(1)
                 if guid then
                     TankMark.visibleTargets[guid] = true
-                    if not TankMark.activeGUIDs[guid] then
-                        -- [v0.21] Combat Gating: Only mark if mob is in combat
+                    
+                    local activeIcon = TankMark.activeGUIDs[guid]
+                    
+                    if activeIcon then
+                        -- [SYNC] KNOWN BLOCKER
+                        -- Reinforce memory of marks we can see
+                        TankMark.MarkMemory[activeIcon] = guid
+                    else
+                        -- [BUFFER] CANDIDATE
                         if TankMark.IsRecorderActive or TankMark:IsGUIDInCombat(guid) then
-                            TankMark:ProcessUnit(guid, "SCANNER")
+                            local name = L._UnitName(guid)
+                            local hp = L._UnitHealth(guid) or 999999
+                            local prio = 5
+                            
+                            if name and TankMark.activeDB and TankMark.activeDB[name] then
+                                prio = TankMark.activeDB[name].prio or 5
+                            end
+                            
+                            batchIndex = batchIndex + 1
+                            
+                            -- [OPTIMIZATION] Table Reuse
+                            if not batchCandidates[batchIndex] then
+                                batchCandidates[batchIndex] = {}
+                            end
+                            
+                            local candidate = batchCandidates[batchIndex]
+                            candidate.guid = guid
+                            candidate.prio = L._tonumber(prio) or 5
+                            candidate.hp = hp
                         end
                     end
                 end
             end
         end
         
-        -- Skull priority review (SuperWoW only)
-        if TankMark.IsSuperWoW and TankMark.ReviewSkullState then
-            -- [v0.21] Skip skull management when Recorder is active
-            if not TankMark.IsRecorderActive then
-                TankMark:ReviewSkullState()
+        -- 3. DECISION PHASE
+        if batchIndex > 0 then
+            -- [OPTIMIZATION] Trim the Tail
+            local totalSize = L._tgetn(batchCandidates)
+            if totalSize > batchIndex then
+                for i = batchIndex + 1, totalSize do
+                    batchCandidates[i] = nil
+                end
             end
+            
+            -- Sort candidates (Priority ASC, then HP ASC)
+            L._tsort(batchCandidates, function(a, b)
+                if not a or not b then return false end
+                if a.prio ~= b.prio then return a.prio < b.prio end
+                return a.hp < b.hp
+            end)
+            
+            -- Execute Assignments
+            for i = 1, batchIndex do
+                local candidate = batchCandidates[i]
+                if candidate and candidate.guid then
+                    TankMark:ProcessUnit(candidate.guid, "SCANNER")
+                end
+            end
+        end
+        
+        -- 4. CLEANUP PHASE
+        if TankMark.IsSuperWoW and TankMark.ReviewSkullState and not TankMark.IsRecorderActive then
+            TankMark:ReviewSkullState()
         end
     end)
 end
 
 -- ==========================================================
--- [v0.21] COMBAT DETECTION
+-- UTILITIES
 -- ==========================================================
 function TankMark:IsGUIDInCombat(guid)
     if not guid then return false end
-    
-    -- Check if mob is targeting a unit
     local targetUnit = guid.."target"
     if not L._UnitExists(targetUnit) then return false end
-    
-    -- PATH 1: Mob is targeting a player
     if L._UnitIsPlayer(targetUnit) then
         local targetName = L._UnitName(targetUnit)
-        if targetName and TankMark:IsPlayerInRaid(targetName) then
-            return true
-        end
+        if targetName and TankMark:IsPlayerInRaid(targetName) then return true end
     end
-    
-    -- PATH 2: Mob is targeting a pet (check owner)
     if L._UnitPlayerControlled(targetUnit) then
-        -- SuperWoW: unitid.."owner" suffix
         local ownerUnit = targetUnit.."owner"
         if L._UnitExists(ownerUnit) and L._UnitIsPlayer(ownerUnit) then
             local ownerName = L._UnitName(ownerUnit)
-            if ownerName and TankMark:IsPlayerInRaid(ownerName) then
-                return true
-            end
+            if ownerName and TankMark:IsPlayerInRaid(ownerName) then return true end
         end
     end
-    
     return false
 end
 
 function TankMark:IsNameplate(frame)
-    if not frame or not frame.GetChildren or not frame:IsVisible() then
-        return false
-    end
+    if not frame or not frame.GetChildren or not frame:IsVisible() then return false end
     local children = {frame:GetChildren()}
     for _, child in L._ipairs(children) do
-        if child.GetValue and child.GetMinMaxValues and child.SetMinMaxValues then
-            return true
-        end
+        if child.GetValue and child.GetMinMaxValues and child.SetMinMaxValues then return true end
     end
     return false
 end
 
--- ==========================================================
--- RANGE SYSTEM
--- ==========================================================
 function TankMark:ScanForRangeSpell()
-    -- 1. SuperWoW Path (Use Hex ID 16707)
+    -- 1. SuperWoW Path
     if TankMark.IsSuperWoW then
         TankMark.RangeSpellID = 16707
         TankMark.RangeSpellIndex = nil
-        TankMark:Print("Range Extension: Active (~40y).")
         return
     end
-    
+
     -- 2. Standard Client Path (Scan for Name -> Store Index)
     local longRangeSpells = {
         ["Fireball"] = 35, ["Frostbolt"] = 30, ["Shadow Bolt"] = 30,
@@ -159,10 +177,12 @@ function TankMark:ScanForRangeSpell()
     local bestRange = 0
     local bestIndex = nil
     local i = 1
+    
     while true do
         if i > 1000 then break end -- Safety Cap
-        local spellName, rank = GetSpellName(i, "spell")
+        local spellName, rank = L._GetSpellName(i, "spell")
         if not spellName then break end
+        
         if longRangeSpells[spellName] then
             local range = longRangeSpells[spellName]
             if range > bestRange then
@@ -184,37 +204,20 @@ function TankMark:ScanForRangeSpell()
     end
 end
 
--- ==========================================================
--- RANGE CHECK
--- ==========================================================
 function TankMark:Driver_IsDistanceValid(unitOrGuid)
-    -- PATH 1: SuperWoW GUID Spell Check (40 yard range)
     if TankMark.IsSuperWoW and TankMark.RangeSpellID and L._IsSpellInRange then
-        local inRange = L._IsSpellInRange(TankMark.RangeSpellID, unitOrGuid)
-        if inRange == 1 then return true end
+        if L._IsSpellInRange(TankMark.RangeSpellID, unitOrGuid) == 1 then return true end
     end
-    
-    -- PATH 1.5: GUID Fallback - Trust Scanner visibility
-    -- Nameplates in SuperWoW appear at ~20 yards (vanilla default)
-    -- If the Scanner detected it and mouseover works, it's in valid range
-    if type(unitOrGuid) == "string" and L._strfind(unitOrGuid, "^0x") then
+    if L._type(unitOrGuid) == "string" and L._strfind(unitOrGuid, "^0x") then
         local exists, mouseoverGuid = L._UnitExists("mouseover")
-        if exists and mouseoverGuid == unitOrGuid then
-            return true
-        end
+        if exists and mouseoverGuid == unitOrGuid then return true end
         return false
     end
-    
-    -- PATH 2: Vanilla Spell Check
     if TankMark.RangeSpellIndex and L._IsSpellInRange then
-        local inRange = L._IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid)
-        if inRange == 1 then return true end
+        if L._IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid) == 1 then return true end
     end
-    
-    -- PATH 3: Vanilla Nameplate Check (unit tokens only)
-    if type(unitOrGuid) == "string" and not L._strfind(unitOrGuid, "^0x") then
+    if L._type(unitOrGuid) == "string" and not L._strfind(unitOrGuid, "^0x") then
         return L._CheckInteractDistance(unitOrGuid, 4)
     end
-    
     return false
 end
