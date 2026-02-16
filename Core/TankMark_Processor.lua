@@ -1,6 +1,6 @@
 -- TankMark: v0.26
 -- File: Core/TankMark_Processor.lua
--- Module Version: 1.1
+-- Module Version: 1.3
 -- Last Updated: 2026-02-16
 -- Core marking decision logic
 
@@ -100,28 +100,39 @@ end
 
 -- [v0.26] Helper to check if a mark is truly busy
 function TankMark:IsMarkBusy(iconID)
-    -- 1. Check Memory (Persistence)
-    -- This catches "Ghost" blockers that are off-screen but known by the Scanner.
-    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
-        return true 
-    end
+    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then return true end
+    if TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then return true end
+    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then return true end
+    return false
+end
 
-    -- 2. SuperWoW Global Check (Ignore Dead)
-    -- This handles static GUIDs on corpses (TurtleWoW).
-    -- If the unit holding the mark is dead, the mark is NOT busy.
-    if TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) then
-        if not L._UnitIsDead("mark"..iconID) then
-            return true
+-- [v0.26] Helper to find priority of current mark holder
+function TankMark:GetMarkOwnerPriority(iconID)
+    local holderGUID = nil
+    
+    -- 1. Check Memory (Primary Source)
+    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
+        holderGUID = TankMark.MarkMemory[iconID]
+    end
+    
+    -- 2. Check Active GUIDs
+    if not holderGUID and TankMark.activeGUIDs then
+        for guid, icon in L._pairs(TankMark.activeGUIDs) do
+            if icon == iconID then holderGUID = guid; break end
         end
     end
     
-    -- 3. Standard Local Check
-    -- Fallback for standard vanilla clients or immediate usage.
-    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
-        return true
+    if holderGUID then
+        local name = L._UnitName(holderGUID)
+        if name and TankMark.activeDB and TankMark.activeDB[name] then
+            return TankMark.activeDB[name].prio or 5
+        end
+        -- If we know the GUID but not the name/prio, assume Standard Trash (5)
+        return 5
     end
     
-    return false
+    -- Mark is not held by anyone we know -> Priority 99 (Weakest)
+    return 99
 end
 
 function TankMark:ProcessKnownMob(mobData, guid, mode)
@@ -138,49 +149,72 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     
     local iconToApply = nil
     
+    -- CC Logic
     if mobData.type == "CC" and mobData.class then
         local ccMark = TankMark:FindCCPlayerForClass(mobData.class)
         if ccMark then iconToApply = ccMark end
     end
     
     if not iconToApply then
-        if not TankMark:IsMarkBusy(markToUse) and not TankMark.disabledMarks[markToUse] then
+        local isBusy = TankMark:IsMarkBusy(markToUse)
+        local canOverride = false
+        
+        -- [v0.26] AGGRESSIVE THEFT LOGIC
+        if isBusy and markToUse == 8 then -- Restrict theft to Skull for safety
+            local myPrio = mobData.prio or 5
+            local ownerPrio = TankMark:GetMarkOwnerPriority(markToUse)
+            
+            -- If I am STRICTLY more important (Lower #), I take it.
+            if myPrio < ownerPrio then
+                canOverride = true
+            end
+        end
+
+        if (not isBusy or canOverride) and not TankMark.disabledMarks[markToUse] then
             iconToApply = markToUse
         end
+        
+        -- Fallback to free icon only if we failed to secure the primary mark
         if not iconToApply then
             iconToApply = TankMark:GetFreeTankIcon()
         end
     end
     
     -- GOVERNOR CHECK
-    -- Prevents mark stealing based on Priority Incumbency
     if iconToApply == 8 and mode ~= "FORCE" then
         local blocked = false
         
-        -- Double check availability just in case
-        if TankMark:IsMarkBusy(8) then 
+        -- Double check availability, but respect our Override decision
+        local isBusy = TankMark:IsMarkBusy(8)
+        
+        -- Calculate Override again to satisfy the Governor
+        local myPrio = mobData.prio or 5
+        local ownerPrio = TankMark:GetMarkOwnerPriority(8)
+        local overrideValid = (myPrio < ownerPrio)
+        
+        if isBusy and not overrideValid then 
             blocked = true 
-        else
-            if TankMark.GetBlockingMarkInfo then
-                local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-                if blockIcon then
-                    local mobPrio = mobData.prio or 99
-                    
-                    -- Strict Incumbency Rule:
-                    -- If the new mob's priority is equal (5) or worse (99) than the blocker (5),
-                    -- do NOT assign. Blockers win ties.
-                    if mobPrio >= blockPrio then
-                        blocked = true
-                    end
-                end
-            end
         end
         
         if blocked then return end
     end
     
     if iconToApply then
-        -- Sync Memory immediately to prevent race conditions in the same frame
+        -- [v0.26 FIX] STATE CLEANUP (Theft Handling)
+        -- If we are stealing this mark (or even if we think it's free but memory has a ghost),
+        -- we MUST evict the previous owner from activeGUIDs.
+        -- This ensures the previous owner is re-processed as "unmarked" in the next cycle.
+        if TankMark.MarkMemory and TankMark.MarkMemory[iconToApply] then
+            local oldGUID = TankMark.MarkMemory[iconToApply]
+            -- If oldGUID exists and is not ME (the new mob)
+            if oldGUID and oldGUID ~= guid then
+                if TankMark.activeGUIDs[oldGUID] == iconToApply then
+                    TankMark.activeGUIDs[oldGUID] = nil
+                end
+            end
+        end
+
+        -- Update Memory
         if TankMark.MarkMemory then
             TankMark.MarkMemory[iconToApply] = guid 
         end
@@ -199,14 +233,14 @@ function TankMark:ProcessUnknownMob(guid, mode)
     
     local iconToApply = TankMark:GetFreeTankIcon()
     
+    -- Unknown mobs are Prio 5. They can never steal Skull (Owner is at least 5).
+    -- They only take Skull if it's genuinely free.
     if iconToApply == 8 and mode ~= "FORCE" then
         if TankMark:IsMarkBusy(8) then return end
         
         if TankMark.GetBlockingMarkInfo then
             local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
             if blockIcon then
-                -- Unknown mobs are assumed Prio 5.
-                -- If Blocker is Prio 5, 5 >= 5 is TRUE -> Blocked.
                 local myPrio = 5 
                 if myPrio >= blockPrio then return end
             end
