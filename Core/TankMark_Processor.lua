@@ -47,6 +47,18 @@ function TankMark:ProcessUnit(guid, mode)
     
     -- 3. Check Current Mark
     local currentIcon = L._GetRaidTargetIndex(guid)
+
+    -- [v0.26 FIX] Verify ownership server-side before trusting GetRaidTargetIndex.
+    -- After a mark theft, GetRaidTargetIndex can return a stale icon for the
+    -- previous owner, causing ghost re-registration and locking the unit out of
+    -- receiving a new mark permanently.
+    if currentIcon and TankMark.IsSuperWoW then
+        local exists, actualHolderGUID = L._UnitExists("mark"..currentIcon)
+        if not exists or actualHolderGUID ~= guid then
+            currentIcon = nil  -- Stale: let this unit fall through to normal processing
+        end
+    end
+    
     if currentIcon then
         if not TankMark.usedIcons[currentIcon] or not TankMark.activeGUIDs[guid] then
             TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)

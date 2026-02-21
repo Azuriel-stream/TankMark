@@ -144,10 +144,13 @@ end
 -- ==========================================================
 
 function TankMark:VerifyMarkExistence(iconID)
+    -- [v0.26 FIX] Use SuperWoW mark units directly (server-side tracking)
     if TankMark.IsSuperWoW then
-        for guid, mark in L._pairs(TankMark.activeGUIDs) do
-            if mark == iconID then
-                if L._UnitExists(guid) and not L._UnitIsDead(guid) then return true end
+        if L._UnitExists("mark"..iconID) then
+            local isDead = L._UnitIsDead("mark"..iconID)
+            -- UnitIsDead returns nil (alive) or 1 (dead)
+            if not isDead or isDead == nil then
+                return true
             end
         end
     end
