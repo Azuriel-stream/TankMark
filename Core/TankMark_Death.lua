@@ -214,8 +214,6 @@ function TankMark:ReviewSkullState()
         end
     end
 
-    if TankMark.IsSuperWoW and not TankMark.IsSuperWoW then return end
-
     -- [v0.26] Sequential Marking Guard
     -- Prevents auto-skull if the mob is part of a sequential kill list (e.g. Majordomo)
     local skullName = TankMark.activeMobNames and TankMark.activeMobNames[8]

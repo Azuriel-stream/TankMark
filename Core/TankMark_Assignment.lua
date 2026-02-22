@@ -287,30 +287,33 @@ function TankMark:FindEmergencyCandidate()
                 
                 -- Is it in combat with us?
                 if TankMark:IsGUIDInCombat(guid) then
+                    -- Database Lookup
                     local name = L._UnitName(guid)
                     local prio = 5 -- Default for Unknown Mobs
+                    local data = nil
                     
-                    -- Database Lookup
                     if name and TankMark.activeDB and TankMark.activeDB[name] then
-                        prio = TankMark.activeDB[name].prio or 5
+                        data = TankMark.activeDB[name]
+                        prio = data.prio or 5
                     end
                     
-                    -- Ensure prio is a number
-                    prio = L._tonumber(prio) or 5
-                    
-                    local hp = L._UnitHealth(guid) or 999999
+                    -- [v0.26 FIX] Respect the no-mark setting.
+                    -- If the DB explicitly excludes this mob from marking, skip it as a candidate.
+                    if data and data.marks and data.marks[1] == 0 then
+                        -- skip
+                    else
+                        prio = L._tonumber(prio) or 5
+                        local hp = L._UnitHealth(guid) or 999999
 
-                    -- Selection Logic:
-                    -- 1. Lower Prio # is better (1 is best)
-                    -- 2. Lower HP is better (Kill weak first)
-                    if prio < bestPrio then
-                        bestGUID = guid
-                        bestPrio = prio
-                        bestHP = hp
-                    elseif prio == bestPrio and hp < bestHP then
-                        bestGUID = guid
-                        bestPrio = prio
-                        bestHP = hp
+                        if prio < bestPrio then
+                            bestGUID = guid
+                            bestPrio = prio
+                            bestHP = hp
+                        elseif prio == bestPrio and hp < bestHP then
+                            bestGUID = guid
+                            bestPrio = prio
+                            bestHP = hp
+                        end
                     end
                 end
             end
