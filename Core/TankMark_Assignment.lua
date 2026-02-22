@@ -173,28 +173,35 @@ function TankMark:GetBlockingMarkInfo()
             local markID = L._tonumber(entry.mark)
             local tankName = entry.tank
             
-            -- CHECK A: STATIC PROFILE (usedIcons + activeGUIDs)
+            -- CHECK A: STATIC PROFILE (usedIcons + MarkMemory/activeGUIDs)
             if markID and markID ~= 8 then
-                local foundGUID = TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]
-                
-                -- Fallback scan
-                if not foundGUID and TankMark.activeGUIDs then
-                    for guid, icon in L._pairs(TankMark.activeGUIDs) do
-                        if icon == markID then foundGUID = guid; break end
+                local isInUse = TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]
+
+                if isInUse then
+                    -- [v0.26 FIX] usedIcons stores boolean, not GUID.
+                    -- Find the holder GUID via MarkMemory first (most reliable source),
+                    -- then fall back to activeGUIDs scan.
+                    local foundGUID = nil
+                    if TankMark.MarkMemory and TankMark.MarkMemory[markID] then
+                        foundGUID = TankMark.MarkMemory[markID]
                     end
-                end
-                
-                if foundGUID and TankMark.activeGUIDs and TankMark.activeGUIDs[foundGUID] then
-                    local mobName = TankMark.activeMobNames[markID]
-                    if not mobName then mobName = L._UnitName(foundGUID) end
-                    
-                    local mobPrio = 99
-                    if mobName and TankMark.activeDB and TankMark.activeDB[mobName] then
-                        mobPrio = TankMark.activeDB[mobName].prio or 99
-                    else
-                        mobPrio = 5 -- Safety Default
+
+                    if not foundGUID and TankMark.activeGUIDs then
+                        for guid, icon in L._pairs(TankMark.activeGUIDs) do
+                            if icon == markID then foundGUID = guid; break end
+                        end
                     end
-                    UpdateBest(markID, foundGUID, mobPrio, nil)
+
+                    if foundGUID then
+                        local mobName = TankMark.activeMobNames[markID]
+                        if not mobName then mobName = L._UnitName(foundGUID) end
+
+                        local mobPrio = 5 -- Safety default
+                        if mobName and TankMark.activeDB and TankMark.activeDB[mobName] then
+                            mobPrio = TankMark.activeDB[mobName].prio or 5
+                        end
+                        UpdateBest(markID, foundGUID, mobPrio, nil)
+                    end
                 end
             end
 

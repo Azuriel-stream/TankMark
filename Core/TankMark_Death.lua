@@ -204,6 +204,16 @@ end
 function TankMark:ReviewSkullState()
     -- 1. Basic Checks
     if not TankMark:HasPermissions() then return end
+    
+    -- [FIX] If SKULL is already on a valid, living target, nothing to review.
+    -- UnitExists("mark8") is server-side and persists regardless of nameplate
+    -- visibility (confirmed via in-game testing).
+    if TankMark.IsSuperWoW then
+        if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
+            return
+        end
+    end
+
     if TankMark.IsSuperWoW and not TankMark.IsSuperWoW then return end
 
     -- [v0.26] Sequential Marking Guard
@@ -242,7 +252,15 @@ function TankMark:ReviewSkullState()
             end
             
             if shouldAssign then
+                -- [FIX] Update internal state to match the physical assignment.
+                -- Without this, the new holder is invisible to IsMarkBusy, GetMarkOwnerPriority,
+                -- and the KNOWN BLOCKER path in the Scanner — causing state divergence.
+                if TankMark.MarkMemory then
+                    TankMark.MarkMemory[8] = candidateGUID
+                end
                 TankMark:Driver_ApplyMark(candidateGUID, 8)
+                local candidateName = L._UnitName(candidateGUID)
+                TankMark:RegisterMarkUsage(8, candidateName, candidateGUID, (L._UnitPowerType(candidateGUID) == 0), false)
             end
         end
     end
