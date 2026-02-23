@@ -49,7 +49,38 @@ function TankMark:Driver_GetGUID(unit)
 end
 
 function TankMark:Driver_ApplyMark(unitOrGuid, icon)
+    -- [DEBUG] Log BEFORE applying mark
+    if TankMark.DebugEnabled then
+        local mobName = L._UnitName(unitOrGuid) or "Unknown"
+        local guidShort = unitOrGuid
+        
+        -- Truncate GUID if it's a hex string
+        if L._type(unitOrGuid) == "string" and L._strfind(unitOrGuid, "^0x") then
+            guidShort = L._sub(unitOrGuid, 1, 10) .. "..."
+        end
+        
+        -- Get calling function from stack
+        local caller = L._debugstack(2, 1, 0)
+        local callerShort = L._strmatch(caller, "in function `([^']+)'") or "Unknown"
+        
+        TankMark:DebugLog("APPLY", "Applying mark", {
+            icon = icon,
+            guid = guidShort,
+            mob = mobName,
+            caller = callerShort
+        })
+    end
+    
+    -- Original function logic
     if TankMark:CanAutomate() then
         L._SetRaidTarget(unitOrGuid, icon)
+    else
+        -- [DEBUG] Log when mark application is blocked
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("APPLY", "Mark blocked - no permission", {
+                icon = icon,
+                canAutomate = false
+            })
+        end
     end
 end

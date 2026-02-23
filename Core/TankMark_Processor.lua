@@ -15,8 +15,19 @@ local L = TankMark.Locals
 function TankMark:ProcessUnit(guid, mode)
     if not guid then return end
     
+    -- [DEBUG] Entry point
+    local mobName = L._UnitName(guid)
+    TankMark:DebugLog("PROCESS", "ProcessUnit entry", {
+        guid = guid,
+        mob = mobName or "nil",
+        mode = mode
+    })
+
     -- 1. Sanity Checks
-    if L._UnitIsDead(guid) then return end
+    if L._UnitIsDead(guid) then 
+        TankMark:DebugLog("PROCESS", "Skipped: dead", {mob = mobName})
+        return 
+    end
     if L._UnitIsPlayer(guid) or L._UnitIsFriend("player", guid) then return end
     
     local cType = L._UnitCreatureType(guid)
@@ -48,6 +59,15 @@ function TankMark:ProcessUnit(guid, mode)
     -- 3. Check Current Mark
     local currentIcon = L._GetRaidTargetIndex(guid)
 
+    -- [DEBUG] Log what GetRaidTargetIndex returned
+    if currentIcon then
+        TankMark:DebugLog("PROCESS", "GetRaidTargetIndex returned", {
+            guid = guid,
+            mob = mobName,
+            icon = currentIcon
+        })
+    end
+
     -- [v0.26 FIX] Verify ownership server-side before trusting GetRaidTargetIndex.
     -- After a mark theft, GetRaidTargetIndex can return a stale icon for the
     -- previous owner, causing ghost re-registration and locking the unit out of
@@ -55,12 +75,26 @@ function TankMark:ProcessUnit(guid, mode)
     if currentIcon and TankMark.IsSuperWoW then
         local exists, actualHolderGUID = L._UnitExists("mark"..currentIcon)
         if not exists or actualHolderGUID ~= guid then
+            -- [DEBUG] Log ownership mismatch
+            TankMark:DebugLog("PROCESS", "Ownership mismatch - nulling currentIcon", {
+                icon = currentIcon,
+                expectedGUID = guid,
+                actualGUID = actualHolderGUID and L._sub(actualHolderGUID, 1, 10) .. "..." or "nil"
+            })
             currentIcon = nil  -- Stale: let this unit fall through to normal processing
         end
     end
-    
+
     if currentIcon then
         if not TankMark.usedIcons[currentIcon] or not TankMark.activeGUIDs[guid] then
+            -- [DEBUG] Re-registering existing mark
+            TankMark:DebugLog("PROCESS", "Re-registering existing mark", {
+                icon = currentIcon,
+                guid = guid,
+                mob = mobName,
+                usedIcons = L._tostring(TankMark.usedIcons[currentIcon]),
+                activeGUIDs = L._tostring(TankMark.activeGUIDs[guid])
+            })
             TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
         end
         return
@@ -112,10 +146,30 @@ end
 
 -- [v0.26] Helper to check if a mark is truly busy
 function TankMark:IsMarkBusy(iconID)
-    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then return true end
-    if TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then return true end
-    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then return true end
-    return false
+    local reason = nil
+    local result = false
+    
+    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then 
+        reason = "MarkMemory"
+        result = true
+    elseif TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then 
+        reason = "SuperWoW"
+        result = true
+    elseif TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then 
+        reason = "usedIcons"
+        result = true
+    end
+    
+    -- [DEBUG] Log every IsMarkBusy check (generic)
+    local holderGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID]
+    TankMark:DebugLog("BUSY", "IsMarkBusy(" .. L._tostring(iconID) .. ") check", {
+        result  = L._tostring(result),
+        reason  = reason or "none",
+        Memory  = holderGUID and L._sub(holderGUID, 1, 10) .. "..." or "nil",
+        used    = L._tostring(TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]))
+    })
+    
+    return result
 end
 
 -- [v0.26] Helper to find priority of current mark holder
@@ -148,6 +202,14 @@ function TankMark:GetMarkOwnerPriority(iconID)
 end
 
 function TankMark:ProcessKnownMob(mobData, guid, mode)
+    -- [DEBUG] Entry
+    TankMark:DebugLog("KNOWN", "ProcessKnownMob", {
+        mob = mobData.name,
+        guid = guid,
+        prio = mobData.prio,
+        marks = mobData.marks and mobData.marks[1] or "nil"
+    })
+
     if mobData.marks and L._tgetn(mobData.marks) > 1 then return end
     
     local markToUse = mobData.marks and mobData.marks[1] or 8
@@ -192,6 +254,21 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
         end
     end
     
+    if iconToApply then
+        TankMark:DebugLog("KNOWN", "Will apply mark", {
+            icon = iconToApply,
+            mob = mobData.name,
+            wasBusy = isBusy,
+            canOverride = canOverride
+        })
+    else
+        TankMark:DebugLog("KNOWN", "No icon determined", {
+            mob = mobData.name,
+            primaryMark = markToUse,
+            isBusy = isBusy
+        })
+    end
+
     -- GOVERNOR CHECK
     if iconToApply == 8 and mode ~= "FORCE" then
         local blocked = false

@@ -17,6 +17,12 @@ function TankMark:GetFreeTankIcon()
     local list = TankMarkProfileDB[zone]
     if not list then return nil end
     
+    -- [DEBUG] Log search start
+    TankMark:DebugLog("FREE", "GetFreeTankIcon search started", {
+        zone = zone,
+        profileCount = L._tgetn(list)
+    })
+
     for _, entry in L._ipairs(list) do
         local markID = L._tonumber(entry.mark)
         local tankName = entry.tank
@@ -32,18 +38,30 @@ function TankMark:GetFreeTankIcon()
         end
 
         if markID and not isBusy and not TankMark.disabledMarks[markID] then
+            -- [DEBUG] Log successful allocation
+            if markID == 4 then
+                TankMark:DebugLog("FREE", "TRIANGLE would be returned", {
+                    mark = markID,
+                    tank = tankName or "none"
+                })
+            end
+
             if tankName and tankName ~= "" then
                 local u = TankMark:FindUnitByName(tankName)
                 if u then
                     if not L._UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
+                        -- [DEBUG] Final return
+                        TankMark:DebugLog("FREE", "Returning mark", {mark = markID})
                         return markID
                     end
                 end
             else
+                TankMark:DebugLog("FREE", "Returning mark (no tank assigned)", {mark = markID})
                 return markID
             end
         end
     end
+    TankMark:DebugLog("FREE", "GetFreeTankIcon returned nil", {})
     return nil
 end
 
@@ -297,10 +315,18 @@ function TankMark:FindEmergencyCandidate()
                         prio = data.prio or 5
                     end
                     
-                    -- [v0.26 FIX] Respect the no-mark setting.
-                    -- If the DB explicitly excludes this mob from marking, skip it as a candidate.
-                    if data and data.marks and data.marks[1] == 0 then
-                        -- skip
+                    -- [v0.26 FIX] Changed from: data.marks[1] == 0
+                    -- Now rejects any mob whose primary DB mark is explicitly NOT skull.
+                    -- data nil → unknown mob → falls to else → allowed as fallback candidate.
+                    -- marks[1] nil → malformed entry → falls to else → allowed conservatively.
+                    -- marks[1] == 8 → SKULL configured → falls to else → allowed.
+                    -- marks[1] ~= 8 → CROSS/TRIANGLE/etc → enters if → SKIPPED.
+                    if data and data.marks and data.marks[1] and data.marks[1] ~= 8 then
+                        TankMark:DebugLog("CANDIDATE", "Skipping mob excluded from skull marking", {
+                            guid = guid,
+                            name = name,
+                            prio = prio,
+                        })
                     else
                         prio = L._tonumber(prio) or 5
                         local hp = L._UnitHealth(guid) or 999999

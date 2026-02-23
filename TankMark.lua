@@ -80,6 +80,7 @@ TankMark.Locals = {
     -- ==========================================================
     _GetTime = GetTime,
     _time = time,
+    _date = date,
     
     -- ==========================================================
     -- STRING FUNCTIONS
@@ -91,6 +92,7 @@ TankMark.Locals = {
     _lower = string.lower,
     _strupper = string.upper,
     _format = string.format,
+    _strmatch = string.match,
     _UNITDIESOTHER = UNITDIESOTHER,
     
     -- ==========================================================
@@ -118,6 +120,11 @@ TankMark.Locals = {
     _type = type,
     _tonumber = tonumber,
     _tostring = tostring,
+
+    -- ==========================================================
+    -- DEBUG FUNCTIONS (ADD THIS SECTION)
+    -- ==========================================================
+    _debugstack = debugstack,
 }
 
 -- ==========================================================
@@ -432,7 +439,26 @@ function TankMark:SlashHandler(msg)
             TankMark:Print("Usage: /tmark recorder start | stop")
         end
         
-    elseif cmd == "zone" or cmd == "debug" then
+    elseif cmd == "debug" then
+        if args == "on" then
+            TankMark.DebugEnabled = true
+            TankMark:Print("Debug logging |cff00ff00enabled|r.")
+        elseif args == "off" then
+            TankMark.DebugEnabled = false
+            TankMark:Print("Debug logging |cffff0000disabled|r.")
+        elseif args == "clear" then
+            TankMark:ClearDebugLog()
+        elseif args == "dump" then
+            TankMark:DumpDebugLog()
+        elseif args == "apply" then
+            TankMark:DumpDebugLog("APPLY")
+        elseif args == "busy" then
+            TankMark:DumpDebugLog("BUSY")
+        else
+            TankMark:Print("Usage: /tm debug [on|off|clear|dump|apply|busy]")
+        end
+
+    elseif cmd == "zone" then
         local currentZone = TankMark:GetCachedZone()
         TankMark:Print("Current Zone: " .. currentZone)
         TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))

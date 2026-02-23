@@ -16,6 +16,7 @@ TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
 TankMark.activeMobIsCaster = {}
 TankMark.disabledMarks = {}
+TankMark._skullReviewInProgress = false
 
 -- Session assignments
 TankMark.sessionAssignments = {}

@@ -122,7 +122,7 @@ function TankMark:StartSuperScanner()
         
         -- 4. CLEANUP PHASE
         if TankMark.IsSuperWoW and TankMark.ReviewSkullState and not TankMark.IsRecorderActive then
-            TankMark:ReviewSkullState()
+            TankMark:ReviewSkullState("SCANNER_TICK")
         end
     end)
 end
