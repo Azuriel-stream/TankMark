@@ -285,7 +285,7 @@ function TankMark:ReviewSkullState(callerID)
 					local isCaster = (L._UnitPowerType(existingGUID) == 0)
 					TankMark.MarkMemory[8] = existingGUID
 					TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
-					TankMark:LogDebug("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
+					TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
 						caller = _caller,
 						guid   = existingGUID,
 						name   = existingName,
