@@ -399,7 +399,7 @@ function TankMark:SaveFormData()
 		
 		local mob = L._gsub(TankMark.editMob:GetText(), "%s+", "")
 		local icon = TankMark.selectedIcon
-		local exists, guid = L._UnitExists("target"), L._UnitGUID("target")
+		local exists, guid = L._UnitExists("target")
 		
 		if exists and guid and not L._UnitIsPlayer("target") and L._UnitName("target") == mob then
 			if not TankMarkDB.StaticGUIDs[zone] then

@@ -35,7 +35,6 @@ TankMark.Locals = {
     _UnitIsConnected = UnitIsConnected,
     _UnitPlayerControlled = UnitPlayerControlled,
     _UnitIsPartyLeader = UnitIsPartyLeader,
-    _UnitGUID = UnitGUID,
     
     -- ==========================================================
     -- RAID/PARTY FUNCTIONS

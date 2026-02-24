@@ -67,7 +67,7 @@ function TankMark:HandleDeath(unitID)
 			-- can distinguish it from a freshly-assigned replacement.
 			-- UnitGUID is still valid at 0 HP before the mob despawns.
 			-- Falls back to MarkMemory[icon] if UnitGUID returns nil.
-			local deadGUID = L._UnitGUID(unitID)
+			local _, deadGUID = L._UnitExists(unitID)
 			if not deadGUID and TankMark.MarkMemory then
 				deadGUID = TankMark.MarkMemory[icon]
 			end
@@ -279,7 +279,7 @@ function TankMark:ReviewSkullState(callerID)
 		if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
 			-- FIX: Populate MarkMemory if the skull holder is unknown
 			if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
-				local existingGUID = L._UnitGUID("mark8")
+				local _, existingGUID = L._UnitExists("mark8")
 				if existingGUID then
 					local existingName = L._UnitName("mark8") or "?"
 					local isCaster = (L._UnitPowerType(existingGUID) == 0)
