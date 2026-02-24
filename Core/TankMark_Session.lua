@@ -23,7 +23,7 @@ TankMark.sessionAssignments = {}
 
 -- Addon state
 TankMark.IsActive = true
-TankMark.MarkNormals = false
+TankMark.MarkNormals = true
 TankMark.DeathPattern = nil
 TankMark.IsRecorderActive = false
 

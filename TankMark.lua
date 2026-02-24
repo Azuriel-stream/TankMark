@@ -300,6 +300,13 @@ TankMark:SetScript("OnEvent", function()
             end
         end
 
+        -- [v0.26] Show HUD on login/reload if player is in a group
+        if L._GetNumRaidMembers() > 0 or L._GetNumPartyMembers() > 0 then
+            if TankMark.UpdateHUD then
+                TankMark:UpdateHUD()
+            end
+        end
+        
         TankMark:Print("TankMark v0.26 loaded.")
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
