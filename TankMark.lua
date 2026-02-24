@@ -159,10 +159,14 @@ TankMark.isShiftHeld = false
 function TankMark:HandleMouseover()
     if not L._UnitExists("mouseover") then return end
     
-    -- [v0.21] PRIORITY 1: Ctrl to unmark (always available)
-    if L._IsControlKeyDown() then
-        if L._GetRaidTargetIndex("mouseover") then
-            TankMark:UnmarkUnit("mouseover")
+    -- [v0.26] PRIORITY 1: Ctrl to unmark (out-of-combat only).
+    -- Gated to prevent accidental removal via combat keybinds (e.g. Ctrl+Q)
+    -- that fire while the cursor happens to be over a marked mob.
+    if IsControlKeyDown() then
+        if not L._UnitAffectingCombat("player") then
+            if L._GetRaidTargetIndex("mouseover") then
+                TankMark:UnmarkUnit("mouseover")
+            end
         end
         return
     end
