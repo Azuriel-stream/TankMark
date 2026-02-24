@@ -1,7 +1,7 @@
 -- TankMark: v0.26
 -- File: Core/TankMark_Assignment.lua
--- Module Version: 1.1
--- Last Updated: 2026-02-16
+-- Module Version: 1.2
+-- Last Updated: 2026-02-24
 -- Mark assignment algorithms and player detection
 
 if not TankMark then return end
@@ -163,7 +163,10 @@ function TankMark:GetAssigneeForMark(markID)
     return nil
 end
 
--- [v0.26 FIXED] Safe GUID Handling + Memory Fallback
+-- [v0.26 FIXED] Safe GUID Handling + Liveness Guard
+-- A mark holder only qualifies as a blocker if its mark unit token currently
+-- exists server-side AND is not dead. This prevents dead-but-not-yet-evicted
+-- MarkMemory entries from blocking SKULL reassignment after their mob dies.
 function TankMark:GetBlockingMarkInfo()
     local bestBlocker = {
         icon = nil,
@@ -179,7 +182,18 @@ function TankMark:GetBlockingMarkInfo()
             bestBlocker = {icon=icon, guid=guid, prio=prio, hp=hp}
         elseif prio == bestBlocker.prio and hp < bestBlocker.hp then
             bestBlocker = {icon=icon, guid=guid, prio=prio, hp=hp}
+        elseif prio == bestBlocker.prio and hp == bestBlocker.hp and icon < (bestBlocker.icon or 9) then
+            bestBlocker = { icon = icon, guid = guid, prio = prio, hp = hp }
         end
+    end
+
+    -- [v0.26] Liveness check helper.
+    -- Uses SuperWoW mark unit tokens (server-side, visibility-independent).
+    -- Returns true only when the mark is on a living unit.
+    local function IsMarkHolderAlive(iconID)
+        if not L._UnitExists("mark" .. iconID) then return false end
+        if L._UnitIsDead("mark" .. iconID) == 1 then return false end
+        return true
     end
 
     local zone = TankMark:GetCachedZone()
@@ -193,32 +207,35 @@ function TankMark:GetBlockingMarkInfo()
             
             -- CHECK A: STATIC PROFILE (usedIcons + MarkMemory/activeGUIDs)
             if markID and markID ~= 8 then
-                local isInUse = TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]
+                -- [v0.26 FIX] Skip if mark holder is dead or gone.
+                if IsMarkHolderAlive(markID) then
+                    local isInUse = TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]
 
-                if isInUse then
-                    -- [v0.26 FIX] usedIcons stores boolean, not GUID.
-                    -- Find the holder GUID via MarkMemory first (most reliable source),
-                    -- then fall back to activeGUIDs scan.
-                    local foundGUID = nil
-                    if TankMark.MarkMemory and TankMark.MarkMemory[markID] then
-                        foundGUID = TankMark.MarkMemory[markID]
-                    end
-
-                    if not foundGUID and TankMark.activeGUIDs then
-                        for guid, icon in L._pairs(TankMark.activeGUIDs) do
-                            if icon == markID then foundGUID = guid; break end
+                    if isInUse then
+                        -- usedIcons stores boolean, not GUID.
+                        -- Find the holder GUID via MarkMemory first (most reliable source),
+                        -- then fall back to activeGUIDs scan.
+                        local foundGUID = nil
+                        if TankMark.MarkMemory and TankMark.MarkMemory[markID] then
+                            foundGUID = TankMark.MarkMemory[markID]
                         end
-                    end
 
-                    if foundGUID then
-                        local mobName = TankMark.activeMobNames[markID]
-                        if not mobName then mobName = L._UnitName(foundGUID) end
-
-                        local mobPrio = 5 -- Safety default
-                        if mobName and TankMark.activeDB and TankMark.activeDB[mobName] then
-                            mobPrio = TankMark.activeDB[mobName].prio or 5
+                        if not foundGUID and TankMark.activeGUIDs then
+                            for guid, icon in L._pairs(TankMark.activeGUIDs) do
+                                if icon == markID then foundGUID = guid; break end
+                            end
                         end
-                        UpdateBest(markID, foundGUID, mobPrio, nil)
+
+                        if foundGUID then
+                            local mobName = TankMark.activeMobNames[markID]
+                            if not mobName then mobName = L._UnitName(foundGUID) end
+
+                            local mobPrio = 5 -- Safety default
+                            if mobName and TankMark.activeDB and TankMark.activeDB[mobName] then
+                                mobPrio = TankMark.activeDB[mobName].prio or 5
+                            end
+                            UpdateBest(markID, foundGUID, mobPrio, nil)
+                        end
                     end
                 end
             end
@@ -235,12 +252,15 @@ function TankMark:GetBlockingMarkInfo()
                         local icon = L._GetRaidTargetIndex(targetUnit)
                         
                         if icon and icon > 0 and icon ~= 8 then
-                             local name = L._UnitName(targetUnit)
-                             local prio = 99
-                             if name and TankMark.activeDB and TankMark.activeDB[name] then
-                                 prio = TankMark.activeDB[name].prio or 99
-                             end
-                             UpdateBest(icon, guid, prio, L._UnitHealth(targetUnit))
+                            -- [v0.26 FIX] Skip if mark holder is dead or gone.
+                            if IsMarkHolderAlive(icon) then
+                                local name = L._UnitName(targetUnit)
+                                local prio = 99
+                                if name and TankMark.activeDB and TankMark.activeDB[name] then
+                                    prio = TankMark.activeDB[name].prio or 99
+                                end
+                                UpdateBest(icon, guid, prio, L._UnitHealth(targetUnit))
+                            end
                         end
                     end
                 end
@@ -252,14 +272,17 @@ function TankMark:GetBlockingMarkInfo()
     if TankMark.activeGUIDs and TankMark.activeDB then
         for guid, icon in L._pairs(TankMark.activeGUIDs) do
             if icon ~= 8 then
-                local name = L._UnitName(guid)
-                if name then
-                    local data = TankMark.activeDB[name]
-                    if data and data.type ~= "CC" then
-                        local requiredMark = (data.marks and data.marks[1])
-                        if requiredMark and requiredMark == icon then
-                             local mobPrio = data.prio or 99
-                             UpdateBest(icon, guid, mobPrio, nil)
+                -- [v0.26 FIX] Skip if mark holder is dead or gone.
+                if IsMarkHolderAlive(icon) then
+                    local name = L._UnitName(guid)
+                    if name then
+                        local data = TankMark.activeDB[name]
+                        if data and data.type ~= "CC" then
+                            local requiredMark = (data.marks and data.marks[1])
+                            if requiredMark and requiredMark == icon then
+                                local mobPrio = data.prio or 99
+                                UpdateBest(icon, guid, mobPrio, nil)
+                            end
                         end
                     end
                 end
@@ -267,23 +290,10 @@ function TankMark:GetBlockingMarkInfo()
         end
     end
 
-    -- [v0.26 NEW] PASS 3: Mark Memory Fallback (The Fix)
-    -- If activeGUIDs missed it, check the persistent memory.
-    if TankMark.MarkMemory then
-        for icon, guid in L._pairs(TankMark.MarkMemory) do
-            if icon ~= 8 then
-                -- Check if we already found this icon in previous passes to avoid double counting
-                if bestBlocker.icon ~= icon then
-                    -- We found a Ghost Blocker!
-                    -- Since we don't have full mob data from Memory, we assume:
-                    -- Priority: 5 (Standard Trash)
-                    -- HP: 999999 (Full/Unknown)
-                    -- This ensures 5 >= 5 blocks the Skull.
-                    UpdateBest(icon, guid, 5, 999999)
-                end
-            end
-        end
-    end
+    -- NOTE: Pass 3 (MarkMemory fallback) has been removed.
+    -- With the liveness guard in place, any MarkMemory entry whose mark holder
+    -- is dead is correctly excluded by Passes 1 and 2. A dead-but-not-yet-evicted
+    -- MarkMemory entry can no longer block SKULL reassignment.
 
     return bestBlocker.icon, bestBlocker.guid, bestBlocker.prio, bestBlocker.hp
 end
