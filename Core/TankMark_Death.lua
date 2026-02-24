@@ -1,7 +1,7 @@
 -- TankMark: v0.26
 -- File: Core/TankMark_Death.lua
--- Module Version: 1.1
--- Last Updated: 2026-02-16
+-- Module Version: 1.2
+-- Last Updated: 2026-02-24
 -- Death detection, mark cleanup, and skull priority management
 
 if not TankMark then return end
@@ -24,7 +24,23 @@ function TankMark:HandleCombatLog(msg)
 		for iconID, name in L._pairs(TankMark.activeMobNames) do
 			if name == deadMobName then
 				if not TankMark:VerifyMarkExistence(iconID) then
-					TankMark:EvictMarkOwner(iconID)
+					-- [FIX] Resolve dead mob GUID before eviction so EvictMarkOwner
+					-- can distinguish it from a freshly-assigned replacement.
+					-- Reverse-lookup activeGUIDs (max 8 entries, negligible cost).
+					-- Falls back to MarkMemory if activeGUIDs has no match
+					-- (e.g. state was partially reset).
+					local deadGUID = nil
+					for guid, mark in L._pairs(TankMark.activeGUIDs) do
+						if mark == iconID then
+							deadGUID = guid
+							break
+						end
+					end
+					if not deadGUID and TankMark.MarkMemory then
+						deadGUID = TankMark.MarkMemory[iconID]
+					end
+
+					TankMark:EvictMarkOwner(iconID, deadGUID)
 					if TankMark.IsSuperWoW and iconID == 8 then
 						TankMark:ReviewSkullState("COMBAT_LOG")
 					end
@@ -47,7 +63,16 @@ function TankMark:HandleDeath(unitID)
 		local icon = L._GetRaidTargetIndex(unitID)
 		local hp = L._UnitHealth(unitID)
 		if icon and hp and hp <= 0 then
-			TankMark:EvictMarkOwner(icon)
+			-- [FIX] Resolve dead mob GUID before eviction so EvictMarkOwner
+			-- can distinguish it from a freshly-assigned replacement.
+			-- UnitGUID is still valid at 0 HP before the mob despawns.
+			-- Falls back to MarkMemory[icon] if UnitGUID returns nil.
+			local deadGUID = L._UnitGUID(unitID)
+			if not deadGUID and TankMark.MarkMemory then
+				deadGUID = TankMark.MarkMemory[icon]
+			end
+
+			TankMark:EvictMarkOwner(icon, deadGUID)
 			if TankMark.IsSuperWoW and icon == 8 then
 				TankMark:ReviewSkullState("UNIT_DEATH")
 			end
@@ -173,19 +198,39 @@ function TankMark:VerifyMarkExistence(iconID)
 	return false
 end
 
-function TankMark:EvictMarkOwner(iconID)
-	TankMark.activeMobNames[iconID] = nil
-	TankMark.usedIcons[iconID] = nil
-	TankMark.activeMobIsCaster[iconID] = nil
+function TankMark:EvictMarkOwner(iconID, deadGUID)
+	-- [FIX] GUID-Aware Eviction.
+	-- When deadGUID is provided, check whether MarkMemory[iconID] has already
+	-- been updated to a different GUID by a prior ReviewSkullState call in the
+	-- same event tick. If so, a new assignment is pending server confirmation
+	-- and all icon state that belongs to that new assignment must be preserved.
+	-- When deadGUID is nil (caller could not resolve it), fall back to the
+	-- original unconditional-clear behaviour to avoid silent state leaks.
+	local memGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID] or nil
+	local newAssignmentPending = deadGUID and memGUID and (memGUID ~= deadGUID)
 
-	-- [v0.26] Clear Persistent Memory
-	if TankMark.MarkMemory then
-		TankMark.MarkMemory[iconID] = nil
+	if not newAssignmentPending then
+		TankMark.activeMobNames[iconID]    = nil
+		TankMark.usedIcons[iconID]         = nil
+		TankMark.activeMobIsCaster[iconID] = nil
+
+		if TankMark.MarkMemory then
+			TankMark.MarkMemory[iconID] = nil
+		end
 	end
 
-	for guid, mark in L._pairs(TankMark.activeGUIDs) do
-		if mark == iconID then
-			TankMark.activeGUIDs[guid] = nil
+	-- Always remove the dead mob's own activeGUIDs entry.
+	-- When deadGUID is known, target it directly (O(1)).
+	-- When unknown, fall back to scanning all entries for this icon (O(n), max 8).
+	if deadGUID then
+		if TankMark.activeGUIDs[deadGUID] == iconID then
+			TankMark.activeGUIDs[deadGUID] = nil
+		end
+	else
+		for guid, mark in L._pairs(TankMark.activeGUIDs) do
+			if mark == iconID then
+				TankMark.activeGUIDs[guid] = nil
+			end
 		end
 	end
 
@@ -232,24 +277,43 @@ function TankMark:ReviewSkullState(callerID)
 	-- visibility (confirmed via in-game testing).
 	if TankMark.IsSuperWoW then
 		if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
-            -- FIX: Populate MarkMemory if the skull holder is unknown
-            if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
-                local existingGUID = L._UnitGUID("mark8")
-                if existingGUID then
-                    local existingName = L._UnitName("mark8") or "?"
-                    local isCaster = (L._UnitPowerType(existingGUID) == 0)
-                    TankMark.MarkMemory[8] = existingGUID
-                    TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
-                    TankMark:LogDebug("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
-                        caller = _caller,
-                        guid   = existingGUID,
-                        name   = existingName,
-                    })
-                end
-            end
+			-- FIX: Populate MarkMemory if the skull holder is unknown
+			if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
+				local existingGUID = L._UnitGUID("mark8")
+				if existingGUID then
+					local existingName = L._UnitName("mark8") or "?"
+					local isCaster = (L._UnitPowerType(existingGUID) == 0)
+					TankMark.MarkMemory[8] = existingGUID
+					TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
+					TankMark:LogDebug("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
+						caller = _caller,
+						guid   = existingGUID,
+						name   = existingName,
+					})
+				end
+			end
 			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
 				caller     = _caller,
 				mark8_name = L._UnitName("mark8") or "?",
+			})
+			return
+		end
+	end
+
+	-- [FIX] Duplicate-Event Guard.
+	-- After a skull mob dies, two events fire within ~4ms of each other:
+	-- COMBAT_LOG and UNIT_DEATH. The first ReviewSkullState call commits a
+	-- new assignment by writing candidateGUID into MarkMemory[8] before
+	-- calling Driver_ApplyMark. If MarkMemory[8] is non-nil here, and mark8
+	-- is dead (server has not yet confirmed the new assignment), we are the
+	-- duplicate caller. Block immediately to prevent a second SetRaidTarget.
+	-- EvictMarkOwner's GUID-aware logic ensures MarkMemory[8] is only nil
+	-- when no new assignment has been committed in this tick.
+	if TankMark.IsSuperWoW then
+		if TankMark.MarkMemory and TankMark.MarkMemory[8] then
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
+				caller     = _caller,
+				lockedGUID = TankMark.MarkMemory[8],
 			})
 			return
 		end
@@ -318,9 +382,11 @@ function TankMark:ReviewSkullState(callerID)
 		})
 
 		if shouldAssign then
-			-- [FIX] Update internal state to match the physical assignment.
-			-- Without this, the new holder is invisible to IsMarkBusy, GetMarkOwnerPriority,
-			-- and the KNOWN BLOCKER path in the Scanner — causing state divergence.
+			-- Commit MarkMemory BEFORE calling Driver_ApplyMark. This serves
+			-- two purposes: (1) keeps internal state visible to IsMarkBusy and
+			-- GetMarkOwnerPriority, and (2) arms the duplicate-event guard above
+			-- so any second ReviewSkullState call in the same tick is blocked
+			-- before it reaches Driver_ApplyMark.
 			if TankMark.MarkMemory then
 				TankMark.MarkMemory[8] = candidateGUID
 			end
