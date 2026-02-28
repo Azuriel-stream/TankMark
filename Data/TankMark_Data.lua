@@ -1,4 +1,4 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Data/TankMark_Data.lua
 -- Database initialization, snapshot system, and corruption detection
 
@@ -45,7 +45,10 @@ function TankMark:InitializeDB()
     if not TankMarkCharConfig then TankMarkCharConfig = {} end
     if not TankMarkCharConfig.HUD then TankMarkCharConfig.HUD = {} end
     
-    -- 5. [v0.21] Corruption Detection
+	-- 5. [v0.26] Debug Log System (NEW)
+    if not TankMarkDB.DebugLog then TankMarkDB.DebugLog = {} end
+
+    -- 6. [v0.21] Corruption Detection
     local isCorrupt, errors = TankMark:ValidateDB()
     if isCorrupt then
         TankMark:ShowCorruptionDialog(errors)
@@ -345,6 +348,21 @@ function TankMark:Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccff[TankMark]|r " .. msg)
 end
 
+function TankMark:UpdateZoneDropdowns()
+    -- Get the zone name (using your standard localization)
+    local zone = TankMark:GetCachedZone()
+    
+    -- Update Mob Database Dropdown (if UI exists)
+    if TankMark.zoneDropDown then
+        TankMark:UpdateMobZoneUI(zone)
+    end
+    
+    -- Update Team Profile Dropdown (if UI exists)
+    if TankMark.profileZoneDropdown then
+        TankMark:UpdateProfileZoneUI(zone)
+    end
+end
+
 -- ==========================================================
 -- ROSTER MANAGEMENT
 -- ==========================================================
@@ -393,4 +411,64 @@ function TankMark:GetFirstAvailableBackup(requiredClass)
 	end
 	
 	return nil
+end
+
+-- ==========================================================
+-- [v0.26] DEBUG LOGGING SYSTEM
+-- ==========================================================
+
+TankMark.DebugEnabled = false  -- Toggle with /tm debug on/off
+TankMark.DebugLogMaxSize = 500  -- Circular buffer size
+
+function TankMark:DebugLog(category, message, data)
+    if not TankMark.DebugEnabled then return end
+    
+    local entry = {
+        time = L._date("%H:%M:%S"),
+        tick = L._GetTime(),
+        category = category,
+        message = message,
+        data = data or {}
+    }
+    
+    -- Circular buffer: remove oldest if at max size
+    if L._tgetn(TankMarkDB.DebugLog) >= TankMark.DebugLogMaxSize then
+        L._tremove(TankMarkDB.DebugLog, 1)
+    end
+    
+    L._tinsert(TankMarkDB.DebugLog, entry)
+end
+
+function TankMark:ClearDebugLog()
+    TankMarkDB.DebugLog = {}
+    TankMark:Print("Debug log cleared.")
+end
+
+function TankMark:DumpDebugLog(filterCategory)
+    local log = TankMarkDB.DebugLog
+    if not log or L._tgetn(log) == 0 then
+        TankMark:Print("Debug log is empty.")
+        return
+    end
+    
+    TankMark:Print("|cff00ff00=== DEBUG LOG (" .. L._tgetn(log) .. " entries) ===|r")
+    
+    for i, entry in L._ipairs(log) do
+        if not filterCategory or entry.category == filterCategory then
+            local dataStr = ""
+            if entry.data and L._next(entry.data) then
+                for k, v in L._pairs(entry.data) do
+                    dataStr = dataStr .. " " .. k .. "=" .. L._tostring(v)
+                end
+            end
+            
+            local color = "|cffcccccc"
+            if entry.category == "ERROR" then color = "|cffff0000"
+            elseif entry.category == "APPLY" then color = "|cff00ff00"
+            elseif entry.category == "BUSY" then color = "|cffffff00"
+            end
+            
+            TankMark:Print(color .. "[" .. entry.time .. "] [" .. entry.category .. "] " .. entry.message .. dataStr .. "|r")
+        end
+    end
 end

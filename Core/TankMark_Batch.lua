@@ -1,4 +1,4 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Core/TankMark_Batch.lua
 -- Module Version: 1.0
 -- Last Updated: 2026-02-08
@@ -121,7 +121,7 @@ function TankMark:ExecuteBatchMarking()
     end)
     
     -- Limit to top 8
-    local maxMarks = math.min(8, L._tgetn(sortedCandidates))
+    local maxMarks = L._min(8, L._tgetn(sortedCandidates))
     
     -- Build queue for delayed execution
     TankMark.batchMarkQueue = {}
