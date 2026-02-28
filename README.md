@@ -1,4 +1,4 @@
-# TankMark (v0.23)
+# TankMark (v0.26)
 
 **TankMark** is an intelligent raid marking automation addon for Vanilla WoW (1.12.1), specifically optimized for Turtle WoW. It automates Raid Target assignment based on priority and includes tools for data collection and team coordination.
 
@@ -8,11 +8,14 @@
 
 ### 🎯 Intelligent Marking
 - **Auto-Assignment:** Marks mobs based on priority (1-8) and Team Profile assignments.
-- **Sequential Marking:** Assign up to 8 marks to a single mob for coordinated multi-target kills (v0.23).
+- **Sequential Marking:** Assign up to 8 marks to a single mob for coordinated multi-target kills.
 - **Batch Marking:** Hold Shift + Mouseover to queue up to 8 mobs for sequential marking.
 - **Combat Gating:** Scanner only marks mobs actively targeting raid members (Requires SuperWoW).
 - **GUID Locking:** Lock specific mob spawns to always receive an assigned mark.
-- **Ctrl+Mouseover:** Quickly unmark any mob.
+- **Ctrl+Mouseover:** Quickly unmark any mob (combat-gated in v0.26).
+- **MarkMemory:** Persistent mark-to-GUID tracking prevents redundant re-marks and enables intelligent mark theft.
+- **Governor Check:** Skull assignment respects incumbency — existing marked mobs with equal or higher priority block skull theft.
+- **Ownership Verification:** Server-side mark validation via SuperWoW `mark` unit tokens detects stale marks and external theft.
 
 ### 👥 Team Management
 - **Profile Templates:** 4 pre-built templates (8-Tank, 5-Tank, 3-Tank, CC Heavy).
@@ -25,12 +28,18 @@
 - **Flight Recorder:** Auto-record mobs by mousing over them (`/tmark recorder start`).
 - **Mob Database:** Assign priorities and icons via config panel.
 - **Zone Management:** Add, delete, and browse zones with GUID lock viewer.
-- **Duplicate Detection:** Warns before overwriting existing mob entries (v0.23).
+- **Duplicate Detection:** Warns before overwriting existing mob entries.
 
 ### 🖱️ Interactive HUD
 - **Right-Click Menus:** Assign/clear/disable marks directly from HUD rows.
 - **Position Memory:** HUD remembers position per-character.
 - **Auto-Hide:** HUD hides when leaving party/raid.
+- **Auto-Show:** HUD automatically appears on login when in a group.
+
+### 🐛 Debug Logging (v0.26)
+- **Circular Buffer:** Up to 500 debug entries stored in SavedVariables.
+- **Category Filtering:** Dump only the log categories you care about (e.g., `apply`, `busy`, `skull`).
+- **Performance-Safe:** All logging is gated behind `TankMark.DebugEnabled` — zero overhead when off.
 
 ---
 
@@ -66,6 +75,10 @@
 | `/tmark announce` | Announce assignments to raid/party chat |
 | `/tmark reset` | Clear all marks and reset session |
 | `/tmark normals` | Toggle marking normal/non-elite mobs |
+| `/tmark debug on` | Enable debug logging |
+| `/tmark debug off` | Disable debug logging |
+| `/tmark debug dump [category]` | Print debug log to chat (optionally filtered) |
+| `/tmark debug clear` | Clear the debug log buffer |
 
 ---
 
@@ -87,6 +100,9 @@
 
 ## 🔄 Recent Updates
 
+**v0.26** - MarkMemory system, Governor Check for skull incumbency, GUID-aware death eviction, server-side ownership verification via SuperWoW `mark` units, debug logging system (`/tm debug`), combat-gated Ctrl+unmark, startup mark wipe, auto-HUD on login, localized all global API calls.
+**v0.25** - Modular scanner refactor, snapshot batching with priority-sorted candidates, table reuse optimization, SavedVariables cleanup.
+**v0.24** - Death alert tracking, healer death whisper improvements, stale GUID invalidation.
 **v0.23** - Sequential marking (up to 8 marks per mob), two-column UI redesign, modular code refactor.
 **v0.22** - HUD position persistence, unknown mob auto-marking, auto-reset on group leave.
 **v0.21** - Batch marking system, combat gating, Ctrl+mouseover unmark.
