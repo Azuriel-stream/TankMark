@@ -271,7 +271,7 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
             end
         end
 
-        if (not isBusy or canOverride) and not TankMark.disabledMarks[markToUse] then
+        if (not isBusy or canOverride) and (mode == "FORCE" or not TankMark.disabledMarks[markToUse]) then
             iconToApply = markToUse
         end
 
