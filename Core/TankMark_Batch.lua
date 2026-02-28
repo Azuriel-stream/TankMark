@@ -253,6 +253,12 @@ function TankMark:ProcessBatchMark(candidateData)
         local cursorIndex = TankMark.sequentialMarkCursor[mobName]
         local iconToApply = mobData.marks[cursorIndex]
         
+        -- [v0.27] Update MarkMemory BEFORE applying mark (matches ProcessKnownMob pattern)
+        -- This protects the mark from ReviewSkullState interference during the batch window
+        if TankMark.MarkMemory then
+            TankMark.MarkMemory[iconToApply] = guid
+        end
+        
         -- Apply mark (ignore conflicts per user requirement)
         TankMark:Driver_ApplyMark(guid, iconToApply)
         TankMark:RegisterMarkUsage(iconToApply, mobName, guid, false, true) -- skipProfileLookup = true
