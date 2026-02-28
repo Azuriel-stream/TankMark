@@ -42,6 +42,21 @@ local function CreateSmallButton(parent, width, text)
 	return btn
 end
 
+function TankMark:UpdateMobZoneUI(zone)
+    -- Safety check for the specific widget found in this file
+    if not TankMark.zoneDropDown then return end
+    
+    -- Update the visual text on the dropdown button
+    -- Note: UIDropDownMenu_SetText is a standard UI function usually available globally
+    UIDropDownMenu_SetText(zone, TankMark.zoneDropDown)
+    
+    -- Refresh the mob list to match the new zone
+    -- This relies on the UpdateMobList function defined in this same file
+    if TankMark.UpdateMobList then
+        TankMark:UpdateMobList()
+    end
+end
+
 -- ==========================================================
 -- TOP SECTION: ZONE CONTROLS (Right-aligned)
 -- ==========================================================
@@ -102,7 +117,7 @@ local function CreateZoneControls(parent)
 	
 	mzCheck:SetScript("OnClick", function()
 		TankMark:ToggleZoneBrowser()
-		PlaySound("igMainMenuOptionCheckBoxOn")
+		L._PlaySound("igMainMenuOptionCheckBoxOn")
 	end)
 	TankMark.zoneModeCheck = mzCheck
 	
@@ -421,7 +436,7 @@ local function CreateMobEditorControls(editor)
 	prioUp:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollUpButton-Up")
 	prioUp:SetScript("OnClick", function()
 		local current = tonumber(prioBox:GetText()) or 1
-		prioBox:SetText(math.min(current + 1, 9))
+		prioBox:SetText(L._min(current + 1, 9))
 	end)
 	
 	-- Priority Spinner Down
@@ -432,7 +447,7 @@ local function CreateMobEditorControls(editor)
 	prioDown:SetNormalTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
 	prioDown:SetScript("OnClick", function()
 		local current = tonumber(prioBox:GetText()) or 1
-		prioBox:SetText(math.max(current - 1, 1))
+		prioBox:SetText(L._max(current - 1, 1))
 	end)
 	
 	-- CC Class Button

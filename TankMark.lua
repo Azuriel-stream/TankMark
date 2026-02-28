@@ -1,4 +1,4 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: TankMark.lua
 -- Entry point, Event Handlers, and Slash Commands
 
@@ -15,6 +15,8 @@ TankMark.Locals = {
     -- ==========================================================
     -- UNIT FUNCTIONS
     -- ==========================================================
+    _SetRaidTarget = SetRaidTarget,
+    _SetRaidTargetIconTexture = SetRaidTargetIconTexture,
     _UnitIsDead = UnitIsDead,
     _UnitIsPlayer = UnitIsPlayer,
     _UnitIsFriend = UnitIsFriend,
@@ -28,11 +30,11 @@ TankMark.Locals = {
     _UnitCreatureType = UnitCreatureType,
     _UnitClassification = UnitClassification,
     _UnitHealth = UnitHealth,
+    _UnitHealthMax = UnitHealthMax,
     _UnitInRaid = UnitInRaid,
     _UnitIsConnected = UnitIsConnected,
     _UnitPlayerControlled = UnitPlayerControlled,
     _UnitIsPartyLeader = UnitIsPartyLeader,
-    _UnitGUID = UnitGUID,
     
     -- ==========================================================
     -- RAID/PARTY FUNCTIONS
@@ -55,17 +57,29 @@ TankMark.Locals = {
     -- ==========================================================
     _IsSpellInRange = IsSpellInRange,
     _CheckInteractDistance = CheckInteractDistance,
+    _GetSpellName = GetSpellName,
     
     -- ==========================================================
     -- CHAT/MESSAGE FUNCTIONS
     -- ==========================================================
+    _PlaySound = PlaySound,
     _SendAddonMessage = SendAddonMessage,
+    _SendChatMessage = SendChatMessage,
+    
+    -- ==========================================================
+    -- UI/INPUT FUNCTIONS
+    -- ==========================================================
+    _CreateFrame = CreateFrame,
+    _IsShiftKeyDown = IsShiftKeyDown,
+    _IsControlKeyDown = IsControlKeyDown,
+    _IsAltKeyDown = IsAltKeyDown,
     
     -- ==========================================================
     -- TIME FUNCTIONS
     -- ==========================================================
     _GetTime = GetTime,
     _time = time,
+    _date = date,
     
     -- ==========================================================
     -- STRING FUNCTIONS
@@ -75,6 +89,10 @@ TankMark.Locals = {
     _gfind = string.gfind,
     _sub = string.sub,
     _lower = string.lower,
+    _strupper = string.upper,
+    _format = string.format,
+    _strmatch = string.match,
+    _UNITDIESOTHER = UNITDIESOTHER,
     
     -- ==========================================================
     -- TABLE FUNCTIONS
@@ -85,10 +103,14 @@ TankMark.Locals = {
     _tremove = table.remove,
     _tsort = table.sort,
     _tgetn = table.getn,
+    _next = next,
     
     -- ==========================================================
     -- MATH FUNCTIONS
     -- ==========================================================
+    _randomseed = math.randomseed,
+    _min = math.min,
+    _max = math.max,
     _floor = math.floor,
     
     -- ==========================================================
@@ -96,6 +118,12 @@ TankMark.Locals = {
     -- ==========================================================
     _type = type,
     _tonumber = tonumber,
+    _tostring = tostring,
+
+    -- ==========================================================
+    -- DEBUG FUNCTIONS (ADD THIS SECTION)
+    -- ==========================================================
+    _debugstack = debugstack,
 }
 
 -- ==========================================================
@@ -131,16 +159,20 @@ TankMark.isShiftHeld = false
 function TankMark:HandleMouseover()
     if not L._UnitExists("mouseover") then return end
     
-    -- [v0.21] PRIORITY 1: Ctrl to unmark (always available)
+    -- [v0.26] PRIORITY 1: Ctrl to unmark (out-of-combat only).
+    -- Gated to prevent accidental removal via combat keybinds (e.g. Ctrl+Q)
+    -- that fire while the cursor happens to be over a marked mob.
     if IsControlKeyDown() then
-        if L._GetRaidTargetIndex("mouseover") then
-            TankMark:UnmarkUnit("mouseover")
+        if not L._UnitAffectingCombat("player") then
+            if L._GetRaidTargetIndex("mouseover") then
+                TankMark:UnmarkUnit("mouseover")
+            end
         end
         return
     end
     
     -- [v0.21] PRIORITY 2: Batch Processing (Shift key check BEFORE permission check)
-    if IsShiftKeyDown() then
+    if L._IsShiftKeyDown() then
         -- Only available with SuperWoW
         if not TankMark.IsSuperWoW then
             TankMark:Print("|cffff0000Batch marking requires SuperWoW.|r")
@@ -197,12 +229,12 @@ TankMark.batchPollingActive = false
 
 function TankMark:StartBatchShiftPoller()
     if not TankMark.batchPollerFrame then
-        TankMark.batchPollerFrame = CreateFrame("Frame")
+        TankMark.batchPollerFrame = L._CreateFrame("Frame")
     end
     
     TankMark.batchPollerFrame:SetScript("OnUpdate", function()
         -- Poll every frame to detect Shift release
-        if not IsShiftKeyDown() then
+        if not L._IsShiftKeyDown() then
             -- Shift released
             TankMark.batchPollingActive = false
             TankMark.batchPollerFrame:SetScript("OnUpdate", nil)
@@ -211,6 +243,22 @@ function TankMark:StartBatchShiftPoller()
             end
         end
     end)
+end
+
+-- [v0.26 FIX] Robust Mark Check
+function TankMark:IsMarkInUse(iconID)
+    -- 1. SuperWoW Server-Side Check (Global visibility)
+    -- This sees marks even if the unit is behind you or 100 yards away.
+    if TankMark.IsSuperWoW and L._UnitExists("mark" .. iconID) then
+        return true
+    end
+    
+    -- 2. Standard Scanner Check (Nameplate visibility)
+    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
+        return true
+    end
+    
+    return false
 end
 
 -- ==========================================================
@@ -241,7 +289,25 @@ TankMark:SetScript("OnEvent", function()
         TankMark:InitDriver()
         TankMark:ScanForRangeSpell()
         
-        TankMark:Print("TankMark v0.23 loaded.")
+        -- [v0.26 FINAL] NUCLEAR OPTION
+        -- Unconditionally wipe ALL marks on startup/reload.
+        -- This kills any "ghost" marks from TurtleWoW static GUIDs.
+        if TankMark.IsSuperWoW then
+            for i = 1, 8 do
+                if L._UnitExists("mark" .. i) then
+                    L._SetRaidTarget("mark" .. i, 0)
+                end
+            end
+        end
+
+        -- [v0.26] Show HUD on login/reload if player is in a group
+        if L._GetNumRaidMembers() > 0 or L._GetNumPartyMembers() > 0 then
+            if TankMark.UpdateHUD then
+                TankMark:UpdateHUD()
+            end
+        end
+        
+        TankMark:Print("TankMark v0.26 loaded.")
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
@@ -251,6 +317,8 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
+        
+        if TankMark.UpdateZoneDropdowns then TankMark:UpdateZoneDropdowns() end
         
         -- Disable Flight Recorder on zone change (safety)
         if TankMark.IsRecorderActive then
@@ -273,7 +341,9 @@ TankMark:SetScript("OnEvent", function()
                 end
             end
         end
-        TankMark:HandleDeath(arg1)
+        if TankMark.HandleDeath then
+            TankMark:HandleDeath(arg1)
+        end
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
         -- [v0.22] Check if player left party/raid
@@ -281,12 +351,13 @@ TankMark:SetScript("OnEvent", function()
         local numParty = L._GetNumPartyMembers()
         
         if numRaid == 0 and numParty == 0 then
-            -- Player is now solo (left group)
-            TankMark:ResetSession()
-            if TankMark.hudFrame then
-                TankMark.hudFrame:Hide()
+            -- Check if we are already in a "Solo" state to prevent multi-firing
+            if TankMark.currentZone ~= "SOLO_RESET" then 
+                TankMark:ResetSession()
+                TankMark.currentZone = "SOLO_RESET" -- Temporary flag
+                if TankMark.hudFrame then TankMark.hudFrame:Hide() end
             end
-            return -- Skip HUD update since we just hid it
+            return 
         end
         
         -- Update HUD colors when roster changes (still in group)
@@ -304,6 +375,15 @@ TankMark:SetScript("OnEvent", function()
         
     elseif (event == "CHAT_MSG_ADDON") then
         if TankMark.HandleSync then TankMark:HandleSync(arg1, arg2, arg4) end
+
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- [v0.26] Combat End: Flush Memory
+        -- We clear the scanner memory so marks aren't "locked" to dead units.
+        if TankMark.MarkMemory then
+            for k in L._pairs(TankMark.MarkMemory) do
+                TankMark.MarkMemory[k] = nil
+            end
+        end
     end
 end)
 
@@ -316,6 +396,7 @@ TankMark:RegisterEvent("CHAT_MSG_COMBAT_HOSTILE_DEATH")
 TankMark:RegisterEvent("CHAT_MSG_ADDON")
 TankMark:RegisterEvent("RAID_ROSTER_UPDATE")
 TankMark:RegisterEvent("PARTY_MEMBERS_CHANGED")
+TankMark:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 -- ==========================================================
 -- COMMANDS
@@ -368,7 +449,26 @@ function TankMark:SlashHandler(msg)
             TankMark:Print("Usage: /tmark recorder start | stop")
         end
         
-    elseif cmd == "zone" or cmd == "debug" then
+    elseif cmd == "debug" then
+        if args == "on" then
+            TankMark.DebugEnabled = true
+            TankMark:Print("Debug logging |cff00ff00enabled|r.")
+        elseif args == "off" then
+            TankMark.DebugEnabled = false
+            TankMark:Print("Debug logging |cffff0000disabled|r.")
+        elseif args == "clear" then
+            TankMark:ClearDebugLog()
+        elseif args == "dump" then
+            TankMark:DumpDebugLog()
+        elseif args == "apply" then
+            TankMark:DumpDebugLog("APPLY")
+        elseif args == "busy" then
+            TankMark:DumpDebugLog("BUSY")
+        else
+            TankMark:Print("Usage: /tm debug [on|off|clear|dump|apply|busy]")
+        end
+
+    elseif cmd == "zone" then
         local currentZone = TankMark:GetCachedZone()
         TankMark:Print("Current Zone: " .. currentZone)
         TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
@@ -402,7 +502,7 @@ function TankMark:SlashHandler(msg)
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
     else
-        TankMark:Print("|cff00ffffTankMark v0.23 Commands:|r")
+        TankMark:Print("|cff00ffffTankMark v0.26 Commands:|r")
         TankMark:Print(" |cffffffff/tmark reset|r - Clear all marks and reset session")
         TankMark:Print(" |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
         TankMark:Print(" |cffffffff/tmark normals|r - Toggle marking normal mobs")
@@ -464,8 +564,8 @@ function TankMark:AnnounceAssignments()
     if L._GetNumRaidMembers() > 0 then channel = "RAID"
     elseif L._GetNumPartyMembers() > 0 then channel = "PARTY" end
     
-    SendChatMessage("== " .. zone .. " Assignments ==", channel)
-    SendChatMessage("Mark || Tank || Healers", channel)
+    L._SendChatMessage("== " .. zone .. " Assignments ==", channel)
+    L._SendChatMessage("Mark || Tank || Healers", channel)
     
     for _, data in L._ipairs(profile) do
         if data.mark and data.tank ~= "" then
@@ -480,7 +580,7 @@ function TankMark:AnnounceAssignments()
             else
                 msg = msg .. " || -"
             end
-            SendChatMessage(msg, channel)
+            L._SendChatMessage(msg, channel)
         end
     end
 end

@@ -1,4 +1,4 @@
--- TankMark: v0.25
+-- TankMark: v0.26
 -- File: Core/TankMark_Session.lua
 -- Module Version: 1.0
 -- Last Updated: 2026-02-08
@@ -16,13 +16,14 @@ TankMark.activeMobNames = {}
 TankMark.activeGUIDs = {}
 TankMark.activeMobIsCaster = {}
 TankMark.disabledMarks = {}
+TankMark._skullReviewInProgress = false
 
 -- Session assignments
 TankMark.sessionAssignments = {}
 
 -- Addon state
 TankMark.IsActive = true
-TankMark.MarkNormals = false
+TankMark.MarkNormals = true
 TankMark.DeathPattern = nil
 TankMark.IsRecorderActive = false
 

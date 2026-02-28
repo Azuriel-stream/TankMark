@@ -54,7 +54,7 @@ function TankMark:ApplySmartDefaults(className)
 	end
 	
 	if TankMark.editPrio then
-		TankMark.editPrio:SetText(tostring(defaults.prio))
+		TankMark.editPrio:SetText(L._tostring(defaults.prio))
 	end
 end
 
@@ -399,7 +399,7 @@ function TankMark:SaveFormData()
 		
 		local mob = L._gsub(TankMark.editMob:GetText(), "%s+", "")
 		local icon = TankMark.selectedIcon
-		local exists, guid = L._UnitExists("target"), L._UnitGUID("target")
+		local exists, guid = L._UnitExists("target")
 		
 		if exists and guid and not L._UnitIsPlayer("target") and L._UnitName("target") == mob then
 			if not TankMarkDB.StaticGUIDs[zone] then

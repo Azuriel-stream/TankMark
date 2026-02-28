@@ -211,7 +211,7 @@ function TankMark:CreateHUD()
         row.icon:SetWidth(16); row.icon:SetHeight(16)
         row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
         row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        SetRaidTargetIconTexture(row.icon, i)
+        L._SetRaidTargetIconTexture(row.icon, i)
         
         row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
@@ -291,7 +291,7 @@ function TankMark:RenderHUDRow(row, markID, isProfileMark)
     -- Apply Visual Disable (Dimming)
     if isDisabled then
         row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        SetRaidTargetIconTexture(row.icon, markID)
+        L._SetRaidTargetIconTexture(row.icon, markID)
         row.icon:SetVertexColor(0.3, 0.3, 0.3)
         if textToShow then
             local plainText = L._gsub(textToShow, "|c%x%x%x%x%x%x%x%x", "")
@@ -302,7 +302,7 @@ function TankMark:RenderHUDRow(row, markID, isProfileMark)
         end
     else
         row.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-        SetRaidTargetIconTexture(row.icon, markID)
+        L._SetRaidTargetIconTexture(row.icon, markID)
         row.icon:SetVertexColor(1, 1, 1)
     end
     
