@@ -107,7 +107,7 @@ local function RenderBackButton(row, data)
 		TankMark.lockViewZone = nil
 		TankMark:ResetEditorState()  -- CHANGED: Use new consolidated function
 		TankMark:UpdateMobList()
-		PlaySound("igMainMenuOptionCheckBoxOn")
+		L._PlaySound("igMainMenuOptionCheckBoxOn")
 	end)
 end
 
