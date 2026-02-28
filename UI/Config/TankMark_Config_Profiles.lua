@@ -69,13 +69,15 @@ TankMarkProfileTemplates = {
 function TankMark:LoadProfileToCache()
 	if not TankMarkProfileDB then TankMarkProfileDB = {} end
 	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
+	TankMark:MigrateProfileRoles(zone)
 	TankMark.profileCache = {}
 	if TankMarkProfileDB[zone] then
 		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
 			L._tinsert(TankMark.profileCache, {
 				mark = entry.mark or 8,
 				tank = entry.tank or "",
-				healers = entry.healers or ""
+				healers = entry.healers or "",
+				role = entry.role or "TANK",
 			})
 		end
 	end
@@ -88,7 +90,8 @@ function TankMark:SaveProfileCache()
 		L._tinsert(TankMarkProfileDB[zone], {
 			mark = entry.mark,
 			tank = entry.tank,
-			healers = entry.healers
+			healers = entry.healers,
+			role = entry.role or "TANK",
 		})
 	end
 	
@@ -137,8 +140,24 @@ function TankMark:RequestResetProfile()
 	end
 end
 
+function TankMark:RequestDeleteProfile()
+	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
+	if zone and TankMarkProfileDB[zone] then
+		TankMark.pendingWipeAction = function()
+			TankMarkProfileDB[zone] = nil
+			UIDropDownMenu_SetText(L._GetRealZoneText(), TankMark.profileZoneDropdown)
+			TankMark:LoadProfileToCache()
+			TankMark:UpdateProfileList()
+			TankMark:Print("|cffff0000Deleted:|r Profile for '" .. zone .. "'")
+		end
+		StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete entire profile for zone?\n\n|cffff0000" .. zone .. "|r")
+	else
+		TankMark:Print("|cffffaa00Notice:|r No profile data to delete.")
+	end
+end
+
 function TankMark:ProfileAddRow()
-	L._tinsert(TankMark.profileCache, {mark = 8, tank = "", healers = ""})
+	L._tinsert(TankMark.profileCache, {mark = 8, tank = "", healers = "", role = "TANK"})
 	TankMark:UpdateProfileList()
 end
 
@@ -236,7 +255,8 @@ function TankMark:LoadTemplate(templateName)
 		L._tinsert(TankMark.profileCache, {
 			mark = entry.mark,
 			tank = entry.tank or "",
-			healers = entry.healers or ""
+			healers = entry.healers or "",
+			role = entry.role or "TANK",
 		})
 	end
 	
@@ -313,7 +333,8 @@ function TankMark:CopyProfileFrom(sourceZone, targetZone)
 		L._tinsert(TankMark.profileCache, {
 			mark = entry.mark,
 			tank = entry.tank or "",
-			healers = entry.healers or ""
+			healers = entry.healers or "",
+			role = entry.role or "TANK",
 		})
 	end
 	
@@ -379,6 +400,15 @@ function TankMark:UpdateProfileList()
 			TankMark:SetIconTexture(row.iconTex, data.mark)
 			row.tankEdit:SetText(data.tank or "")
 			row.healEdit:SetText(data.healers or "")
+
+			-- Update CC checkbox state
+			if row.ccCheck then
+				if data.role == "CC" then
+					row.ccCheck:SetChecked(true)
+				else
+					row.ccCheck:SetChecked(false)
+				end
+			end
 			
 			-- Apply roster validation color to tank name
 			if data.tank and data.tank ~= "" then
@@ -521,10 +551,10 @@ function TankMark:CreateProfileTab(parent)
 	ph2:SetPoint("TOPLEFT", 60, -45)
 	local ph3 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	ph3:SetText("Assigned Healers")
-	ph3:SetPoint("TOPLEFT", 220, -45)
+	ph3:SetPoint("TOPLEFT", 210, -45)
 	local ph4 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	ph4:SetText("Priority")
-	ph4:SetPoint("TOPRIGHT", -30, -45)
+	ph4:SetText("CC")
+	ph4:SetPoint("TOPLEFT", 355, -45)
 	
 	-- Scroll Frame
 	local psf = CreateFrame("ScrollFrame", "TankMarkProfileScroll", t2, "FauxScrollFrameTemplate")
@@ -573,7 +603,7 @@ function TankMark:CreateProfileTab(parent)
 		end)
 		
 		-- Tank Edit Box
-		local teb = TankMark:CreateEditBox(row, "", 120)
+		local teb = TankMark:CreateEditBox(row, "", 110)
 		teb:SetPoint("LEFT", ibtn, "RIGHT", 10, 0)
 		row.tankEdit = teb
 		teb:SetScript("OnTextChanged", function()
@@ -590,12 +620,21 @@ function TankMark:CreateProfileTab(parent)
 		tbtn:SetText("T")
 		tbtn:SetScript("OnClick", function()
 			if L._UnitExists("target") then
-				teb:SetText(L._UnitName("target"))
+				local name = L._UnitName("target")
+				teb:SetText(name)
+				-- Auto-detect role from target's class
+				if row.index and TankMark.profileCache[row.index] then
+					local autoRole = TankMark:InferRoleFromClass(name)
+					TankMark.profileCache[row.index].role = autoRole
+					if row.ccCheck then
+						row.ccCheck:SetChecked(autoRole == "CC")
+					end
+				end
 			end
 		end)
 		
         -- Healer Edit Box
-        local heb = TankMark:CreateEditBox(row, "", 100)
+        local heb = TankMark:CreateEditBox(row, "", 90)
         heb:SetPoint("LEFT", tbtn, "RIGHT", 5, 0)
         row.healEdit = heb
         heb:SetScript("OnTextChanged", function()
@@ -662,6 +701,22 @@ function TankMark:CreateProfileTab(parent)
 
         warnIcon:Hide()
         row.warnIcon = warnIcon
+
+		-- CC Checkbox
+		local ccCheck = CreateFrame("CheckButton", "TMProfileRowCC"..i, row, "UICheckButtonTemplate")
+		ccCheck:SetWidth(20)
+		ccCheck:SetHeight(20)
+		ccCheck:SetPoint("LEFT", warnIcon, "RIGHT", 4, 0)
+		ccCheck:SetScript("OnClick", function()
+			if row.index and TankMark.profileCache[row.index] then
+				if ccCheck:GetChecked() then
+					TankMark.profileCache[row.index].role = "CC"
+				else
+					TankMark.profileCache[row.index].role = "TANK"
+				end
+			end
+		end)
+		row.ccCheck = ccCheck
 		
 		-- Up Button
 		local up = CreateFrame("Button", "TMProfileRowUp"..i, row, "UIPanelButtonTemplate")
@@ -731,10 +786,19 @@ function TankMark:CreateProfileTab(parent)
 	local resetPBtn = CreateFrame("Button", "TMProfileResetBtn", t2, "UIPanelButtonTemplate")
 	resetPBtn:SetWidth(80)
 	resetPBtn:SetHeight(24)
-	resetPBtn:SetPoint("BOTTOMRIGHT", -110, 5)
+	resetPBtn:SetPoint("BOTTOMRIGHT", -200, 5)
 	resetPBtn:SetText("Reset")
 	resetPBtn:SetScript("OnClick", function()
 		TankMark:RequestResetProfile()
+	end)
+
+	local deletePBtn = CreateFrame("Button", "TMProfileDeleteBtn", t2, "UIPanelButtonTemplate")
+	deletePBtn:SetWidth(90)
+	deletePBtn:SetHeight(24)
+	deletePBtn:SetPoint("BOTTOMRIGHT", -110, 5)
+	deletePBtn:SetText("Delete Profile")
+	deletePBtn:SetScript("OnClick", function()
+		TankMark:RequestDeleteProfile()
 	end)
 	
 	local savePBtn = CreateFrame("Button", "TMProfileSaveBtn", t2, "UIPanelButtonTemplate")

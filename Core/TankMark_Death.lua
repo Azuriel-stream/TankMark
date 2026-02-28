@@ -97,10 +97,13 @@ function TankMark:HandleDeath(unitID)
 	local list = TankMarkProfileDB[zone]
 	if not list then return end
 
-	-- Check if dead player is a TANK
+	-- Lazily migrate role field on all entries before using it
+	TankMark:MigrateProfileRoles(zone)
+
+	-- Check if dead player is a TANK (role == "TANK")
 	local deadTankIndex = nil
 	for i, entry in L._ipairs(list) do
-		if entry.tank and entry.tank == deadPlayerName then
+		if entry.tank and entry.tank == deadPlayerName and (not entry.role or entry.role == "TANK") then
 			deadTankIndex = i
 			break
 		end
@@ -108,16 +111,47 @@ function TankMark:HandleDeath(unitID)
 
 	if deadTankIndex then
 		local deadMarkStr = TankMark:GetMarkString(list[deadTankIndex].mark)
-		-- Find next ALIVE tank in sequence
+
+		-- Build the TANK-only roster (CC entries are excluded)
+		local roster = TankMark:GetTankRoster(zone)
+
+		-- Find the dead tank's position within the roster
+		local deadRosterPos = nil
+		for pos, entry in L._ipairs(roster) do
+			if entry.player == deadPlayerName then
+				deadRosterPos = pos
+				break
+			end
+		end
+
 		local nextTank = nil
-		for i = deadTankIndex + 1, L._tgetn(list) do
-			if list[i].tank and list[i].tank ~= "" then
-				if TankMark:IsPlayerAliveAndInRaid(list[i].tank) then
-					nextTank = list[i].tank
+		if deadRosterPos then
+			-- 1. Search DOWN from the dead position (lower-priority tanks first)
+			for pos = deadRosterPos + 1, L._tgetn(roster) do
+				if roster[pos].alive then
+					nextTank = roster[pos].player
 					break
 				end
 			end
+
+			-- 2. Search UP, but skip position 1 (SKULL holder)
+			if not nextTank then
+				for pos = deadRosterPos - 1, 2, -1 do
+					if roster[pos].alive then
+						nextTank = roster[pos].player
+						break
+					end
+				end
+			end
+
+			-- 3. Last resort: SKULL tank (position 1) if alive and not the dead player
+			if not nextTank and deadRosterPos ~= 1 and L._tgetn(roster) >= 1 then
+				if roster[1].alive then
+					nextTank = roster[1].player
+				end
+			end
 		end
+
 		if nextTank then
 			local msg = "ALERT: " .. deadPlayerName .. " (" .. deadMarkStr .. ") has died! Take over!"
 			L._SendChatMessage(msg, "WHISPER", nil, nextTank)
