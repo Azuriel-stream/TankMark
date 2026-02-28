@@ -18,10 +18,12 @@ function TankMark:GetFreeTankIcon()
     if not list then return nil end
     
     -- [DEBUG] Log search start
-    TankMark:DebugLog("FREE", "GetFreeTankIcon search started", {
-        zone = zone,
-        profileCount = L._tgetn(list)
-    })
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("FREE", "GetFreeTankIcon search started", {
+            zone = zone,
+            profileCount = L._tgetn(list)
+        })
+    end
 
     for _, entry in L._ipairs(list) do
         local markID = L._tonumber(entry.mark)
@@ -40,10 +42,12 @@ function TankMark:GetFreeTankIcon()
         if markID and not isBusy and not TankMark.disabledMarks[markID] then
             -- [DEBUG] Log successful allocation
             if markID == 4 then
-                TankMark:DebugLog("FREE", "TRIANGLE would be returned", {
-                    mark = markID,
-                    tank = tankName or "none"
-                })
+                if TankMark.DebugEnabled then
+                    TankMark:DebugLog("FREE", "TRIANGLE would be returned", {
+                        mark = markID,
+                        tank = tankName or "none"
+                    })
+                end
             end
 
             if tankName and tankName ~= "" then
@@ -51,17 +55,23 @@ function TankMark:GetFreeTankIcon()
                 if u then
                     if not L._UnitIsDeadOrGhost(u) and not TankMark:IsPlayerCCClass(tankName) then
                         -- [DEBUG] Final return
-                        TankMark:DebugLog("FREE", "Returning mark", {mark = markID})
+                        if TankMark.DebugEnabled then
+                            TankMark:DebugLog("FREE", "Returning mark", {mark = markID})
+                        end
                         return markID
                     end
                 end
             else
-                TankMark:DebugLog("FREE", "Returning mark (no tank assigned)", {mark = markID})
+                if TankMark.DebugEnabled then
+                    TankMark:DebugLog("FREE", "Returning mark (no tank assigned)", {mark = markID})
+                end
                 return markID
             end
         end
     end
-    TankMark:DebugLog("FREE", "GetFreeTankIcon returned nil", {})
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("FREE", "GetFreeTankIcon returned nil", {})
+    end
     return nil
 end
 
@@ -332,11 +342,13 @@ function TankMark:FindEmergencyCandidate()
                     -- marks[1] == 8 → SKULL configured → falls to else → allowed.
                     -- marks[1] ~= 8 → CROSS/TRIANGLE/etc → enters if → SKIPPED.
                     if data and data.marks and data.marks[1] and data.marks[1] ~= 8 then
-                        TankMark:DebugLog("CANDIDATE", "Skipping mob excluded from skull marking", {
-                            guid = guid,
-                            name = name,
-                            prio = prio,
-                        })
+                        if TankMark.DebugEnabled then
+                            TankMark:DebugLog("CANDIDATE", "Skipping mob excluded from skull marking", {
+                                guid = guid,
+                                name = name,
+                                prio = prio,
+                            })
+                        end
                     else
                         prio = L._tonumber(prio) or 5
                         local hp = L._UnitHealth(guid) or 999999

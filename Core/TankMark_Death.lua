@@ -254,21 +254,25 @@ function TankMark:ReviewSkullState(callerID)
 	local memMobName  = memGUID and (L._UnitName(memGUID) or "?") or "nil"
 	local activeName8 = TankMark.activeMobNames and TankMark.activeMobNames[8] or "nil"
 
-	TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState entry", {
-		caller       = _caller,
-		mark8_exists = mark8Exists,
-		mark8_dead   = mark8IsDead,
-		mark8_name   = mark8Name,
-		memory8_guid = memGUID or "nil",
-		memory8_name = memMobName,
-		active_name8 = activeName8,
-	})
+	if TankMark.DebugEnabled then
+		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState entry", {
+			caller       = _caller,
+			mark8_exists = mark8Exists,
+			mark8_dead   = mark8IsDead,
+			mark8_name   = mark8Name,
+			memory8_guid = memGUID or "nil",
+			memory8_name = memMobName,
+			active_name8 = activeName8,
+		})
+	end
 
 	-- 1. Basic Checks
 	if not TankMark:HasPermissions() then
-		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - no permissions", {
-			caller = _caller,
-		})
+		if TankMark.DebugEnabled then
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - no permissions", {
+				caller = _caller,
+			})
+		end
 		return
 	end
 
@@ -285,17 +289,21 @@ function TankMark:ReviewSkullState(callerID)
 					local isCaster = (L._UnitPowerType(existingGUID) == 0)
 					TankMark.MarkMemory[8] = existingGUID
 					TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
-					TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
-						caller = _caller,
-						guid   = existingGUID,
-						name   = existingName,
-					})
+					if TankMark.DebugEnabled then
+						TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
+							caller = _caller,
+							guid   = existingGUID,
+							name   = existingName,
+						})
+					end
 				end
 			end
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
-				caller     = _caller,
-				mark8_name = L._UnitName("mark8") or "?",
-			})
+			if TankMark.DebugEnabled then
+				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
+					caller     = _caller,
+					mark8_name = L._UnitName("mark8") or "?",
+				})
+			end
 			return
 		end
 	end
@@ -311,10 +319,12 @@ function TankMark:ReviewSkullState(callerID)
 	-- when no new assignment has been committed in this tick.
 	if TankMark.IsSuperWoW then
 		if TankMark.MarkMemory and TankMark.MarkMemory[8] then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
-				caller     = _caller,
-				lockedGUID = TankMark.MarkMemory[8],
-			})
+			if TankMark.DebugEnabled then
+				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
+					caller     = _caller,
+					lockedGUID = TankMark.MarkMemory[8],
+				})
+			end
 			return
 		end
 	end
@@ -325,10 +335,12 @@ function TankMark:ReviewSkullState(callerID)
 	if skullName and TankMark.activeDB and TankMark.activeDB[skullName] then
 		local data = TankMark.activeDB[skullName]
 		if data.marks and L._tgetn(data.marks) > 1 then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - sequential guard", {
-				caller    = _caller,
-				skullName = skullName,
-			})
+			if TankMark.DebugEnabled then
+				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - sequential guard", {
+					caller    = _caller,
+					skullName = skullName,
+				})
+			end
 			return
 		end
 	end
@@ -339,20 +351,24 @@ function TankMark:ReviewSkullState(callerID)
 		blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
 	end
 
-	TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState governor check", {
-		caller    = _caller,
-		blockIcon = blockIcon or "nil",
-		blockPrio = blockPrio or "nil",
-	})
+	if TankMark.DebugEnabled then
+		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState governor check", {
+			caller    = _caller,
+			blockIcon = blockIcon or "nil",
+			blockPrio = blockPrio or "nil",
+		})
+	end
 
 	-- 3. Find Best Candidate for Skull
 	if TankMark.FindEmergencyCandidate then
 		local candidateGUID, candidatePrio = TankMark:FindEmergencyCandidate()
 
 		if not candidateGUID then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState NO CANDIDATE found", {
-				caller = _caller,
-			})
+			if TankMark.DebugEnabled then
+				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState NO CANDIDATE found", {
+					caller = _caller,
+				})
+			end
 			return
 		end
 
@@ -371,15 +387,17 @@ function TankMark:ReviewSkullState(callerID)
 			end
 		end
 
-		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState decision", {
-			caller        = _caller,
-			candidateGUID = candidateGUID or "nil",
-			candidateName = candidateGUID and (L._UnitName(candidateGUID) or "?") or "nil",
-			candidatePrio = candidatePrio or "nil",
-			blockIcon     = blockIcon or "nil",
-			blockPrio     = blockPrio or "nil",
-			shouldAssign  = shouldAssign,
-		})
+		if TankMark.DebugEnabled then
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState decision", {
+				caller        = _caller,
+				candidateGUID = candidateGUID or "nil",
+				candidateName = candidateGUID and (L._UnitName(candidateGUID) or "?") or "nil",
+				candidatePrio = candidatePrio or "nil",
+				blockIcon     = blockIcon or "nil",
+				blockPrio     = blockPrio or "nil",
+				shouldAssign  = shouldAssign,
+			})
+		end
 
 		if shouldAssign then
 			-- Commit MarkMemory BEFORE calling Driver_ApplyMark. This serves
