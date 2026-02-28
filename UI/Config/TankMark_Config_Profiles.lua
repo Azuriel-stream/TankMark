@@ -94,14 +94,18 @@ function TankMark:SaveProfileCache()
 	
 	-- Update session if current zone
 	if zone == L._GetRealZoneText() then
+		-- [v0.26] Do NOT pre-mark icons as used.
+		-- Session assignments drive the HUD, usedIcons should reflect live mob marks only.
 		TankMark.sessionAssignments = {}
-		TankMark.usedIcons = {}
+
 		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
 			if entry.tank and entry.tank ~= "" then
 				TankMark.sessionAssignments[entry.mark] = entry.tank
-				TankMark.usedIcons[entry.mark] = true
 			end
 		end
+
+		-- Leave TankMark.usedIcons untouched here.
+		-- It will be populated when marks are actually applied to mobs.
 		if TankMark.UpdateHUD then
 			TankMark:UpdateHUD()
 		end
@@ -179,7 +183,7 @@ function TankMark:AddHealerToRow(rowIndex)
 	-- Check if healer already in list
 	if currentHealers ~= "" then
 		local healerList = {}
-		for name in L._sgfind(currentHealers, "[^ ]+") do
+		for name in L._gfind(currentHealers, "[^ ]+") do
 			L._tinsert(healerList, name)
 			if name == healerName then
 				TankMark:Print("|cffffaa00Notice:|r " .. healerName .. " is already in the healer list.")
@@ -391,7 +395,7 @@ function TankMark:UpdateProfileList()
             if row.warnIcon then
                 local showWarning = false
                 if data.healers and data.healers ~= "" then
-                    for healerName in L._sgfind(data.healers, "[^ ]+") do
+                    for healerName in L._gfind(data.healers, "[^ ]+") do
                         if not TankMark:IsPlayerInRaid(healerName) then
                             showWarning = true
                             break
@@ -439,6 +443,25 @@ function TankMark:UpdateProfileList()
 			TankMark.profileAddBtn:Enable()
 		end
 	end
+end
+
+function TankMark:UpdateProfileZoneUI(zone)
+    -- Safety check for the specific widget found in this file
+    if not TankMark.profileZoneDropdown then return end
+    
+    -- Update the visual text on the dropdown button
+    UIDropDownMenu_SetText(zone, TankMark.profileZoneDropdown)
+    
+    -- Reload the profile data into the cache for the new zone
+    -- This function (lines 60+) uses UIDropDownMenu_GetText, so setting the text above is critical
+    if TankMark.LoadProfileToCache then
+        TankMark:LoadProfileToCache()
+    end
+    
+    -- Refresh the visual rows
+    if TankMark.UpdateProfileList then
+        TankMark:UpdateProfileList()
+    end
 end
 
 -- ==========================================================
@@ -615,7 +638,7 @@ function TankMark:CreateProfileTab(parent)
             GameTooltip:AddLine(" ", 1, 1, 1) -- Spacing
             
             local hasOffline = false
-            for healerName in L._sgfind(healers, "[^ ]+") do
+            for healerName in L._gfind(healers, "[^ ]+") do
                 local isOnline = TankMark:IsPlayerInRaid(healerName)
                 if isOnline then
                     GameTooltip:AddLine(healerName .. " [Online]", 0, 1, 0)
