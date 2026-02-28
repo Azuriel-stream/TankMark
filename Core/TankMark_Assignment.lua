@@ -110,6 +110,57 @@ function TankMark:IsPlayerCCClass(playerName)
     return false
 end
 
+-- Infer role ("TANK" or "CC") from a player's class/race.
+-- Pure CC classes → "CC"; everyone else → "TANK".
+-- Returns "TANK" if the player is not in the current raid/party.
+function TankMark:InferRoleFromClass(playerName)
+    if not playerName or playerName == "" then return "TANK" end
+    local unit = TankMark:FindUnitByName(playerName)
+    if not unit then return "TANK" end
+    local class = L._UnitClass(unit)
+    if class == "Mage" or class == "Warlock" or class == "Hunter" or class == "Priest" then
+        return "CC"
+    end
+    if class == "Shaman" then
+        local race = L._UnitRace(unit)
+        if race == "Troll" then return "CC" end
+    end
+    return "TANK"
+end
+
+-- Lazily migrate profile entries that are missing the role field.
+-- Called before any code that reads or depends on entry.role.
+function TankMark:MigrateProfileRoles(zone)
+    local list = TankMarkProfileDB[zone]
+    if not list then return end
+    for _, entry in L._ipairs(list) do
+        if not entry.role then
+            entry.role = TankMark:InferRoleFromClass(entry.tank)
+        end
+    end
+end
+
+-- Returns an ordered array of TANK-role entries for the given zone.
+-- Each element: { profileIndex, mark, player, alive }
+-- Only entries with role == "TANK" and a non-empty player name are included.
+function TankMark:GetTankRoster(zone)
+    local list = TankMarkProfileDB[zone]
+    if not list then return {} end
+    local roster = {}
+    for i, entry in L._ipairs(list) do
+        if (not entry.role or entry.role == "TANK") and entry.tank and entry.tank ~= "" then
+            local alive = TankMark:IsPlayerAliveAndInRaid(entry.tank)
+            L._tinsert(roster, {
+                profileIndex = i,
+                mark = entry.mark,
+                player = entry.tank,
+                alive = alive,
+            })
+        end
+    end
+    return roster
+end
+
 -- Find CC player in Team Profile matching required class
 function TankMark:FindCCPlayerForClass(requiredClass)
     local zone = TankMark:GetCachedZone()

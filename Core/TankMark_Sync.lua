@@ -86,6 +86,7 @@ function TankMark:HandleTWABW(msg, sender)
 		if entry.mark == iconID then
 			entry.tank = primaryTank or ""
 			entry.healers = healStr
+			entry.role = TankMark:InferRoleFromClass(primaryTank or "")
 			found = true
 			break
 		end
@@ -96,7 +97,8 @@ function TankMark:HandleTWABW(msg, sender)
 		L._tinsert(list, {
 			mark = iconID,
 			tank = primaryTank,
-			healers = healStr
+			healers = healStr,
+			role = TankMark:InferRoleFromClass(primaryTank),
 		})
 	end
 
