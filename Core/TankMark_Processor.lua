@@ -17,15 +17,19 @@ function TankMark:ProcessUnit(guid, mode)
 
     -- [DEBUG] Entry point
     local mobName = L._UnitName(guid)
-    TankMark:DebugLog("PROCESS", "ProcessUnit entry", {
-        guid = guid,
-        mob  = mobName or "nil",
-        mode = mode
-    })
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("PROCESS", "ProcessUnit entry", {
+            guid = guid,
+            mob  = mobName or "nil",
+            mode = mode
+        })
+    end
 
     -- 1. Sanity Checks
     if L._UnitIsDead(guid) then
-        TankMark:DebugLog("PROCESS", "Skipped: dead", { mob = mobName })
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("PROCESS", "Skipped: dead", { mob = mobName })
+        end
         return
     end
     if L._UnitIsPlayer(guid) or L._UnitIsFriend("player", guid) then return end
@@ -59,11 +63,13 @@ function TankMark:ProcessUnit(guid, mode)
 
     -- [DEBUG] Log what GetRaidTargetIndex returned
     if currentIcon then
-        TankMark:DebugLog("PROCESS", "GetRaidTargetIndex returned", {
-            guid = guid,
-            mob  = mobName,
-            icon = currentIcon
-        })
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("PROCESS", "GetRaidTargetIndex returned", {
+                guid = guid,
+                mob  = mobName,
+                icon = currentIcon
+            })
+        end
     end
 
     -- [v0.26 FIX] Verify ownership server-side before trusting GetRaidTargetIndex.
@@ -73,24 +79,28 @@ function TankMark:ProcessUnit(guid, mode)
     if currentIcon and TankMark.IsSuperWoW then
         local exists, actualHolderGUID = L._UnitExists("mark"..currentIcon)
         if not exists or actualHolderGUID ~= guid then
-            TankMark:DebugLog("PROCESS", "Ownership mismatch - nulling currentIcon", {
-                icon         = currentIcon,
-                expectedGUID = guid,
-                actualGUID   = actualHolderGUID and L._sub(actualHolderGUID, 1, 10).."..." or "nil"
-            })
+            if TankMark.DebugEnabled then
+                TankMark:DebugLog("PROCESS", "Ownership mismatch - nulling currentIcon", {
+                    icon         = currentIcon,
+                    expectedGUID = guid,
+                    actualGUID   = actualHolderGUID and L._sub(actualHolderGUID, 1, 10).."..." or "nil"
+                })
+            end
             currentIcon = nil
         end
     end
 
     if currentIcon then
         if not TankMark.usedIcons[currentIcon] or not TankMark.activeGUIDs[guid] then
-            TankMark:DebugLog("PROCESS", "Re-registering existing mark", {
-                icon       = currentIcon,
-                guid       = guid,
-                mob        = mobName,
-                usedIcons  = L._tostring(TankMark.usedIcons[currentIcon]),
-                activeGUIDs = L._tostring(TankMark.activeGUIDs[guid])
-            })
+            if TankMark.DebugEnabled then
+                TankMark:DebugLog("PROCESS", "Re-registering existing mark", {
+                    icon       = currentIcon,
+                    guid       = guid,
+                    mob        = mobName,
+                    usedIcons  = L._tostring(TankMark.usedIcons[currentIcon]),
+                    activeGUIDs = L._tostring(TankMark.activeGUIDs[guid])
+                })
+            end
             TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
         end
         return
@@ -105,11 +115,13 @@ function TankMark:ProcessUnit(guid, mode)
     -- accidentally evicting a different mob that has since taken the same icon.
     if TankMark.activeGUIDs[guid] then
         local expectedIcon = TankMark.activeGUIDs[guid]
-        TankMark:DebugLog("PROCESS", "Stale activeGUIDs - invalidating", {
-            guid          = guid,
-            mob           = mobName or "nil",
-            expectedIcon  = expectedIcon
-        })
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("PROCESS", "Stale activeGUIDs - invalidating", {
+                guid          = guid,
+                mob           = mobName or "nil",
+                expectedIcon  = expectedIcon
+            })
+        end
         TankMark.activeGUIDs[guid] = nil
         if TankMark.MarkMemory and TankMark.MarkMemory[expectedIcon] == guid then
             TankMark.MarkMemory[expectedIcon]      = nil
@@ -174,13 +186,15 @@ function TankMark:IsMarkBusy(iconID)
     end
     
     -- [DEBUG] Log every IsMarkBusy check (generic)
-    local holderGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID]
-    TankMark:DebugLog("BUSY", "IsMarkBusy(" .. L._tostring(iconID) .. ") check", {
-        result  = L._tostring(result),
-        reason  = reason or "none",
-        Memory  = holderGUID and L._sub(holderGUID, 1, 10) .. "..." or "nil",
-        used    = L._tostring(TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]))
-    })
+    if TankMark.DebugEnabled then
+        local holderGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID]
+        TankMark:DebugLog("BUSY", "IsMarkBusy(" .. L._tostring(iconID) .. ") check", {
+            result  = L._tostring(result),
+            reason  = reason or "none",
+            Memory  = holderGUID and L._sub(holderGUID, 1, 10) .. "..." or "nil",
+            used    = L._tostring(TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]))
+        })
+    end
     
     return result
 end
@@ -216,12 +230,14 @@ end
 
 function TankMark:ProcessKnownMob(mobData, guid, mode)
     -- [DEBUG] Entry
-    TankMark:DebugLog("KNOWN", "ProcessKnownMob", {
-        mob   = mobData.name,
-        guid  = guid,
-        prio  = mobData.prio,
-        marks = mobData.marks and mobData.marks[1] or "nil"
-    })
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("KNOWN", "ProcessKnownMob", {
+            mob   = mobData.name,
+            guid  = guid,
+            prio  = mobData.prio,
+            marks = mobData.marks and mobData.marks[1] or "nil"
+        })
+    end
 
     if mobData.marks and L._tgetn(mobData.marks) > 1 then return end
     local markToUse = mobData.marks and mobData.marks[1] or 8
@@ -266,18 +282,22 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     end
 
     if iconToApply then
-        TankMark:DebugLog("KNOWN", "Will apply mark", {
-            icon        = iconToApply,
-            mob         = mobData.name,
-            wasBusy     = isBusy,
-            canOverride = canOverride
-        })
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("KNOWN", "Will apply mark", {
+                icon        = iconToApply,
+                mob         = mobData.name,
+                wasBusy     = isBusy,
+                canOverride = canOverride
+            })
+        end
     else
-        TankMark:DebugLog("KNOWN", "No icon determined", {
-            mob         = mobData.name,
-            primaryMark = markToUse,
-            isBusy      = isBusy
-        })
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("KNOWN", "No icon determined", {
+                mob         = mobData.name,
+                primaryMark = markToUse,
+                isBusy      = isBusy
+            })
+        end
     end
 
     -- GOVERNOR CHECK
