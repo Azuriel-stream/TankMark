@@ -73,6 +73,15 @@ function TankMark:CreateProfileTab(parent)
 	end)
 	TankMark.profileZoneModeCheck = mpCheck
 
+	local savePBtn = CreateFrame("Button", "TMProfileSaveBtn", t2, "UIPanelButtonTemplate")
+	savePBtn:SetWidth(80)
+	savePBtn:SetHeight(24)
+	savePBtn:SetPoint("LEFT", mpCheck, "RIGHT", 100, 0)
+	savePBtn:SetText("Save Profile")
+	savePBtn:SetScript("OnClick", function()
+		TankMark:SaveProfileCache()
+	end)
+
 	-- ----------------------------------------------------------
 	-- COLUMN HEADERS
 	-- ----------------------------------------------------------
@@ -318,15 +327,6 @@ function TankMark:CreateProfileTab(parent)
 	resetPBtn:SetText("Reset")
 	resetPBtn:SetScript("OnClick", function()
 		TankMark:RequestResetProfile()
-	end)
-
-	local savePBtn = CreateFrame("Button", "TMProfileSaveBtn", t2, "UIPanelButtonTemplate")
-	savePBtn:SetWidth(80)
-	savePBtn:SetHeight(24)
-	savePBtn:SetPoint("LEFT", resetPBtn, "RIGHT", 5, 0)
-	savePBtn:SetText("Save Profile")
-	savePBtn:SetScript("OnClick", function()
-		TankMark:SaveProfileCache()
 	end)
 
 	return t2
