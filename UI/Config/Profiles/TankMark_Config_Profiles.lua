@@ -8,11 +8,15 @@ if not TankMark then return end
 -- STATE VARIABLES
 -- ==========================================================
 
-TankMark.profileRows = {}
-TankMark.profileScroll = nil
+TankMark.profileRows         = {}
+TankMark.profileScroll       = nil
 TankMark.profileZoneDropdown = nil
-TankMark.profileCache = {}
-TankMark.profileAddBtn = nil
+TankMark.profileCache        = {}
+TankMark.profileAddBtn       = nil
+
+-- [v0.27] Manage Profiles zone browser state
+TankMark.isProfileZoneListMode = false  -- true when zone browser is active
+TankMark.profileZoneModeCheck  = nil    -- CheckButton widget reference
 
 -- ==========================================================
 -- PROFILE TEMPLATES

@@ -81,6 +81,16 @@ function TankMark:ProfileDeleteRow(index)
 	TankMark:UpdateProfileList()
 end
 
+function TankMark:ProfileMoveRow(index, direction)
+	if not index then return end
+	local target = index + direction
+	if target < 1 or target > L._tgetn(TankMark.profileCache) then return end
+	local temp                     = TankMark.profileCache[index]
+	TankMark.profileCache[index]   = TankMark.profileCache[target]
+	TankMark.profileCache[target]  = temp
+	TankMark:UpdateProfileList()
+end
+
 -- ==========================================================
 -- DESTRUCTIVE OPERATIONS (CONFIRMATION DIALOGS)
 -- ==========================================================
@@ -281,4 +291,91 @@ function TankMark:CopyProfileFrom(sourceZone, targetZone)
 
 	TankMark:UpdateProfileList()
 	TankMark:Print("|cff00ff00Copied:|r " .. L._tgetn(TankMark.profileCache) .. " marks from '" .. sourceZone .. "'")
+end
+
+-- ==========================================================
+-- [v0.27] MANAGE PROFILES: ZONE BROWSER LOGIC
+-- ==========================================================
+
+-- Enable or disable the profile zone dropdown.
+-- When zone browser is active the dropdown is greyed out so the user cannot
+-- accidentally switch zones while browsing the full profile list.
+function TankMark:SetProfileDropdownState(enabled)
+	if not TankMark.profileZoneDropdown then return end
+
+	local dropName = TankMark.profileZoneDropdown:GetName()
+	local btn      = getglobal(dropName .. "Button")
+	local txt      = getglobal(dropName .. "Text")
+
+	if enabled then
+		if btn then
+			btn:Enable()
+			btn:Show()
+		end
+		TankMark.profileZoneDropdown:EnableMouse(true)
+		if txt then txt:SetVertexColor(1, 1, 1) end
+	else
+		if btn then btn:Disable() end
+		TankMark.profileZoneDropdown:EnableMouse(false)
+		if txt then txt:SetVertexColor(0.5, 0.5, 0.5) end
+	end
+end
+
+-- Toggle between zone browser mode and normal profile list mode.
+-- Zone browser mode shows one row per saved profile zone with a Delete button.
+-- Normal mode shows the standard per-mark edit rows for the selected zone.
+function TankMark:ToggleProfileZoneBrowser()
+	TankMark.isProfileZoneListMode = not TankMark.isProfileZoneListMode
+
+	if TankMark.isProfileZoneListMode then
+		-- Entering zone browser: grey out dropdown, show placeholder text
+		TankMark:SetProfileDropdownState(false)
+		UIDropDownMenu_SetText("Manage Saved Profiles", TankMark.profileZoneDropdown)
+	else
+		-- Leaving zone browser: restore dropdown, reload cache for current zone
+		TankMark:SetProfileDropdownState(true)
+		UIDropDownMenu_SetText(L._GetRealZoneText(), TankMark.profileZoneDropdown)
+		TankMark:LoadProfileToCache()
+	end
+
+	-- Keep the checkbox widget in sync if called programmatically
+	if TankMark.profileZoneModeCheck then
+		TankMark.profileZoneModeCheck:SetChecked(TankMark.isProfileZoneListMode)
+	end
+
+	-- Reset scroll to top on every mode switch
+	if TankMark.profileScroll then
+		FauxScrollFrame_SetOffset(TankMark.profileScroll, 0)
+	end
+
+	TankMark:UpdateProfileList()
+end
+
+-- Delete an entire zone's profile from the database.
+-- Reuses the existing TANKMARK_WIPE_CONFIRM dialog and pendingWipeAction pattern.
+function TankMark:RequestDeleteProfileZone(zoneName)
+	if not zoneName or not TankMarkProfileDB[zoneName] then
+		TankMark:Print("|cffffaa00Notice:|r No profile found for '" .. (zoneName or "?") .. "'")
+		return
+	end
+
+	TankMark.pendingWipeAction = function()
+		TankMarkProfileDB[zoneName] = nil
+
+		-- Clear live session state if the deleted zone is the currently active one
+		local currentZone = L._GetRealZoneText()
+		if zoneName == currentZone then
+			TankMark.sessionAssignments = {}
+			TankMark.usedIcons          = {}
+			if TankMark.UpdateHUD then
+				TankMark:UpdateHUD()
+			end
+		end
+
+		TankMark:Print("|cffff0000Deleted:|r Profile for '" .. zoneName .. "'")
+		TankMark:UpdateProfileList()
+	end
+
+	StaticPopup_Show("TANKMARK_WIPE_CONFIRM",
+		"Delete ENTIRE profile for zone?\n\n|cffff0000" .. zoneName .. "|r")
 end
