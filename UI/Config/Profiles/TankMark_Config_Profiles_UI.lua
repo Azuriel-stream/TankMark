@@ -30,32 +30,22 @@ function TankMark:CreateProfileTab(parent)
 		local curr = L._GetRealZoneText()
 		local info = {}
 
-		-- Current zone first
 		info.text = curr
 		info.func = function()
 			UIDropDownMenu_SetSelectedID(pDrop, this:GetID())
-			if TankMark.LoadProfileToCache then
-				TankMark:LoadProfileToCache()
-			end
-			if TankMark.UpdateProfileList then
-				TankMark:UpdateProfileList()
-			end
+			if TankMark.LoadProfileToCache then TankMark:LoadProfileToCache() end
+			if TankMark.UpdateProfileList  then TankMark:UpdateProfileList()  end
 		end
 		UIDropDownMenu_AddButton(info)
 
-		-- All other saved zones
 		for zName, _ in L._pairs(TankMarkProfileDB) do
 			if zName ~= curr then
 				info = {}
 				info.text = zName
 				info.func = function()
 					UIDropDownMenu_SetSelectedID(pDrop, this:GetID())
-					if TankMark.LoadProfileToCache then
-						TankMark:LoadProfileToCache()
-					end
-					if TankMark.UpdateProfileList then
-						TankMark:UpdateProfileList()
-					end
+					if TankMark.LoadProfileToCache then TankMark:LoadProfileToCache() end
+					if TankMark.UpdateProfileList  then TankMark:UpdateProfileList()  end
 				end
 				UIDropDownMenu_AddButton(info)
 			end
@@ -172,7 +162,7 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end)
 
-		-- Tank Target Button  (stored as row.tankBtn so zone browser can hide it)
+		-- Tank Target Button
 		local tbtn = CreateFrame("Button", "TMProfileRowTarget" .. i, row, "UIPanelButtonTemplate")
 		tbtn:SetWidth(20)
 		tbtn:SetHeight(20)
@@ -191,7 +181,7 @@ function TankMark:CreateProfileTab(parent)
 				end
 			end
 		end)
-		row.tankBtn = tbtn   -- <-- saved for hide/show in zone browser mode
+		row.tankBtn = tbtn
 
 		-- Healer Edit Box
 		local heb = TankMark:CreateEditBox(row, "", 90)
@@ -204,7 +194,7 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end)
 
-		-- Healer Target Button  (stored as row.healBtn so zone browser can hide it)
+		-- Healer Target Button
 		local hbtn = CreateFrame("Button", "TMProfileRowHealerTarget" .. i, row, "UIPanelButtonTemplate")
 		hbtn:SetWidth(20)
 		hbtn:SetHeight(20)
@@ -213,7 +203,7 @@ function TankMark:CreateProfileTab(parent)
 		hbtn:SetScript("OnClick", function()
 			TankMark:AddHealerToRow(row.index)
 		end)
-		row.healBtn = hbtn   -- <-- saved for hide/show in zone browser mode
+		row.healBtn = hbtn
 
 		-- Warning Icon (offline healers)
 		local warnIcon = CreateFrame("Frame", "TMProfileRowWarning" .. i, row)
@@ -273,13 +263,14 @@ function TankMark:CreateProfileTab(parent)
 		end)
 		row.ccCheck = ccCheck
 
-		-- Delete Button (width 20 / text "X" in normal mode;
-		-- resized to 55 / "Delete" in zone browser mode by RenderZoneBrowserRow)
+		-- Delete / Zone-Delete Button
+		-- Permanently width 55. Text is always "Delete" in normal mode.
+		-- Zone browser mode only swaps the OnClick script — no resize needed.
 		local del = CreateFrame("Button", "TMProfileRowDel" .. i, row, "UIPanelButtonTemplate")
-		del:SetWidth(20)
+		del:SetWidth(55)   -- matches zone browser "Delete" width
 		del:SetHeight(32)
 		del:SetPoint("RIGHT", row, "RIGHT", -5, 0)
-		del:SetText("X")
+		del:SetText("Delete")
 		del:SetScript("OnClick", function()
 			TankMark:ProfileDeleteRow(row.index)
 		end)

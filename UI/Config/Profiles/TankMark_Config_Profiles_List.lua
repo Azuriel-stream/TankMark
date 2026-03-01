@@ -54,23 +54,22 @@ end
 -- All normal-mode edit widgets are hidden for the duration.
 local function RenderZoneBrowserRow(row, zoneName, markCount)
 	-- Hide ALL normal-mode widgets
-	if row.iconTex    then row.iconTex:SetTexture("")    end
-	if row.tankEdit   then row.tankEdit:Hide()           end
-	if row.tankBtn    then row.tankBtn:Hide()            end  -- T button (tank)
-	if row.healEdit   then row.healEdit:Hide()           end
-	if row.healBtn    then row.healBtn:Hide()            end  -- T button (healer)
-	if row.warnIcon   then row.warnIcon:Hide()           end
-	if row.ccCheck    then row.ccCheck:Hide()            end
+	if row.iconTex  then row.iconTex:SetTexture("")  end
+	if row.tankEdit then row.tankEdit:Hide()          end
+	if row.tankBtn  then row.tankBtn:Hide()           end
+	if row.healEdit then row.healEdit:Hide()          end
+	if row.healBtn  then row.healBtn:Hide()           end
+	if row.warnIcon then row.warnIcon:Hide()          end
+	if row.ccCheck  then row.ccCheck:Hide()           end
 
 	-- Zone label
 	local countStr = " |cff888888(" .. markCount .. " marks)|r"
 	row.zoneLabel:SetText("|cffffd200" .. zoneName .. "|r" .. countStr)
 	row.zoneLabel:Show()
 
-	-- Wire Delete button to zone deletion, widen it so "Delete" fits
+	-- Wire Delete button to zone deletion.
+	-- Width and text are identical to normal mode — no resizing needed.
 	local capturedZone = zoneName
-	row.del:SetWidth(55)
-	row.del:SetText("Delete")
 	row.del:SetScript("OnClick", function()
 		TankMark:RequestDeleteProfileZone(capturedZone)
 	end)
@@ -86,9 +85,11 @@ local function ShowNormalRowWidgets(row)
 	if row.ccCheck  then row.ccCheck:Show()  end
 	-- warnIcon visibility is managed by UpdateProfileList based on data
 	row.zoneLabel:Hide()
-	-- Restore delete button to normal size
-	row.del:SetWidth(20)
-	row.del:SetText("X")
+	-- Restore delete button OnClick to normal-mode behaviour.
+	-- No size or text change needed — button is permanently width 55 / text "X".
+	row.del:SetScript("OnClick", function()
+		TankMark:ProfileDeleteRow(row.index)
+	end)
 end
 
 -- ==========================================================
@@ -127,7 +128,7 @@ function TankMark:UpdateProfileList()
 
 			if dataIndex <= numZones then
 				local entry = zoneList[dataIndex]
-				row.index   = nil  -- not used in zone browser mode
+				row.index   = nil
 				RenderZoneBrowserRow(row, entry.name, entry.markCount)
 				row:Show()
 			else
@@ -212,14 +213,7 @@ function TankMark:UpdateProfileList()
 				end
 			end
 
-			-- Restore delete button to normal-mode script
-			row.del:SetWidth(20)
-			row.del:SetText("X")
-			row.del:SetScript("OnClick", function()
-				TankMark:ProfileDeleteRow(row.index)
-			end)
 			row.del:Show()
-
 			row:Show()
 		else
 			row.index = nil
@@ -251,9 +245,6 @@ end
 function TankMark:UpdateProfileZoneUI(zone)
 	if not TankMark.profileZoneDropdown then return end
 
-	-- Update the visual text on the dropdown button.
-	-- LoadProfileToCache() reads this text via UIDropDownMenu_GetText,
-	-- so the text must be set before that call.
 	UIDropDownMenu_SetText(zone, TankMark.profileZoneDropdown)
 
 	if TankMark.LoadProfileToCache then
