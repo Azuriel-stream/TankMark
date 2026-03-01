@@ -39,6 +39,9 @@ UI\Config\Database\TankMark_Config_Mobs_Sequential.lua
 UI\Config\Database\TankMark_Config_Mobs_Menus.lua
 
 UI\Config\Profiles\TankMark_Config_Profiles.lua
+UI\Config\Profiles\TankMark_Config_Profiles_Logic.lua
+UI\Config\Profiles\TankMark_Config_Profiles_List.lua
+UI\Config\Profiles\TankMark_Config_Profiles_UI.lua
 
 # Bindings
 Bindings.xml
