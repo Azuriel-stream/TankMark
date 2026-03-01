@@ -46,15 +46,107 @@ function TankMark:InitProfileIconMenu(parentFrame, dataIndex)
 end
 
 -- ==========================================================
+-- [v0.27] ZONE BROWSER ROW RENDERER
+-- ==========================================================
+
+-- Renders a single row in zone browser mode.
+-- Shows zone name + mark count on the left and a Delete button on the right.
+-- All normal-mode edit widgets are hidden for the duration.
+local function RenderZoneBrowserRow(row, zoneName, markCount)
+	-- Hide normal-mode edit widgets
+	if row.iconTex  then row.iconTex:SetTexture("")  end
+	if row.tankEdit then row.tankEdit:Hide()         end
+	if row.healEdit then row.healEdit:Hide()         end
+	if row.warnIcon then row.warnIcon:Hide()         end
+	if row.ccCheck  then row.ccCheck:Hide()          end
+
+	-- Zone label (created per-row in UI file)
+	local countStr = " |cff888888(" .. markCount .. " marks)|r"
+	row.zoneLabel:SetText("|cffffd200" .. zoneName .. "|r" .. countStr)
+	row.zoneLabel:Show()
+
+	-- Wire Delete button to zone deletion
+	local capturedZone = zoneName
+	row.del:SetText("|cffff4444X|r")
+	row.del:SetScript("OnClick", function()
+		TankMark:RequestDeleteProfileZone(capturedZone)
+	end)
+	row.del:Show()
+end
+
+-- Restore all normal-mode widgets after leaving zone browser mode.
+local function ShowNormalRowWidgets(row)
+	if row.tankEdit then row.tankEdit:Show() end
+	if row.healEdit then row.healEdit:Show() end
+	if row.ccCheck  then row.ccCheck:Show()  end
+	-- warnIcon visibility is managed by UpdateProfileList based on data
+	row.zoneLabel:Hide()
+end
+
+-- ==========================================================
 -- MAIN LIST RENDERER
 -- ==========================================================
 
 function TankMark:UpdateProfileList()
 	if not TankMark.profileScroll then return end
 
+	local MAX_ROWS = 6
+
+	-- -------------------------------------------------------
+	-- ZONE BROWSER MODE
+	-- -------------------------------------------------------
+	if TankMark.isProfileZoneListMode then
+		-- Build sorted zone list from TankMarkProfileDB
+		local zoneList = {}
+		for zoneName, profile in L._pairs(TankMarkProfileDB) do
+			if L._type(profile) == "table" then
+				L._tinsert(zoneList, {
+					name      = zoneName,
+					markCount = L._tgetn(profile),
+				})
+			end
+		end
+		L._tsort(zoneList, function(a, b) return a.name < b.name end)
+
+		local numZones = L._tgetn(zoneList)
+		FauxScrollFrame_Update(TankMark.profileScroll, numZones, MAX_ROWS, 44)
+		local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
+
+		for i = 1, MAX_ROWS do
+			local dataIndex = offset + i
+			local row       = TankMark.profileRows[i]
+			if not row then break end
+
+			if dataIndex <= numZones then
+				local entry = zoneList[dataIndex]
+				row.index   = nil  -- not used in zone browser mode
+				RenderZoneBrowserRow(row, entry.name, entry.markCount)
+				row:Show()
+			else
+				row:Hide()
+			end
+		end
+
+		-- Hide overflow rows
+		for i = MAX_ROWS + 1, 8 do
+			if TankMark.profileRows[i] then
+				TankMark.profileRows[i]:Hide()
+			end
+		end
+
+		-- Disable Add Mark while in zone browser mode
+		if TankMark.profileAddBtn then
+			TankMark.profileAddBtn:Disable()
+		end
+
+		return
+	end
+
+	-- -------------------------------------------------------
+	-- NORMAL MODE  (identical to v0.27-dev source)
+	-- -------------------------------------------------------
 	local list     = TankMark.profileCache
 	local numItems = L._tgetn(list)
-	local MAX_ROWS = 6
 
 	FauxScrollFrame_Update(TankMark.profileScroll, numItems, MAX_ROWS, 44)
 	local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
@@ -66,6 +158,9 @@ function TankMark:UpdateProfileList()
 		if index <= numItems then
 			local data  = list[index]
 			row.index   = index
+
+			-- Restore normal-mode widgets (guards against returning from zone browser)
+			ShowNormalRowWidgets(row)
 
 			TankMark:SetIconTexture(row.iconTex, data.mark)
 			row.tankEdit:SetText(data.tank or "")
@@ -108,6 +203,13 @@ function TankMark:UpdateProfileList()
 					row.warnIcon:Hide()
 				end
 			end
+
+			-- Restore delete button to normal-mode script
+			row.del:SetText("X")
+			row.del:SetScript("OnClick", function()
+				TankMark:ProfileDeleteRow(row.index)
+			end)
+			row.del:Show()
 
 			row:Show()
 		else

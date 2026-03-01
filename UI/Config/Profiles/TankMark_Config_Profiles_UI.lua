@@ -65,6 +65,27 @@ function TankMark:CreateProfileTab(parent)
 	TankMark.profileZoneDropdown = pDrop
 
 	-- ----------------------------------------------------------
+	-- [v0.27] MANAGE PROFILES CHECKBOX
+	-- Positioned to the right of the zone dropdown.
+	-- UIDropDownMenu left-pad ~15px; width 150 → effective right edge ~195px.
+	-- ----------------------------------------------------------
+	local mpCheck = CreateFrame("CheckButton", "TMManageProfilesCheck", t2, "UICheckButtonTemplate")
+	mpCheck:SetWidth(24)
+	mpCheck:SetHeight(24)
+	mpCheck:SetPoint("TOPLEFT", t2, "TOPLEFT", 200, -13)
+
+	local mpLabel = getglobal(mpCheck:GetName() .. "Text")
+	mpLabel:SetText("Manage Profiles")
+	mpLabel:ClearAllPoints()
+	mpLabel:SetPoint("LEFT", mpCheck, "RIGHT", 2, 0)
+
+	mpCheck:SetScript("OnClick", function()
+		TankMark:ToggleProfileZoneBrowser()
+		L._PlaySound("igMainMenuOptionCheckBoxOn")
+	end)
+	TankMark.profileZoneModeCheck = mpCheck
+
+	-- ----------------------------------------------------------
 	-- COLUMN HEADERS
 	-- ----------------------------------------------------------
 	local ph1 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -117,6 +138,14 @@ function TankMark:CreateProfileTab(parent)
 		row:SetWidth(426)
 		row:SetHeight(44)
 		row:SetPoint("TOPLEFT", 16, -60 - ((i - 1) * 44))
+
+		-- [v0.27] Zone label for zone browser mode (hidden by default)
+		local zoneLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		zoneLabel:SetPoint("LEFT", row, "LEFT", 5, 0)
+		zoneLabel:SetWidth(350)
+		zoneLabel:SetJustifyH("LEFT")
+		zoneLabel:Hide()
+		row.zoneLabel = zoneLabel
 
 		-- Icon Button
 		local ibtn = CreateFrame("Button", "TMProfileRowIcon" .. i, row)
@@ -247,6 +276,9 @@ function TankMark:CreateProfileTab(parent)
 		row.ccCheck = ccCheck
 
 		-- Delete Button
+		-- NOTE: OnClick script is overwritten at render time by RenderZoneBrowserRow /
+		--       ShowNormalRowWidgets in the List file, so the script set here is only
+		--       the initial default.
 		local del = CreateFrame("Button", "TMProfileRowDel" .. i, row, "UIPanelButtonTemplate")
 		del:SetWidth(20)
 		del:SetHeight(32)
@@ -255,6 +287,7 @@ function TankMark:CreateProfileTab(parent)
 		del:SetScript("OnClick", function()
 			TankMark:ProfileDeleteRow(row.index)
 		end)
+		row.del = del
 
 		TankMark.profileRows[i] = row
 		row:Hide()
