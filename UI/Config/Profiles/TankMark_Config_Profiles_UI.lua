@@ -81,6 +81,7 @@ function TankMark:CreateProfileTab(parent)
 	savePBtn:SetScript("OnClick", function()
 		TankMark:SaveProfileCache()
 	end)
+	TankMark.profileSaveBtn = savePBtn
 
 	-- ----------------------------------------------------------
 	-- COLUMN HEADERS
@@ -310,6 +311,7 @@ function TankMark:CreateProfileTab(parent)
 	templateBtn:SetScript("OnClick", function()
 		TankMark:ShowTemplateMenu()
 	end)
+	TankMark.profileTemplateBtn = templateBtn
 
 	local copyBtn = CreateFrame("Button", "TMProfileCopyBtn", t2, "UIPanelButtonTemplate")
 	copyBtn:SetWidth(75)
@@ -319,6 +321,7 @@ function TankMark:CreateProfileTab(parent)
 	copyBtn:SetScript("OnClick", function()
 		TankMark:ShowCopyProfileDialog()
 	end)
+	TankMark.profileCopyBtn = copyBtn
 
 	local resetPBtn = CreateFrame("Button", "TMProfileResetBtn", t2, "UIPanelButtonTemplate")
 	resetPBtn:SetWidth(60)
@@ -328,6 +331,6 @@ function TankMark:CreateProfileTab(parent)
 	resetPBtn:SetScript("OnClick", function()
 		TankMark:RequestResetProfile()
 	end)
-
+	TankMark.profileResetBtn = resetPBtn
 	return t2
 end

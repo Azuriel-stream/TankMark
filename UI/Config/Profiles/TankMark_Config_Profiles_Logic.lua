@@ -315,10 +315,21 @@ function TankMark:ToggleProfileZoneBrowser()
 		-- Entering zone browser: grey out dropdown, show placeholder text
 		TankMark:SetProfileDropdownState(false)
 		UIDropDownMenu_SetText("Manage Saved Profiles", TankMark.profileZoneDropdown)
+		-- Disable editing buttons while browsing zones
+		if TankMark.profileSaveBtn     then TankMark.profileSaveBtn:Disable()     end
+		if TankMark.profileAddBtn      then TankMark.profileAddBtn:Disable()      end
+		if TankMark.profileTemplateBtn then TankMark.profileTemplateBtn:Disable() end
+		if TankMark.profileCopyBtn     then TankMark.profileCopyBtn:Disable()     end
+		if TankMark.profileResetBtn    then TankMark.profileResetBtn:Disable()    end
 	else
 		-- Leaving zone browser: restore dropdown, reload cache for current zone
 		TankMark:SetProfileDropdownState(true)
 		UIDropDownMenu_SetText(L._GetRealZoneText(), TankMark.profileZoneDropdown)
+		-- Re-enable editing buttons (Add Mark state is restored by UpdateProfileList)
+		if TankMark.profileSaveBtn     then TankMark.profileSaveBtn:Enable()     end
+		if TankMark.profileTemplateBtn then TankMark.profileTemplateBtn:Enable() end
+		if TankMark.profileCopyBtn     then TankMark.profileCopyBtn:Enable()     end
+		if TankMark.profileResetBtn    then TankMark.profileResetBtn:Enable()    end
 		TankMark:LoadProfileToCache()
 	end
 
