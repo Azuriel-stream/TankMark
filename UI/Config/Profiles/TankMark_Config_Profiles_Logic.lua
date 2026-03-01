@@ -81,16 +81,6 @@ function TankMark:ProfileDeleteRow(index)
 	TankMark:UpdateProfileList()
 end
 
-function TankMark:ProfileMoveRow(index, direction)
-	if not index then return end
-	local target = index + direction
-	if target < 1 or target > L._tgetn(TankMark.profileCache) then return end
-	local temp                     = TankMark.profileCache[index]
-	TankMark.profileCache[index]   = TankMark.profileCache[target]
-	TankMark.profileCache[target]  = temp
-	TankMark:UpdateProfileList()
-end
-
 -- ==========================================================
 -- DESTRUCTIVE OPERATIONS (CONFIRMATION DIALOGS)
 -- ==========================================================
