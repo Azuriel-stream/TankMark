@@ -66,8 +66,6 @@ function TankMark:CreateProfileTab(parent)
 
 	-- ----------------------------------------------------------
 	-- [v0.27] MANAGE PROFILES CHECKBOX
-	-- Positioned to the right of the zone dropdown.
-	-- UIDropDownMenu left-pad ~15px; width 150 → effective right edge ~195px.
 	-- ----------------------------------------------------------
 	local mpCheck = CreateFrame("CheckButton", "TMManageProfilesCheck", t2, "UICheckButtonTemplate")
 	mpCheck:SetWidth(24)
@@ -174,7 +172,7 @@ function TankMark:CreateProfileTab(parent)
 			end
 		end)
 
-		-- Tank Target Button
+		-- Tank Target Button  (stored as row.tankBtn so zone browser can hide it)
 		local tbtn = CreateFrame("Button", "TMProfileRowTarget" .. i, row, "UIPanelButtonTemplate")
 		tbtn:SetWidth(20)
 		tbtn:SetHeight(20)
@@ -184,7 +182,6 @@ function TankMark:CreateProfileTab(parent)
 			if L._UnitExists("target") then
 				local name = L._UnitName("target")
 				teb:SetText(name)
-				-- Auto-detect role from target's class
 				if row.index and TankMark.profileCache[row.index] then
 					local autoRole = TankMark:InferRoleFromClass(name)
 					TankMark.profileCache[row.index].role = autoRole
@@ -194,6 +191,7 @@ function TankMark:CreateProfileTab(parent)
 				end
 			end
 		end)
+		row.tankBtn = tbtn   -- <-- saved for hide/show in zone browser mode
 
 		-- Healer Edit Box
 		local heb = TankMark:CreateEditBox(row, "", 90)
@@ -202,12 +200,11 @@ function TankMark:CreateProfileTab(parent)
 		heb:SetScript("OnTextChanged", function()
 			if row.index and TankMark.profileCache[row.index] then
 				TankMark.profileCache[row.index].healers = this:GetText()
-				-- Trigger update to refresh warning icon
 				TankMark:UpdateProfileList()
 			end
 		end)
 
-		-- Healer Target Button
+		-- Healer Target Button  (stored as row.healBtn so zone browser can hide it)
 		local hbtn = CreateFrame("Button", "TMProfileRowHealerTarget" .. i, row, "UIPanelButtonTemplate")
 		hbtn:SetWidth(20)
 		hbtn:SetHeight(20)
@@ -216,6 +213,7 @@ function TankMark:CreateProfileTab(parent)
 		hbtn:SetScript("OnClick", function()
 			TankMark:AddHealerToRow(row.index)
 		end)
+		row.healBtn = hbtn   -- <-- saved for hide/show in zone browser mode
 
 		-- Warning Icon (offline healers)
 		local warnIcon = CreateFrame("Frame", "TMProfileRowWarning" .. i, row)
@@ -275,10 +273,8 @@ function TankMark:CreateProfileTab(parent)
 		end)
 		row.ccCheck = ccCheck
 
-		-- Delete Button
-		-- NOTE: OnClick script is overwritten at render time by RenderZoneBrowserRow /
-		--       ShowNormalRowWidgets in the List file, so the script set here is only
-		--       the initial default.
+		-- Delete Button (width 20 / text "X" in normal mode;
+		-- resized to 55 / "Delete" in zone browser mode by RenderZoneBrowserRow)
 		local del = CreateFrame("Button", "TMProfileRowDel" .. i, row, "UIPanelButtonTemplate")
 		del:SetWidth(20)
 		del:SetHeight(32)

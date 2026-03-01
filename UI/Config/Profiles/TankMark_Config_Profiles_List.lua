@@ -53,21 +53,24 @@ end
 -- Shows zone name + mark count on the left and a Delete button on the right.
 -- All normal-mode edit widgets are hidden for the duration.
 local function RenderZoneBrowserRow(row, zoneName, markCount)
-	-- Hide normal-mode edit widgets
-	if row.iconTex  then row.iconTex:SetTexture("")  end
-	if row.tankEdit then row.tankEdit:Hide()         end
-	if row.healEdit then row.healEdit:Hide()         end
-	if row.warnIcon then row.warnIcon:Hide()         end
-	if row.ccCheck  then row.ccCheck:Hide()          end
+	-- Hide ALL normal-mode widgets
+	if row.iconTex    then row.iconTex:SetTexture("")    end
+	if row.tankEdit   then row.tankEdit:Hide()           end
+	if row.tankBtn    then row.tankBtn:Hide()            end  -- T button (tank)
+	if row.healEdit   then row.healEdit:Hide()           end
+	if row.healBtn    then row.healBtn:Hide()            end  -- T button (healer)
+	if row.warnIcon   then row.warnIcon:Hide()           end
+	if row.ccCheck    then row.ccCheck:Hide()            end
 
-	-- Zone label (created per-row in UI file)
+	-- Zone label
 	local countStr = " |cff888888(" .. markCount .. " marks)|r"
 	row.zoneLabel:SetText("|cffffd200" .. zoneName .. "|r" .. countStr)
 	row.zoneLabel:Show()
 
-	-- Wire Delete button to zone deletion
+	-- Wire Delete button to zone deletion, widen it so "Delete" fits
 	local capturedZone = zoneName
-	row.del:SetText("|cffff4444X|r")
+	row.del:SetWidth(55)
+	row.del:SetText("Delete")
 	row.del:SetScript("OnClick", function()
 		TankMark:RequestDeleteProfileZone(capturedZone)
 	end)
@@ -77,10 +80,15 @@ end
 -- Restore all normal-mode widgets after leaving zone browser mode.
 local function ShowNormalRowWidgets(row)
 	if row.tankEdit then row.tankEdit:Show() end
+	if row.tankBtn  then row.tankBtn:Show()  end
 	if row.healEdit then row.healEdit:Show() end
+	if row.healBtn  then row.healBtn:Show()  end
 	if row.ccCheck  then row.ccCheck:Show()  end
 	-- warnIcon visibility is managed by UpdateProfileList based on data
 	row.zoneLabel:Hide()
+	-- Restore delete button to normal size
+	row.del:SetWidth(20)
+	row.del:SetText("X")
 end
 
 -- ==========================================================
@@ -143,7 +151,7 @@ function TankMark:UpdateProfileList()
 	end
 
 	-- -------------------------------------------------------
-	-- NORMAL MODE  (identical to v0.27-dev source)
+	-- NORMAL MODE
 	-- -------------------------------------------------------
 	local list     = TankMark.profileCache
 	local numItems = L._tgetn(list)
@@ -205,6 +213,7 @@ function TankMark:UpdateProfileList()
 			end
 
 			-- Restore delete button to normal-mode script
+			row.del:SetWidth(20)
 			row.del:SetText("X")
 			row.del:SetScript("OnClick", function()
 				TankMark:ProfileDeleteRow(row.index)
