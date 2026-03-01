@@ -117,22 +117,6 @@ function TankMark:RequestResetProfile()
 	end
 end
 
-function TankMark:RequestDeleteProfile()
-	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
-	if zone and TankMarkProfileDB[zone] then
-		TankMark.pendingWipeAction = function()
-			TankMarkProfileDB[zone] = nil
-			UIDropDownMenu_SetText(L._GetRealZoneText(), TankMark.profileZoneDropdown)
-			TankMark:LoadProfileToCache()
-			TankMark:UpdateProfileList()
-			TankMark:Print("|cffff0000Deleted:|r Profile for '" .. zone .. "'")
-		end
-		StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete entire profile for zone?\n\n|cffff0000" .. zone .. "|r")
-	else
-		TankMark:Print("|cffffaa00Notice:|r No profile data to delete.")
-	end
-end
-
 -- ==========================================================
 -- HEALER ASSIGNMENT HELPER
 -- ==========================================================
