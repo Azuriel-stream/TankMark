@@ -99,7 +99,7 @@ end
 function TankMark:UpdateProfileList()
 	if not TankMark.profileScroll then return end
 
-	local MAX_ROWS = 6
+	local MAX_ROWS = 8
 
 	-- -------------------------------------------------------
 	-- ZONE BROWSER MODE
@@ -118,7 +118,7 @@ function TankMark:UpdateProfileList()
 		L._tsort(zoneList, function(a, b) return a.name < b.name end)
 
 		local numZones = L._tgetn(zoneList)
-		FauxScrollFrame_Update(TankMark.profileScroll, numZones, MAX_ROWS, 44)
+		FauxScrollFrame_Update(TankMark.profileScroll, numZones, MAX_ROWS, 30)
 		local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
 
 		for i = 1, MAX_ROWS do
@@ -157,7 +157,7 @@ function TankMark:UpdateProfileList()
 	local list     = TankMark.profileCache
 	local numItems = L._tgetn(list)
 
-	FauxScrollFrame_Update(TankMark.profileScroll, numItems, MAX_ROWS, 44)
+	FauxScrollFrame_Update(TankMark.profileScroll, numItems, MAX_ROWS, 30)
 	local offset = FauxScrollFrame_GetOffset(TankMark.profileScroll)
 
 	for i = 1, MAX_ROWS do
