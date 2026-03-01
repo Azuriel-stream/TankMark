@@ -559,7 +559,7 @@ function TankMark:CreateProfileTab(parent)
 	-- Scroll Frame
 	local psf = CreateFrame("ScrollFrame", "TankMarkProfileScroll", t2, "FauxScrollFrameTemplate")
 	psf:SetPoint("TOPLEFT", 10, -60)
-	psf:SetWidth(380)
+	psf:SetWidth(426)
 	psf:SetHeight(270)
 	local plistBg = CreateFrame("Frame", nil, t2)
 	plistBg:SetPoint("TOPLEFT", psf, -5, 5)
@@ -581,7 +581,7 @@ function TankMark:CreateProfileTab(parent)
 	-- Profile Rows
 	for i = 1, 8 do
 		local row = CreateFrame("Frame", nil, t2)
-		row:SetWidth(380)
+		row:SetWidth(426)
 		row:SetHeight(44)
 		row:SetPoint("TOPLEFT", 10, -60 - ((i-1)*44))
 		
