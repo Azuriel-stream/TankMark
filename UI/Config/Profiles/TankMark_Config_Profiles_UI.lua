@@ -246,28 +246,6 @@ function TankMark:CreateProfileTab(parent)
 		end)
 		row.ccCheck = ccCheck
 
-		-- Up Button
-		local up = CreateFrame("Button", "TMProfileRowUp" .. i, row, "UIPanelButtonTemplate")
-		up:SetWidth(20)
-		up:SetHeight(20)
-		up:SetPoint("TOPRIGHT", row, "TOPRIGHT", -30, -2)
-		up:SetText("↑")
-		up:SetScript("OnClick", function()
-			TankMark:ProfileMoveRow(row.index, -1)
-		end)
-		row.upBtn = up
-
-		-- Down Button
-		local dn = CreateFrame("Button", "TMProfileRowDown" .. i, row, "UIPanelButtonTemplate")
-		dn:SetWidth(20)
-		dn:SetHeight(20)
-		dn:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -30, 2)
-		dn:SetText("↓")
-		dn:SetScript("OnClick", function()
-			TankMark:ProfileMoveRow(row.index, 1)
-		end)
-		row.downBtn = dn
-
 		-- Delete Button
 		local del = CreateFrame("Button", "TMProfileRowDel" .. i, row, "UIPanelButtonTemplate")
 		del:SetWidth(20)

@@ -109,18 +109,6 @@ function TankMark:UpdateProfileList()
 				end
 			end
 
-			-- Up/Down button boundary states
-			if index == 1 then
-				row.upBtn:Disable()
-			else
-				row.upBtn:Enable()
-			end
-			if index == numItems then
-				row.downBtn:Disable()
-			else
-				row.downBtn:Enable()
-			end
-
 			row:Show()
 		else
 			row.index = nil
