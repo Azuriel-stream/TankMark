@@ -11,20 +11,13 @@ if not TankMark then return end
 local L = TankMark.Locals
 
 -- ==========================================================
--- TAB CONSTRUCTION
+-- TOP ROW: ZONE DROPDOWN + MANAGE PROFILES CHECKBOX + SAVE BUTTON
 -- ==========================================================
 
-function TankMark:CreateProfileTab(parent)
-	local t2 = CreateFrame("Frame", nil, parent)
-	t2:SetPoint("TOPLEFT", 15, -40)
-	t2:SetPoint("BOTTOMRIGHT", -15, 30)
-	t2:Hide()
-
-	-- ----------------------------------------------------------
-	-- ZONE DROPDOWN
-	-- ----------------------------------------------------------
-	local pDrop = CreateFrame("Frame", "TMProfileZoneDropDown", t2, "UIDropDownMenuTemplate")
-	pDrop:SetPoint("TOPLEFT", 0, -10)
+local function CreateTopRow(parent)
+	-- Zone Dropdown
+	local pDrop = CreateFrame("Frame", "TMProfileZoneDropDown", parent, "UIDropDownMenuTemplate")
+	pDrop:SetPoint("TOPLEFT", parent, "TOPLEFT", 44, -43)
 	UIDropDownMenu_SetWidth(150, pDrop)
 	UIDropDownMenu_Initialize(pDrop, function()
 		local curr = L._GetRealZoneText()
@@ -54,13 +47,11 @@ function TankMark:CreateProfileTab(parent)
 	UIDropDownMenu_SetText(L._GetRealZoneText(), pDrop)
 	TankMark.profileZoneDropdown = pDrop
 
-	-- ----------------------------------------------------------
-	-- [v0.27] MANAGE PROFILES CHECKBOX
-	-- ----------------------------------------------------------
-	local mpCheck = CreateFrame("CheckButton", "TMManageProfilesCheck", t2, "UICheckButtonTemplate")
+	-- Manage Profiles Checkbox
+	local mpCheck = CreateFrame("CheckButton", "TMManageProfilesCheck", parent, "UICheckButtonTemplate")
 	mpCheck:SetWidth(24)
 	mpCheck:SetHeight(24)
-	mpCheck:SetPoint("TOPLEFT", t2, "TOPLEFT", 200, -13)
+	mpCheck:SetPoint("TOPLEFT", parent, "TOPLEFT", 243, -45)
 
 	local mpLabel = getglobal(mpCheck:GetName() .. "Text")
 	mpLabel:SetText("Manage Profiles")
@@ -73,44 +64,51 @@ function TankMark:CreateProfileTab(parent)
 	end)
 	TankMark.profileZoneModeCheck = mpCheck
 
-	local savePBtn = CreateFrame("Button", "TMProfileSaveBtn", t2, "UIPanelButtonTemplate")
+	-- Save Profile Button (right of checkbox label)
+	local savePBtn = CreateFrame("Button", "TMProfileSaveBtn", parent, "UIPanelButtonTemplate")
 	savePBtn:SetWidth(80)
 	savePBtn:SetHeight(24)
-	savePBtn:SetPoint("LEFT", mpCheck, "RIGHT", 100, 0)
+	savePBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 372, -45)
 	savePBtn:SetText("Save Profile")
 	savePBtn:SetScript("OnClick", function()
 		TankMark:SaveProfileCache()
 	end)
 	TankMark.profileSaveBtn = savePBtn
+end
 
-	-- ----------------------------------------------------------
-	-- COLUMN HEADERS
-	-- ----------------------------------------------------------
-	local ph1 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+-- ==========================================================
+-- COLUMN HEADERS
+-- ==========================================================
+
+local function CreateColumnHeaders(parent)
+	local ph1 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	ph1:SetText("Icon")
-	ph1:SetPoint("TOPLEFT", 21, -45)
+	ph1:SetPoint("TOPLEFT", parent, "TOPLEFT", 47, -85)
 
-	local ph2 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	local ph2 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	ph2:SetText("Assigned Tank")
-	ph2:SetPoint("TOPLEFT", 55, -45)
+	ph2:SetPoint("TOPLEFT", parent, "TOPLEFT", 87, -85)
 
-	local ph3 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	local ph3 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	ph3:SetText("Assigned Healers")
-	ph3:SetPoint("TOPLEFT", 202, -45)
+	ph3:SetPoint("TOPLEFT", parent, "TOPLEFT", 225, -85)
 
-	local ph4 = t2:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	local ph4 = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	ph4:SetText("CC")
-	ph4:SetPoint("TOPLEFT", 326, -45)
+	ph4:SetPoint("TOPLEFT", parent, "TOPLEFT", 352, -85)
+end
 
-	-- ----------------------------------------------------------
-	-- SCROLL FRAME + BACKGROUND
-	-- ----------------------------------------------------------
-	local psf = CreateFrame("ScrollFrame", "TankMarkProfileScroll", t2, "FauxScrollFrameTemplate")
-	psf:SetPoint("TOPLEFT", 16, -60)
+-- ==========================================================
+-- LIST AREA: SCROLL FRAME + BACKGROUND
+-- ==========================================================
+
+local function CreateListArea(parent)
+	local psf = CreateFrame("ScrollFrame", "TankMarkProfileScroll", parent, "FauxScrollFrameTemplate")
+	psf:SetPoint("TOPLEFT", parent, "TOPLEFT", 37, -100)
 	psf:SetWidth(426)
 	psf:SetHeight(245)
 
-	local plistBg = CreateFrame("Frame", nil, t2)
+	local plistBg = CreateFrame("Frame", nil, parent)
 	plistBg:SetPoint("TOPLEFT",     psf, -5,  5)
 	plistBg:SetPoint("BOTTOMRIGHT", psf, 25, -5)
 	plistBg:SetBackdrop({
@@ -128,16 +126,21 @@ function TankMark:CreateProfileTab(parent)
 	end)
 	TankMark.profileScroll = psf
 
-	-- ----------------------------------------------------------
-	-- PROFILE ROWS (pool of 8)
-	-- ----------------------------------------------------------
+	return psf
+end
+
+-- ==========================================================
+-- ROW POOL (pool of 8 reusable profile rows)
+-- ==========================================================
+
+local function CreateRowPool(parent)
 	for i = 1, 8 do
-		local row = CreateFrame("Frame", nil, t2)
+		local row = CreateFrame("Frame", nil, parent)
 		row:SetWidth(426)
 		row:SetHeight(30)
-		row:SetPoint("TOPLEFT", 16, -60 - ((i - 1) * 30))
+		row:SetPoint("TOPLEFT", parent, "TOPLEFT", 40, -100 - ((i - 1) * 30))
 
-		-- [v0.27] Zone label for zone browser mode (hidden by default)
+		-- Zone label (shown in Manage Profiles / zone browser mode)
 		local zoneLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		zoneLabel:SetPoint("LEFT", row, "LEFT", 5, 0)
 		zoneLabel:SetWidth(350)
@@ -149,7 +152,7 @@ function TankMark:CreateProfileTab(parent)
 		local ibtn = CreateFrame("Button", "TMProfileRowIcon" .. i, row)
 		ibtn:SetWidth(24)
 		ibtn:SetHeight(24)
-		ibtn:SetPoint("LEFT", 5, 0)
+		ibtn:SetPoint("LEFT", row, "LEFT", 5, 0)
 		local itex = ibtn:CreateTexture(nil, "ARTWORK")
 		itex:SetAllPoints()
 		ibtn:SetNormalTexture(itex)
@@ -277,7 +280,7 @@ function TankMark:CreateProfileTab(parent)
 		-- Permanently width 55. Text is always "Delete" in normal mode.
 		-- Zone browser mode only swaps the OnClick script — no resize needed.
 		local del = CreateFrame("Button", "TMProfileRowDel" .. i, row, "UIPanelButtonTemplate")
-		del:SetWidth(55)   -- matches zone browser "Delete" width
+		del:SetWidth(55)
 		del:SetHeight(24)
 		del:SetPoint("RIGHT", row, "RIGHT", -5, 0)
 		del:SetText("Delete")
@@ -289,21 +292,24 @@ function TankMark:CreateProfileTab(parent)
 		TankMark.profileRows[i] = row
 		row:Hide()
 	end
+end
 
-	-- ----------------------------------------------------------
-	-- BOTTOM ACTION BUTTONS
-	-- ----------------------------------------------------------
-	local addBtn = CreateFrame("Button", "TMProfileAddBtn", t2, "UIPanelButtonTemplate")
+-- ==========================================================
+-- BOTTOM ACTION BUTTONS
+-- ==========================================================
+
+local function CreateBottomBar(parent)
+	local addBtn = CreateFrame("Button", "TMProfileAddBtn", parent, "UIPanelButtonTemplate")
 	addBtn:SetWidth(75)
 	addBtn:SetHeight(24)
-	addBtn:SetPoint("BOTTOMLEFT", 16, 5)
+	addBtn:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 100, 70)
 	addBtn:SetText("Add Mark")
 	addBtn:SetScript("OnClick", function()
 		TankMark:ProfileAddRow()
 	end)
 	TankMark.profileAddBtn = addBtn
 
-	local templateBtn = CreateFrame("Button", "TMProfileTemplateBtn", t2, "UIPanelButtonTemplate")
+	local templateBtn = CreateFrame("Button", "TMProfileTemplateBtn", parent, "UIPanelButtonTemplate")
 	templateBtn:SetWidth(85)
 	templateBtn:SetHeight(24)
 	templateBtn:SetPoint("LEFT", addBtn, "RIGHT", 5, 0)
@@ -313,7 +319,7 @@ function TankMark:CreateProfileTab(parent)
 	end)
 	TankMark.profileTemplateBtn = templateBtn
 
-	local copyBtn = CreateFrame("Button", "TMProfileCopyBtn", t2, "UIPanelButtonTemplate")
+	local copyBtn = CreateFrame("Button", "TMProfileCopyBtn", parent, "UIPanelButtonTemplate")
 	copyBtn:SetWidth(75)
 	copyBtn:SetHeight(24)
 	copyBtn:SetPoint("LEFT", templateBtn, "RIGHT", 5, 0)
@@ -323,7 +329,7 @@ function TankMark:CreateProfileTab(parent)
 	end)
 	TankMark.profileCopyBtn = copyBtn
 
-	local resetPBtn = CreateFrame("Button", "TMProfileResetBtn", t2, "UIPanelButtonTemplate")
+	local resetPBtn = CreateFrame("Button", "TMProfileResetBtn", parent, "UIPanelButtonTemplate")
 	resetPBtn:SetWidth(60)
 	resetPBtn:SetHeight(24)
 	resetPBtn:SetPoint("LEFT", copyBtn, "RIGHT", 5, 0)
@@ -332,5 +338,32 @@ function TankMark:CreateProfileTab(parent)
 		TankMark:RequestResetProfile()
 	end)
 	TankMark.profileResetBtn = resetPBtn
+end
+
+-- ==========================================================
+-- MAIN ENTRY POINT
+-- ==========================================================
+
+function TankMark:CreateProfileTab(parent)
+	local t2 = CreateFrame("Frame", nil, parent)
+	t2:SetPoint("TOPLEFT", 0, 0)
+	t2:SetPoint("BOTTOMRIGHT", 0, 0)
+	t2:Hide()
+
+	-- Top row: zone dropdown + manage profiles checkbox + save button
+	CreateTopRow(t2)
+
+	-- Column headers: Icon / Assigned Tank / Assigned Healers / CC
+	CreateColumnHeaders(t2)
+
+	-- List area: scroll frame + background
+	CreateListArea(t2)
+
+	-- Row pool: 8 reusable profile rows
+	CreateRowPool(t2)
+
+	-- Bottom bar: Add Mark / Use Template / Copy From / Reset
+	CreateBottomBar(t2)
+
 	return t2
 end
