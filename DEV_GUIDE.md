@@ -1,4 +1,4 @@
-# TankMark Developer Guide (v0.26)
+# TankMark Developer Guide (v0.27)
 
 ## Project Structure
 
@@ -23,7 +23,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - `GetMarkOwnerPriority(iconID)` — [v0.26] resolves the priority of the current mark holder.
   - `ProcessKnownMob()` — handles CC assignment, aggressive skull theft logic, Governor Check (incumbency rule), and `MarkMemory` state cleanup on theft.
   - `ProcessUnknownMob()` — assigns free marks to unknown mobs with Governor Check for skull.
-  - `RegisterMarkUsage()`, `RecordUnit()`.  
+  - `RegisterMarkUsage()`, `RecordUnit()`.
 - **TankMark_Death.lua**: Death detection, mark cleanup, and skull priority management:
   - `HandleCombatLog()` / `HandleDeath()` — resolve dead mob GUID before eviction.
   - `EvictMarkOwner(iconID, deadGUID)` — [v0.26] GUID-aware eviction. Preserves state when `MarkMemory` already points to a new assignment.
@@ -53,15 +53,39 @@ All visual components
 - **TankMark_HUD.lua**: In-game heads-up display (8-row mark tracker).
 - **TankMark_Options.lua**: Config panel entry point and tab management.
 - **TankMark_UI_Widgets.lua**: Reusable UI components (dropdowns, buttons, etc.)
-- **Config/**: Config panel tabs:
-  - `TankMark_Config_Mobs.lua` — Mob Database tab container.
-  - `TankMark_Config_Mobs_UI.lua` — Mob editor UI widgets, zone controls, `UpdateMobZoneUI()`.
-  - `TankMark_Config_Mobs_List.lua` — Mob list rendering and scrolling.
-  - `TankMark_Config_Mobs_Logic.lua` — Save/load/delete mob data, smart defaults.
-  - `TankMark_Config_Mobs_Sequential.lua` — Sequential mark configuration UI.
-  - `TankMark_Config_Mobs_Menus.lua` — Context menus for mob entries.
-  - `TankMark_Config_Profiles.lua` — Team Profile management, `UpdateProfileZoneUI()`, healer assignment.
-  - `TankMark_Config_Data.lua` — Data management tab (import/export/snapshots).
+- **Config/**: Config panel tabs, split into two subdirectories:
+
+#### Config/Database/ — Mob Database tab
+- `TankMark_Config_Mobs.lua` — State registry: `mobRows`, `selectedIcon`, accordion state flags (`isAddMobExpanded`, `isSequentialExpanded`, `isSequentialActive`), and all Mob tab widget references.
+- `TankMark_Config_Mobs_UI.lua` — [v0.27] **UI construction only.** All layout is expressed as private `local function` section builders (`CreateZoneControls`, `CreateMobList`, `CreateSearchBox`, etc.) called from the `CreateMobTab(parent)` entry point. Container frame uses `TOPLEFT 0,0 / BOTTOMRIGHT 0,0`. Zone dropdown anchored at `TOPLEFT 44,-43`. List background left edge at x=31 from the window. Exposes `UpdateMobZoneUI()`.
+- `TankMark_Config_Mobs_List.lua` — Mob list rendering and `UpdateMobList()` scroll logic.
+- `TankMark_Config_Mobs_Logic.lua` — Save/load/delete mob data, smart defaults, `ToggleLockState()`, `ResetEditorState()`.
+- `TankMark_Config_Mobs_Sequential.lua` — Sequential mark configuration: `RefreshSequentialRows()`, `OnAddMoreMarksClicked()`, `RemoveSequentialRow()`, `ActivateSequentialAccordion()`.
+- `TankMark_Config_Mobs_Menus.lua` — Context menus: `InitIconMenu()`, `InitClassMenu()`, `InitSequentialIconMenu()`, `InitSequentialClassMenu()`.
+
+#### Config/Profiles/ — Team Profiles tab
+- `TankMark_Config_Profiles.lua` — State registry and data logic: `profileRows`, `profileCache`, `profileZoneDropdown`, `profileScroll`, profile templates (`TankMarkProfileTemplates`), `LoadProfileToCache()`, `SaveProfileCache()`, `UpdateProfileList()`, `ProfileAddRow()`, `ProfileDeleteRow()`, `ToggleProfileZoneBrowser()`, `InferRoleFromClass()`, `InitProfileIconMenu()`, `AddHealerToRow()`, `UpdateProfileZoneUI()`, `ShowTemplateMenu()`, `ShowCopyProfileDialog()`, `RequestResetProfile()`.
+- `TankMark_Config_Profiles_UI.lua` — [v0.27] **UI construction only.** Layout is expressed as five private `local function` section builders, each receiving `parent` (the tab container frame) and returning nothing except `CreateListArea` which returns `psf` for internal use:
+  - `CreateTopRow(parent)` — Zone dropdown (`TMProfileZoneDropDown`, `TOPLEFT 44,-43`, matching Mobs tab), Manage Profiles checkbox (`TMManageProfilesCheck`, `TOPLEFT 243,-45`), Save Profile button (`TMProfileSaveBtn`, `TOPLEFT 372,-45`).
+  - `CreateColumnHeaders(parent)` — Four `GameFontNormalSmall` labels at y=-85.
+  - `CreateListArea(parent)` — `FauxScrollFrame` `TankMarkProfileScroll` at `TOPLEFT 37,-100`; backdrop `plistBg` anchored to the scroll frame. Left edge aligns with Mobs tab list background (both at 31px from the window).
+  - `CreateRowPool(parent)` — Pool of 8 reusable `Frame` rows at x=40, y=-100-(i-1)*30. Each row contains: `row.zoneLabel` (hidden FontString for zone browser mode), icon button, tank edit box + T button, healer edit box + T button, offline-healer warning icon with tooltip, CC checkbox, Delete button. All references stored in `TankMark.profileRows[i]`.
+  - `CreateBottomBar(parent)` — Add Mark / Use Template / Copy From / Reset buttons.
+  - `CreateProfileTab(parent)` — Entry point. Container `t2` uses `TOPLEFT 0,0 / BOTTOMRIGHT 0,0` (same coordinate origin as Mobs tab `t1`).
+
+#### Config/TankMark_Config_Data.lua — Data Management tab
+Standalone file (not in a subdirectory). Snapshot restore, default merging, export/import UI. `BuildDataManagementTab(parent)`.
+
+### Layout Alignment Convention (v0.27)
+Both tab container frames (`t1` for Mobs, `t2` for Profiles) use `TOPLEFT 0,0 / BOTTOMRIGHT 0,0`. All pixel offsets inside both tabs are therefore in the same coordinate space. Key shared landmarks:
+
+| Element | x offset from window | Anchor in code |
+|---|---|---|
+| Zone dropdown | 44px | `TOPLEFT 44, -43` |
+| Manage checkbox | 243px | `TOPLEFT 243, -45` |
+| List/scroll bg left edge | 31px | Mobs: `listBg TOPLEFT 31,-79`; Profiles: `psf TOPLEFT 37,-100` (bg inset adds 6px) |
+
+Maintaining these shared anchors ensures no element "jumps" when switching tabs.
 
 ### Other
 - **Bindings.xml**: Key binding definitions.
@@ -99,10 +123,12 @@ In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` resul
 3. Optionally add a `/tm debug myfeature` filter in `TankMark.lua` `SlashHandler`
 
 ### Adding a New Config Tab
-1. Create `UI/Config/TankMark_Config_NewTab.lua`
-2. Add UI creation logic
-3. Register tab in `UI/TankMark_Options.lua`
-4. Update `TankMark.toc` load order
+1. Create a subdirectory under `UI/Config/` matching the tab's domain (e.g., `UI/Config/NewFeature/`)
+2. Create `TankMark_Config_NewFeature.lua` (state + logic) and `TankMark_Config_NewFeature_UI.lua` (UI construction)
+3. In the UI file, use private `local function` section builders for each visual region; keep the public entry point to a single `TankMark:CreateNewFeatureTab(parent)` function
+4. Set the container frame to `TOPLEFT 0,0 / BOTTOMRIGHT 0,0` to share the coordinate space with existing tabs
+5. Register the tab in `UI/TankMark_Options.lua`
+6. Update `TankMark.toc` load order
 
 ### Adding a New Localized API Call
 1. Add the reference to `TankMark.Locals` in `TankMark.lua` (e.g., `_NewFunction = NewFunction`)
@@ -118,6 +144,7 @@ In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` resul
 - **String functions:** Use `L._gfind()` (not `string.find` or `sgfind`) for pattern iteration. Use `L._strfind()` for single match.
 - **Type checks:** Use `L._type()` instead of bare `type()`.
 - **Global function references:** Use `L._SendChatMessage()`, `L._SetRaidTarget()`, `L._PlaySound()`, `L._CreateFrame()`, etc. — all WoW API calls must go through the Locals table.
+- **UI file structure:** Config tab UI files must use private `local function` section builders. No UI construction code inside the public entry point beyond calling section builders and returning the container frame. See `UI/Config/Database/TankMark_Config_Mobs_UI.lua` and `UI/Config/Profiles/TankMark_Config_Profiles_UI.lua` as the canonical patterns.
 
 ## SavedVariables
 
