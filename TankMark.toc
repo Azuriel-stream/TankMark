@@ -29,14 +29,16 @@ UI\TankMark_HUD.lua
 UI\TankMark_Options.lua
 
 # Config Panels
-UI\Config\TankMark_Config_Mobs.lua
-UI\Config\TankMark_Config_Mobs_UI.lua
-UI\Config\TankMark_Config_Mobs_List.lua
-UI\Config\TankMark_Config_Mobs_Logic.lua
-UI\Config\TankMark_Config_Mobs_Sequential.lua
-UI\Config\TankMark_Config_Mobs_Menus.lua
-UI\Config\TankMark_Config_Profiles.lua
 UI\Config\TankMark_Config_Data.lua
+
+UI\Config\Database\TankMark_Config_Mobs.lua
+UI\Config\Database\TankMark_Config_Mobs_UI.lua
+UI\Config\Database\TankMark_Config_Mobs_List.lua
+UI\Config\Database\TankMark_Config_Mobs_Logic.lua
+UI\Config\Database\TankMark_Config_Mobs_Sequential.lua
+UI\Config\Database\TankMark_Config_Mobs_Menus.lua
+
+UI\Config\Profiles\TankMark_Config_Profiles.lua
 
 # Bindings
 Bindings.xml
