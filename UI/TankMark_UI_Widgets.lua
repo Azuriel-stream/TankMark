@@ -53,11 +53,3 @@ function TankMark:CreateEditBox(parent, title, w)
     eb:SetScript("OnEnterPressed", function() eb:ClearFocus() end)
     return eb
 end
-
-function TankMark:CreateStandardButton(parent, width, height, text, func)
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    btn:SetWidth(width); btn:SetHeight(height)
-    btn:SetText(text)
-    if func then btn:SetScript("OnClick", func) end
-    return btn
-end
