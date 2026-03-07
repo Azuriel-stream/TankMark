@@ -332,13 +332,20 @@ function TankMark:UpdateHUD()
     
     -- 1. Build Lists from Profile (separate tank/CC)
     if TankMarkProfileDB and TankMarkProfileDB[zone] then
+        -- Ensure all entries have a role field before we read it.
+        -- MigrateProfileRoles is a no-op for entries that already have a role.
+        TankMark:MigrateProfileRoles(zone)
+
         for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
             if entry.mark then
                 added[entry.mark] = true
-                local playerName = entry.tank
-                
-                -- [v0.24] Classify as tank or CC based on player class
-                if playerName and playerName ~= "" and TankMark:IsPlayerCCClass(playerName) then
+
+                -- [v0.28] Read stored role directly instead of doing a live
+                -- class lookup. This respects manual CC checkbox overrides
+                -- (e.g. a Druid ticked as CC, or a Warrior ticked as CC)
+                -- and removes the dependency on IsPlayerCCClass from the
+                -- HUD render path entirely.
+                if entry.role == "CC" then
                     L._tinsert(ccMarks, entry.mark)
                 else
                     L._tinsert(tankMarks, entry.mark)

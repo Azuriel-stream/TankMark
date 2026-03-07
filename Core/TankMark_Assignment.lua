@@ -97,7 +97,7 @@ function TankMark:IsPlayerCCClass(playerName)
     
     -- CC-capable classes (long-duration CC abilities)
     if class == "Mage" or class == "Warlock" or class == "Hunter" or
-       class == "Priest" or class == "Druid" then
+       class == "Priest" then
         return true
     end
     
