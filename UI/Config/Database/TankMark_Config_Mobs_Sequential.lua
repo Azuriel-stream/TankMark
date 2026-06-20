@@ -121,22 +121,10 @@ function TankMark:OnAddMoreMarksClicked()
 	})
 	
 	TankMark:RefreshSequentialRows()
-	
-	-- Disable Lock button when sequential marks exist
-	if TankMark.lockBtn then
-		TankMark.lockBtn:Disable()
-		TankMark.lockBtn:SetText("|cff888888Lock Mark|r")  -- Gray text
-	end
 end
 
 -- Remove a sequential mark row by index
 function TankMark:RemoveSequentialRow(index)
 	L._tremove(TankMark.editingSequentialMarks, index)
 	TankMark:RefreshSequentialRows()
-	
-	-- Re-enable Lock button if no sequential marks remain
-	if L._tgetn(TankMark.editingSequentialMarks) == 0 and TankMark.lockBtn then
-		TankMark.lockBtn:Enable()
-		TankMark.lockBtn:SetText("Lock Mark")  -- Reset normal text
-	end
 end

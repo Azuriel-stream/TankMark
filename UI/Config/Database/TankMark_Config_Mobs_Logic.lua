@@ -58,53 +58,6 @@ function TankMark:ApplySmartDefaults(className)
 	end
 end
 
--- Toggle GUID lock state for current target
-function TankMark:ToggleLockState()
-    if not L._UnitExists("target") and not TankMark.editingLockGUID then
-        TankMark:Print("|cffff0000Error:|r You must target a mob to lock it.")
-        return
-    end
-    
-    TankMark.isLockActive = not TankMark.isLockActive
-    
-    if TankMark.lockBtn then
-        if TankMark.isLockActive then
-            TankMark.lockBtn:SetText("|cff00ff00LOCKED|r")
-            TankMark.lockBtn:LockHighlight()
-            
-            -- Deactivate sequential accordion when lock is active
-            TankMark.isSequentialActive = false
-            if TankMark.addMoreMarksArrow then
-                TankMark.addMoreMarksArrow:Disable()
-            end
-            if TankMark.addMoreMarksText then
-                TankMark.addMoreMarksText:SetTextColor(0.53, 0.53, 0.53)
-            end
-            
-            -- Collapse sequential accordion if expanded
-            if TankMark.isSequentialExpanded then
-                TankMark.sequentialInterface:Hide()
-                TankMark.isSequentialExpanded = false
-                if TankMark.addMoreMarksHeader and TankMark.addMoreMarksHeader.arrow then
-                    TankMark.addMoreMarksHeader.arrow:SetTexture("Interface\\Buttons\\UI-PlusButton-Up")
-                end
-            end
-        else
-            TankMark.lockBtn:SetText("Lock Mark")
-            TankMark.lockBtn:UnlockHighlight()
-            
-            -- Reactivate sequential accordion when lock is deactivated
-			TankMark.isSequentialActive = true
-			if TankMark.addMoreMarksArrow then
-				TankMark.addMoreMarksArrow:Enable()
-			end
-			if TankMark.addMoreMarksText then
-				TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)  -- Set to CYAN (active but collapsed)
-			end
-        end
-    end
-end
-
 -- ==========================================================
 -- CENTRALIZED RESET FUNCTION
 -- ==========================================================
@@ -120,21 +73,13 @@ function TankMark:ResetEditorState()
 		TankMark.editPrio:SetText("1")
 	end
 	
-	TankMark.editingLockGUID = nil
 	TankMark.detectedCreatureType = nil
-	TankMark.isLockActive = false
 	TankMark.selectedClass = nil
 	TankMark:UpdateClassButton()
 	
 	TankMark.selectedIcon = 8
 	if TankMark.iconBtn and TankMark.iconBtn.tex then
 		TankMark:SetIconTexture(TankMark.iconBtn.tex, 8)
-	end
-	
-	if TankMark.lockBtn then
-		TankMark.lockBtn:SetText("Lock Mark")
-		TankMark.lockBtn:UnlockHighlight()
-		TankMark.lockBtn:Disable()
 	end
 	
 	if TankMark.saveBtn then
@@ -203,20 +148,6 @@ function TankMark:ActivateSequentialAccordion(hasSequentialMarks)
 		TankMark.addMoreMarksArrow:Enable()
 	end
 	
-	-- Check GUID lock conflict
-	local mobName = TankMark.editMob and TankMark.editMob:GetText() or ""
-	if TankMark:HasGUIDLockForMobName(mobName) then
-		-- Keep inactive if GUID locked
-		TankMark.isSequentialActive = false
-		if TankMark.addMoreMarksArrow then
-			TankMark.addMoreMarksArrow:Disable()
-		end
-		if TankMark.addMoreMarksText then
-			TankMark.addMoreMarksText:SetTextColor(0.53, 0.53, 0.53)
-		end
-		return
-	end
-	
 	-- If mob has sequential marks, auto-expand and show them
 	if hasSequentialMarks then
 		TankMark.sequentialInterface:Show()
@@ -281,7 +212,6 @@ end
 -- Toggle between zone list mode and normal mob list mode
 function TankMark:ToggleZoneBrowser()
 	TankMark.isZoneListMode = not TankMark.isZoneListMode
-	TankMark.lockViewZone = nil
 	
 	TankMark:ResetEditorState()
 	
@@ -302,23 +232,6 @@ function TankMark:ToggleZoneBrowser()
 	end
 	
 	TankMark:UpdateMobList()
-end
-
--- View GUID locks for a specific zone
-function TankMark:ViewLocksForZone(zoneName)
-	TankMark.lockViewZone = zoneName
-	TankMark:ResetEditorState()
-	TankMark:UpdateMobList()
-end
-
--- ==========================================================
--- v0.23: GUID LOCK DETECTION
--- ==========================================================
-
--- Check if a mob name has a GUID lock
-function TankMark:HasGUIDLockForMobName(mobName)
-	if not mobName or mobName == "" then return false end
-	return TankMark.guidLockIndex and TankMark.guidLockIndex[mobName] or false
 end
 
 -- ==========================================================
@@ -361,66 +274,6 @@ function TankMark:SaveFormData()
 	if not mobName or mobName == "" or mobName == "Mob Name" then
 		TankMark:Print("|cffff0000Error:|r Please enter a valid mob name.")
 		return
-	end
-	
-	-- v0.23: Handle GUID lock updates (existing logic)
-	if TankMark.editingLockGUID then
-		local zone = TankMark.lockViewZone or (TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown))
-		if not zone or zone == "Manage Saved Zones" then
-			TankMark:Print("|cffff0000Error:|r Invalid zone for GUID lock.")
-			return
-		end
-		
-		local mob = TankMark.editMob:GetText()
-		local icon = TankMark.selectedIcon
-		
-		if not TankMarkDB.StaticGUIDs[zone] then
-			TankMarkDB.StaticGUIDs[zone] = {}
-		end
-		
-		TankMarkDB.StaticGUIDs[zone][TankMark.editingLockGUID] = {
-			mark = icon,
-			name = mob
-		}
-		
-		TankMark:Print("|cff00ff00Updated:|r Lock for " .. mob)
-		TankMark:ResetEditorState()
-		TankMark:UpdateMobList()
-		return
-	end
-	
-	-- Handle new GUID lock
-	if TankMark.isLockActive then
-		local zone = TankMark.zoneDropDown and UIDropDownMenu_GetText(TankMark.zoneDropDown) or ""
-		if zone == "Manage Saved Zones" or zone == "" then
-			TankMark:Print("|cffff0000Error:|r Select a valid zone.")
-			return
-		end
-		
-		local mob = L._gsub(TankMark.editMob:GetText(), "%s+", "")
-		local icon = TankMark.selectedIcon
-		local exists, guid = L._UnitExists("target")
-		
-		if exists and guid and not L._UnitIsPlayer("target") and L._UnitName("target") == mob then
-			if not TankMarkDB.StaticGUIDs[zone] then
-				TankMarkDB.StaticGUIDs[zone] = {}
-			end
-			
-			TankMarkDB.StaticGUIDs[zone][guid] = {
-				mark = icon,
-				name = mob
-			}
-			
-			TankMark:Print("|cff00ff00LOCKED GUID:|r for " .. mob)
-			
-			-- Rebuild GUID lock index
-			if TankMark.RebuildGUIDLockIndex then
-				TankMark:RebuildGUIDLockIndex()
-			end
-		else
-			TankMark:Print("|cffff0000Error:|r Target lost or name mismatch. Lock failed.")
-			return
-		end
 	end
 	
 	-- v0.23: Normal mob entry save
@@ -518,29 +371,10 @@ function TankMark:RequestDeleteMob(zone, mob)
     StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Delete mob from database?\n\n|cffff0000" .. mob .. "|r")
 end
 
--- Request confirmation to delete a GUID lock
-function TankMark:RequestDeleteLock(guid, name)
-	local z = TankMark.lockViewZone
-	TankMark.pendingWipeAction = function()
-		if z and TankMarkDB.StaticGUIDs[z] then
-			TankMarkDB.StaticGUIDs[z][guid] = nil
-			TankMark:UpdateMobList()
-			TankMark:Print("|cffff0000Removed:|r Lock for " .. (name or "GUID"))
-			
-			-- Rebuild GUID lock index
-			if TankMark.RebuildGUIDLockIndex then
-				TankMark:RebuildGUIDLockIndex()
-			end
-		end
-	end
-	StaticPopup_Show("TANKMARK_WIPE_CONFIRM", "Remove GUID lock?\n\n|cffff0000" .. (name or "Unknown") .. "|r")
-end
-
 -- Request confirmation to delete an entire zone
 function TankMark:RequestDeleteZone(zoneName)
 	TankMark.pendingWipeAction = function()
 		TankMarkDB.Zones[zoneName] = nil
-		TankMarkDB.StaticGUIDs[zoneName] = nil
 		TankMark:Print("|cffff0000Deleted:|r Zone '" .. zoneName .. "'")
 		
 		-- Refresh activeDB if we deleted the current zone
