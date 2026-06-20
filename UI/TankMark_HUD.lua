@@ -262,7 +262,7 @@ end
 
 function TankMark:RenderHUDRow(row, markID, isProfileMark)
     local assignedPlayer = TankMark.sessionAssignments[markID]
-    local activeMob = TankMark.activeMobNames[markID]
+    local activeMob = TankMark.Ledger.NameFor(markID)
     local textToShow = nil
     
     if assignedPlayer then
