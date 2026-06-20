@@ -8,8 +8,6 @@ local L = TankMark.Locals
 
 local SCAN_INTERVAL = 0.5
 
-if not TankMark.MarkMemory then TankMark.MarkMemory = {} end
-
 -- [v0.26] Batch Buffers
 local batchCandidates = {}
 
@@ -63,7 +61,7 @@ function TankMark:StartSuperScanner()
                     if activeIcon then
                         -- [SYNC] KNOWN BLOCKER
                         -- Reinforce memory of marks we can see
-                        TankMark.MarkMemory[activeIcon] = guid
+                        TankMark.Ledger.Reaffirm(activeIcon, guid)
                     else
                         -- [BUFFER] CANDIDATE
                         if TankMark.IsRecorderActive or TankMark:IsGUIDInCombat(guid) then

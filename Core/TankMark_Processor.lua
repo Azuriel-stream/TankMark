@@ -101,7 +101,7 @@ function TankMark:ProcessUnit(guid, mode)
                     activeGUIDs = L._tostring(TankMark.activeGUIDs[guid])
                 })
             end
-            TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
+            TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, false)
         end
         return
     end
@@ -114,21 +114,14 @@ function TankMark:ProcessUnit(guid, mode)
     -- MarkMemory confirms this mob still owns that slot, preventing us from
     -- accidentally evicting a different mob that has since taken the same icon.
     if TankMark.activeGUIDs[guid] then
-        local expectedIcon = TankMark.activeGUIDs[guid]
         if TankMark.DebugEnabled then
             TankMark:DebugLog("PROCESS", "Stale activeGUIDs - invalidating", {
-                guid          = guid,
-                mob           = mobName or "nil",
-                expectedIcon  = expectedIcon
+                guid         = guid,
+                mob          = mobName or "nil",
+                expectedIcon = TankMark.activeGUIDs[guid]
             })
         end
-        TankMark.activeGUIDs[guid] = nil
-        if TankMark.MarkMemory and TankMark.MarkMemory[expectedIcon] == guid then
-            TankMark.MarkMemory[expectedIcon]      = nil
-            TankMark.usedIcons[expectedIcon]        = nil
-            TankMark.activeMobNames[expectedIcon]   = nil
-            TankMark.activeMobIsCaster[expectedIcon] = nil
-        end
+        TankMark.Ledger.Evict(guid)
         -- Fall through to re-mark below
     end
 
@@ -142,8 +135,8 @@ function TankMark:ProcessUnit(guid, mode)
             lockedIcon = lockData
         end
         if lockedIcon and lockedIcon > 0 then
+            TankMark:RegisterMarkUsage(lockedIcon, L._UnitName(guid), guid, false)
             TankMark:Driver_ApplyMark(guid, lockedIcon)
-            TankMark:RegisterMarkUsage(lockedIcon, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
             return
         end
     end
@@ -318,24 +311,11 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     end
 
     if iconToApply then
-        -- [v0.26 FIX] STATE CLEANUP (Theft Handling)
-        -- Evict the previous owner from activeGUIDs so they are re-processed
-        -- as "unmarked" in the next cycle.
-        if TankMark.MarkMemory and TankMark.MarkMemory[iconToApply] then
-            local oldGUID = TankMark.MarkMemory[iconToApply]
-            if oldGUID and oldGUID ~= guid then
-                if TankMark.activeGUIDs[oldGUID] == iconToApply then
-                    TankMark.activeGUIDs[oldGUID] = nil
-                end
-            end
-        end
-
-        -- Update Memory
-        if TankMark.MarkMemory then
-            TankMark.MarkMemory[iconToApply] = guid
-        end
+        -- RegisterMarkUsage -> Ledger.Assign records ownership and evicts any
+        -- prior holder of this icon. Record before applying so our state is
+        -- consistent when RAID_TARGET_UPDATE fires.
+        TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, false)
         TankMark:Driver_ApplyMark(guid, iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, (L._UnitPowerType(guid) == 0), false)
     end
 end
 
@@ -362,19 +342,13 @@ function TankMark:ProcessUnknownMob(guid, mode)
     end
 
     if iconToApply then
-        if TankMark.MarkMemory then
-            TankMark.MarkMemory[iconToApply] = guid
-        end
+        TankMark:RegisterMarkUsage(iconToApply, L._UnitName(guid), guid, false)
         TankMark:Driver_ApplyMark(guid, iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, L._UnitName(guid), guid, (L._UnitPowerType(guid) == 0), false)
     end
 end
 
-function TankMark:RegisterMarkUsage(icon, name, guid, isCaster, skipProfileLookup)
-    TankMark.usedIcons[icon]          = true
-    TankMark.activeMobNames[icon]     = name
-    TankMark.activeMobIsCaster[icon]  = isCaster
-    if guid then TankMark.activeGUIDs[guid] = icon end
+function TankMark:RegisterMarkUsage(icon, name, guid, skipProfileLookup)
+    TankMark.Ledger.Assign(icon, guid, name)
     if not skipProfileLookup and not TankMark.sessionAssignments[icon] then
         local assignee = TankMark:GetAssigneeForMark(icon)
         if assignee then
