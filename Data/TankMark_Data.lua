@@ -33,7 +33,6 @@ function TankMark:InitializeDB()
     -- 1. Mob Database
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
-    if not TankMarkDB.StaticGUIDs then TankMarkDB.StaticGUIDs = {} end
     
     -- 2. Profile Database
     if not TankMarkProfileDB then TankMarkProfileDB = {} end
@@ -73,11 +72,6 @@ function TankMark:ValidateDB()
     -- Check 2: Required keys exist
     if not TankMarkDB.Zones or L._type(TankMarkDB.Zones) ~= "table" then
         L._tinsert(errors, "Zones table missing or corrupt")
-        isCorrupt = true
-    end
-    
-    if not TankMarkDB.StaticGUIDs or L._type(TankMarkDB.StaticGUIDs) ~= "table" then
-        L._tinsert(errors, "StaticGUIDs table missing or corrupt")
         isCorrupt = true
     end
     
@@ -142,7 +136,7 @@ function TankMark:ShowCorruptionDialog(errors)
 		end,
 		OnAlt = function()
 			-- Wipe and reinitialize
-			TankMarkDB = {Zones = {}, StaticGUIDs = {}}
+			TankMarkDB = {Zones = {}}
 			TankMarkProfileDB = {}
 			TankMark:Print("Database wiped. Starting fresh.")
 		end,
@@ -174,7 +168,6 @@ function TankMark:CreateSnapshot()
 	local snapshot = {
 		timestamp = L._time(),
 		zones = DeepCopy(TankMarkDB.Zones),
-		guids = DeepCopy(TankMarkDB.StaticGUIDs),
 		profile = nil -- Add current zone profile if in a known zone
 	}
 	
@@ -218,7 +211,6 @@ function TankMark:RestoreFromSnapshot(index)
 	
 	-- Restore data
 	TankMarkDB.Zones = DeepCopy(snapshot.zones)
-	TankMarkDB.StaticGUIDs = DeepCopy(snapshot.guids)
 	
 	-- Restore profile if present
 	if snapshot.profile then

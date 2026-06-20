@@ -54,8 +54,7 @@ function TankMark:ProcessUnit(guid, mode)
     -- 2. Check Database Existence
     local zone        = TankMark:GetCachedZone()
     local hasActiveDB = (TankMark.activeDB and L._next(TankMark.activeDB) ~= nil)
-    local hasGUIDLocks = (TankMarkDB.StaticGUIDs[zone] and L._next(TankMarkDB.StaticGUIDs[zone]) ~= nil)
-    local dbExists    = hasActiveDB or hasGUIDLocks
+    local dbExists    = hasActiveDB
     if not dbExists and mode ~= "FORCE" then return end
 
     -- 3. Check Current Mark
@@ -125,23 +124,7 @@ function TankMark:ProcessUnit(guid, mode)
         -- Fall through to re-mark below
     end
 
-    -- 5. Logic: Static GUID Lock
-    if TankMarkDB.StaticGUIDs[zone] and TankMarkDB.StaticGUIDs[zone][guid] then
-        local lockData   = TankMarkDB.StaticGUIDs[zone][guid]
-        local lockedIcon = nil
-        if L._type(lockData) == "table" then
-            lockedIcon = lockData.mark
-        elseif L._type(lockData) == "number" then
-            lockedIcon = lockData
-        end
-        if lockedIcon and lockedIcon > 0 then
-            TankMark:RegisterMarkUsage(lockedIcon, L._UnitName(guid), guid, false)
-            TankMark:Driver_ApplyMark(guid, lockedIcon)
-            return
-        end
-    end
-
-    -- 6. Logic: Mob Name Lookup
+    -- 5. Logic: Mob Name Lookup
     local mobName = L._UnitName(guid)
     if not mobName then return end
     local mobData = nil
