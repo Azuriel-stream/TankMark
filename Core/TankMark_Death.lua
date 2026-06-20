@@ -41,7 +41,7 @@ function TankMark:HandleCombatLog(msg)
 					end
 
 					TankMark:EvictMarkOwner(iconID, deadGUID)
-					if TankMark.IsSuperWoW and iconID == 8 then
+					if iconID == 8 then
 						TankMark:ReviewSkullState("COMBAT_LOG")
 					end
 					return
@@ -73,7 +73,7 @@ function TankMark:HandleDeath(unitID)
 			end
 
 			TankMark:EvictMarkOwner(icon, deadGUID)
-			if TankMark.IsSuperWoW and icon == 8 then
+			if icon == 8 then
 				TankMark:ReviewSkullState("UNIT_DEATH")
 			end
 		end
@@ -198,37 +198,12 @@ end
 -- ==========================================================
 
 function TankMark:VerifyMarkExistence(iconID)
-	-- [v0.26 FIX] Use SuperWoW mark units directly (server-side tracking)
-	if TankMark.IsSuperWoW then
-		if L._UnitExists("mark"..iconID) then
-			local isDead = L._UnitIsDead("mark"..iconID)
-			-- UnitIsDead returns nil (alive) or 1 (dead)
-			if not isDead or isDead == nil then
-				return true
-			end
+	-- [v0.27] SuperWoW mark units are authoritative and visibility-independent.
+	if L._UnitExists("mark"..iconID) then
+		if not L._UnitIsDead("mark"..iconID) then
+			return true
 		end
 	end
-
-	local numRaid = L._GetNumRaidMembers()
-	local numParty = L._GetNumPartyMembers()
-
-	local function Check(unit)
-		return L._UnitExists(unit) and L._GetRaidTargetIndex(unit) == iconID and not L._UnitIsDead(unit)
-	end
-
-	if Check("target") then return true end
-	if Check("mouseover") then return true end
-
-	if numRaid > 0 then
-		for i = 1, 40 do
-			if Check("raid" .. i .. "target") then return true end
-		end
-	elseif numParty > 0 then
-		for i = 1, 4 do
-			if Check("party" .. i .. "target") then return true end
-		end
-	end
-
 	return false
 end
 
@@ -281,7 +256,7 @@ function TankMark:ReviewSkullState(callerID)
 	-- DEBUG: Entry Snapshot
 	-- Captures full skull-related state at invocation time.
 	-- Primary instrument for diagnosing multiple-call issues.
-	local mark8Exists = TankMark.IsSuperWoW and L._UnitExists("mark8") or false
+	local mark8Exists = L._UnitExists("mark8") or false
 	local mark8IsDead = mark8Exists and (L._UnitIsDead("mark8") == 1) or false
 	local mark8Name   = mark8Exists and (L._UnitName("mark8") or "?") or "nil"
 	local memGUID     = TankMark.MarkMemory and TankMark.MarkMemory[8] or nil
@@ -313,33 +288,31 @@ function TankMark:ReviewSkullState(callerID)
 	-- [FIX] If SKULL is already on a valid, living target, nothing to review.
 	-- UnitExists("mark8") is server-side and persists regardless of nameplate
 	-- visibility (confirmed via in-game testing).
-	if TankMark.IsSuperWoW then
-		if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
-			-- FIX: Populate MarkMemory if the skull holder is unknown
-			if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
-				local _, existingGUID = L._UnitExists("mark8")
-				if existingGUID then
-					local existingName = L._UnitName("mark8") or "?"
-					local isCaster = (L._UnitPowerType(existingGUID) == 0)
-					TankMark.MarkMemory[8] = existingGUID
-					TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
-					if TankMark.DebugEnabled then
-						TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
-							caller = _caller,
-							guid   = existingGUID,
-							name   = existingName,
-						})
-					end
+	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
+		-- FIX: Populate MarkMemory if the skull holder is unknown
+		if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
+			local _, existingGUID = L._UnitExists("mark8")
+			if existingGUID then
+				local existingName = L._UnitName("mark8") or "?"
+				local isCaster = (L._UnitPowerType(existingGUID) == 0)
+				TankMark.MarkMemory[8] = existingGUID
+				TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
+				if TankMark.DebugEnabled then
+					TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
+						caller = _caller,
+						guid   = existingGUID,
+						name   = existingName,
+					})
 				end
 			end
-			if TankMark.DebugEnabled then
-				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
-					caller     = _caller,
-					mark8_name = L._UnitName("mark8") or "?",
-				})
-			end
-			return
 		end
+		if TankMark.DebugEnabled then
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
+				caller     = _caller,
+				mark8_name = L._UnitName("mark8") or "?",
+			})
+		end
+		return
 	end
 
 	-- [FIX] Duplicate-Event Guard.
@@ -351,16 +324,14 @@ function TankMark:ReviewSkullState(callerID)
 	-- duplicate caller. Block immediately to prevent a second SetRaidTarget.
 	-- EvictMarkOwner's GUID-aware logic ensures MarkMemory[8] is only nil
 	-- when no new assignment has been committed in this tick.
-	if TankMark.IsSuperWoW then
-		if TankMark.MarkMemory and TankMark.MarkMemory[8] then
-			if TankMark.DebugEnabled then
-				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
-					caller     = _caller,
-					lockedGUID = TankMark.MarkMemory[8],
-				})
-			end
-			return
+	if TankMark.MarkMemory and TankMark.MarkMemory[8] then
+		if TankMark.DebugEnabled then
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
+				caller     = _caller,
+				lockedGUID = TankMark.MarkMemory[8],
+			})
 		end
+		return
 	end
 
 	-- [v0.26] Sequential Marking Guard
@@ -485,11 +456,9 @@ function TankMark:ResetSession()
 			end
 		end
 
-		if TankMark.IsSuperWoW then
-			for i = 1, 8 do
-				if L._UnitExists("mark" .. i) then
-					L._SetRaidTarget("mark" .. i, 0)
-				end
+		for i = 1, 8 do
+			if L._UnitExists("mark" .. i) then
+				L._SetRaidTarget("mark" .. i, 0)
 			end
 		end
 

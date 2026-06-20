@@ -76,7 +76,7 @@ function TankMark:ProcessUnit(guid, mode)
     -- After a mark theft, GetRaidTargetIndex can return a stale icon for the
     -- previous owner, causing ghost re-registration and locking the unit out of
     -- receiving a new mark permanently.
-    if currentIcon and TankMark.IsSuperWoW then
+    if currentIcon then
         local exists, actualHolderGUID = L._UnitExists("mark"..currentIcon)
         if not exists or actualHolderGUID ~= guid then
             if TankMark.DebugEnabled then
@@ -132,11 +132,6 @@ function TankMark:ProcessUnit(guid, mode)
         -- Fall through to re-mark below
     end
 
-    -- 4. Range Check
-    if mode == "PASSIVE" then
-        if not TankMark:Driver_IsDistanceValid(guid) then return end
-    end
-
     -- 5. Logic: Static GUID Lock
     if TankMarkDB.StaticGUIDs[zone] and TankMarkDB.StaticGUIDs[zone][guid] then
         local lockData   = TankMarkDB.StaticGUIDs[zone][guid]
@@ -177,8 +172,8 @@ function TankMark:IsMarkBusy(iconID)
     if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
         reason = "MarkMemory"
         result = true
-    elseif TankMark.IsSuperWoW and L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then
-        reason = "SuperWoW"
+    elseif L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then
+        reason = "MarkUnit"
         result = true
     elseif TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
         reason = "usedIcons"
