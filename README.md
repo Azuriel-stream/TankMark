@@ -11,7 +11,6 @@
 - **Sequential Marking:** Assign up to 8 marks to a single mob for coordinated multi-target kills.
 - **Batch Marking:** Hold Shift + Mouseover to queue up to 8 mobs for sequential marking.
 - **Combat Gating:** Scanner only marks mobs actively targeting raid members (requires SuperWoW).
-- **GUID Locking:** Lock specific mob spawns to always receive an assigned mark.
 - **Ctrl+Mouseover:** Quickly unmark any mob (combat-gated to prevent accidental removals).
 - **MarkMemory:** Persistent mark-to-GUID tracking prevents redundant re-marks and enables intelligent mark theft.
 - **Governor Check:** Skull assignment respects incumbency — existing marked mobs with equal or higher priority block skull theft.
@@ -27,7 +26,7 @@
 ### 📼 Data Collection
 - **Flight Recorder:** Auto-record mobs by mousing over them (`/tmark recorder start`).
 - **Mob Database:** Assign priorities and icons via the config panel.
-- **Zone Management:** Add, delete, and browse zones with a GUID lock viewer.
+- **Zone Management:** Add, delete, and browse zones.
 - **Duplicate Detection:** Warns before overwriting existing mob entries.
 
 ### 🖱️ Interactive HUD

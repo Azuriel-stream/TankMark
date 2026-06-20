@@ -354,13 +354,7 @@ local function CreateMobEditorControls(editor)
 				TankMark.saveBtn:Enable()
 			end
 			
-			-- Check GUID lock conflict
-			if TankMark:HasGUIDLockForMobName(text) and TankMark.addMoreMarksText then
-				TankMark.addMoreMarksText:SetTextColor(0.5, 0.5, 0.5)
-				if TankMark.addMoreMarksArrow then
-					TankMark.addMoreMarksArrow:Disable()
-				end
-			elseif TankMark.addMoreMarksText and TankMark.isSequentialActive then
+			if TankMark.addMoreMarksText and TankMark.isSequentialActive then
 				TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)
 				if TankMark.addMoreMarksArrow then
 					TankMark.addMoreMarksArrow:Enable()
@@ -393,7 +387,6 @@ local function CreateMobEditorControls(editor)
 				end
 			end
 			
-			if TankMark.lockBtn then TankMark.lockBtn:Enable() end
 			if TankMark.saveBtn then TankMark.saveBtn:Enable() end
 			
 			-- Activate sequential accordion (allows adding marks to new mob)
@@ -464,28 +457,6 @@ local function CreateMobEditorControls(editor)
 		ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0)
 	end)
 	TankMark.classBtn = cBtn
-	
-	-- Lock Button
-	local lBtn = CreateFrame("Button", "TMLockBtn", editor, "UIPanelButtonTemplate")
-	lBtn:SetWidth(70)
-	lBtn:SetHeight(20)
-	lBtn:SetPoint("TOPLEFT", 160, -43)
-	lBtn:SetText("Lock Mark")
-	lBtn:SetScript("OnClick", function() TankMark:ToggleLockState() end)
-	lBtn:Disable()
-	
-	lBtn:SetScript("OnEnter", function()
-		if not this:IsEnabled() and L._tgetn(TankMark.editingSequentialMarks) > 0 then
-			GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-			GameTooltip:SetText("GUID locking is unavailable for mobs with sequential marks. Remove all sequential marks to enable locking.", 1, 1, 1, 1, true)
-			GameTooltip:Show()
-		end
-	end)
-	
-	lBtn:SetScript("OnLeave", function()
-		GameTooltip:Hide()
-	end)
-	TankMark.lockBtn = lBtn
 	
 	-- Save Button
 	local saveBtn = CreateFrame("Button", "TMSaveBtn", editor, "UIPanelButtonTemplate")
@@ -570,11 +541,6 @@ local function CreateSequentialAccordion(parent)
 			return
 		end
 		
-		-- Check GUID lock first
-		if TankMark:HasGUIDLockForMobName(TankMark.editMob and TankMark.editMob:GetText() or "") then
-			return
-		end
-		
 		if TankMark.isSequentialExpanded then
 			-- When expanded: clicking text ADDS a mark
 			TankMark:OnAddMoreMarksClicked()
@@ -589,11 +555,7 @@ local function CreateSequentialAccordion(parent)
 	
 	-- Consolidated hover function
 	local function HeaderOnEnter()
-		if TankMark:HasGUIDLockForMobName(TankMark.editMob and TankMark.editMob:GetText() or "") then
-			GameTooltip:SetOwner(header, "ANCHOR_RIGHT")
-			GameTooltip:SetText("Sequential marking is unavailable because this mob has a GUID lock. Remove the GUID lock to enable sequential marks.", 1, 1, 1, 1, true)
-			GameTooltip:Show()
-		elseif TankMark.isSequentialActive then
+		if TankMark.isSequentialActive then
 			-- Show hover effect when active (regardless of expanded state)
 			header.text:SetTextColor(0, 1, 1)
 		end

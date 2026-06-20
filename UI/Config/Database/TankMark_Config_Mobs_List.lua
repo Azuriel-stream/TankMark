@@ -15,43 +15,15 @@ local L = TankMark.Locals
 -- MOB LIST DATA BUILDER
 -- ==========================================================
 
--- Build the list data based on current mode (zone list, lock view, or normal mob list)
+-- Build the list data based on current mode (zone list or normal mob list)
 local function BuildListData(db, zone, filter)
 	local listData = {}
 	
-	-- Lock view for specific zone
-	if TankMark.isZoneListMode and TankMark.lockViewZone then
-		local z = TankMark.lockViewZone
-		L._tinsert(listData, { type="BACK", label="<< Back to Zones" })
-		
-		if db.StaticGUIDs[z] then
-			for guid, data in L._pairs(db.StaticGUIDs[z]) do
-				local icon = (L._type(data) == "table") and data.mark or data
-				local mobName = (L._type(data) == "table") and data.name or "Unknown Mob"
-				L._tinsert(listData, { type="LOCK", guid=guid, mark=icon, name=mobName })
-			end
-		end
-		
-		L._tsort(listData, function(a,b)
-			if not a or not b then return false end
-			if a.type=="BACK" then return true end
-			if b.type=="BACK" then return false end
-			local mA = a.mark or 0
-			local mB = b.mark or 0
-			return mA < mB
-		end)
-	
 	-- Zone list mode
-	elseif TankMark.isZoneListMode then
+	if TankMark.isZoneListMode then
 		for zoneName, _ in L._pairs(db.Zones) do
 			if filter == "" or L._strfind(L._lower(zoneName), filter, 1, true) then
-				local locks = 0
-				if db.StaticGUIDs[zoneName] then
-					for k,v in L._pairs(db.StaticGUIDs[zoneName]) do
-						locks = locks + 1
-					end
-				end
-				L._tinsert(listData, { label = zoneName, type = "ZONE", lockCount = locks })
+				L._tinsert(listData, { label = zoneName, type = "ZONE" })
 			end
 		end
 		
@@ -96,69 +68,9 @@ end
 -- ROW RENDERING HELPERS
 -- ==========================================================
 
--- Render "Back to Zones" button
-local function RenderBackButton(row, data)
-	row.text:SetText("|cffffd200" .. data.label .. "|r")
-	row.icon:Show()
-	row.icon:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
-	row.icon:SetTexCoord(0, 1, 0, 1)
-	
-	row:SetScript("OnClick", function()
-		TankMark.lockViewZone = nil
-		TankMark:ResetEditorState()  -- CHANGED: Use new consolidated function
-		TankMark:UpdateMobList()
-		L._PlaySound("igMainMenuOptionCheckBoxOn")
-	end)
-end
-
--- Render GUID lock row
-local function RenderLockRow(row, data)
-	TankMark:SetIconTexture(row.icon, data.mark)
-	row.icon:Show()
-	row.text:SetText(data.name .. " |cff888888(" .. L._sub(data.guid, -6) .. ")|r")
-	
-	row.del:Show()
-	row.del:SetText("X")
-	row.del:SetWidth(20)
-	row.del:SetScript("OnClick", function()
-		TankMark:RequestDeleteLock(data.guid, data.name)
-	end)
-	
-	row.edit:Show()
-	row.edit:SetText("E")
-	row.edit:SetWidth(20)
-	row.edit:SetScript("OnClick", function()
-		TankMark.editMob:SetText(data.name or "Unknown")
-		TankMark.selectedIcon = data.mark
-		TankMark.editingLockGUID = data.guid
-		TankMark.selectedClass = nil
-		TankMark:UpdateClassButton()
-		
-		if TankMark.iconBtn then
-			TankMark:SetIconTexture(TankMark.iconBtn.tex, data.mark)
-		end
-		
-		TankMark.saveBtn:SetText("Update")
-		TankMark.saveBtn:Enable()
-		TankMark.cancelBtn:Show()
-		TankMark.lockBtn:Disable()
-		TankMark.lockBtn:SetText("Locked")
-		
-		-- Ensure accordion is expanded when editing
-		if not TankMark.isAddMobExpanded then
-			if TankMark.addMobHeader then
-				TankMark.addMobInterface:Show()
-				TankMark.addMobHeader.arrow:SetTexture("Interface\\Buttons\\UI-MinusButton-Up")
-				TankMark.isAddMobExpanded = true
-			end
-		end
-	end)
-end
-
 -- Render zone row (in zone browser mode)
 local function RenderZoneRow(row, data)
-    local info = (data.lockCount > 0) and (" |cff00ff00(" .. data.lockCount .. " locks)|r") or ""
-    row.text:SetText("|cffffd200" .. data.label .. "|r" .. info)
+    row.text:SetText("|cffffd200" .. data.label .. "|r")
     
     -- Delete button (rightmost)
     row.del:Show()
@@ -167,15 +79,6 @@ local function RenderZoneRow(row, data)
     row.del:SetPoint("RIGHT", row, "RIGHT", -2, 0)  -- Anchor to row's right edge
     row.del:SetScript("OnClick", function()
         TankMark:RequestDeleteZone(data.label)
-    end)
-    
-    -- Locks button (left of Delete button)
-    row.edit:Show()
-    row.edit:SetText("Locks")
-    row.edit:SetWidth(50)
-    row.edit:SetPoint("RIGHT", row.del, "LEFT", -4, 0)  -- Anchor to left of Delete button
-    row.edit:SetScript("OnClick", function()
-        TankMark:ViewLocksForZone(data.label)
     end)
 end
 
@@ -235,12 +138,6 @@ local function RenderMobRow(row, data, zone)
 			
 			-- Removed: TankMark:RefreshSequentialRows() - now handled by ActivateSequentialAccordion
 			-- Removed: Show 'Add More Marks' text - now handled by ActivateSequentialAccordion
-			
-			-- Disable Lock button when sequential marks exist
-			if TankMark.lockBtn then
-				TankMark.lockBtn:Disable()
-				TankMark.lockBtn:SetText("|cff888888Lock Mark|r")
-			end
 		else
 			-- Removed: TankMark:RefreshSequentialRows() - now handled by ActivateSequentialAccordion
 		end
@@ -250,29 +147,13 @@ local function RenderMobRow(row, data, zone)
 		TankMark.saveBtn:Enable()
 		TankMark.cancelBtn:Show()
 		
-		-- Check GUID lock conflict (KEPT ORIGINAL)
-		if TankMark:HasGUIDLockForMobName(data.name) then
-			if TankMark.addMoreMarksText then
-				TankMark.addMoreMarksText:SetTextColor(0.5, 0.5, 0.5)
-			end
-			
-			-- Disable the button
-			if TankMark.addMoreMarksText.clickFrame then
-				TankMark.addMoreMarksText.clickFrame:Disable()
-			end
-		else
-			if TankMark.addMoreMarksText then
-				TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)
-			end
-			
-			-- Enable the button
-			if TankMark.addMoreMarksText.clickFrame then
-				TankMark.addMoreMarksText.clickFrame:Enable()
-			end
+		if TankMark.addMoreMarksText then
+			TankMark.addMoreMarksText:SetTextColor(0, 0.8, 1)
 		end
-		
-		if not TankMark.editingLockGUID and TankMark.lockBtn then
-			TankMark.lockBtn:Enable()
+
+		-- Enable the button
+		if TankMark.addMoreMarksText.clickFrame then
+			TankMark.addMoreMarksText.clickFrame:Enable()
 		end
 		
 		-- Ensure accordion is expanded when editing
@@ -336,11 +217,7 @@ function TankMark:UpdateMobList()
 				row:SetScript("OnClick", nil)
 				
 				-- Render based on type
-				if data.type == "BACK" then
-					RenderBackButton(row, data)
-				elseif data.type == "LOCK" then
-					RenderLockRow(row, data)
-				elseif data.type == "ZONE" then
+				if data.type == "ZONE" then
 					RenderZoneRow(row, data)
 				else
 					RenderMobRow(row, data, zone)

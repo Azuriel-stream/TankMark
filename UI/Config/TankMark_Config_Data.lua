@@ -147,19 +147,10 @@ function TankMark:BuildDataManagementTab(parent)
             zoneCount = zoneCount + 1
         end
 
-        -- Count GUIDs
-        local guidCount = 0
-        for _, guids in L._pairs(snapshot.guids) do
-            for _ in L._pairs(guids) do
-                guidCount = guidCount + 1
-            end
-        end
-
         TankMark:Print("=== Snapshot " .. TankMark.selectedSnapshotIndex .. " Details ===")
         TankMark:Print("Age: " .. TankMark:FormatTimestamp(snapshot.timestamp))
         TankMark:Print("Zones: " .. zoneCount)
         TankMark:Print("Mobs: " .. mobCount)
-        TankMark:Print("Locked GUIDs: " .. guidCount)
         if snapshot.profile then
             TankMark:Print("Profile: " .. snapshot.profile.zone)
         end

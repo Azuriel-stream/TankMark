@@ -136,7 +136,7 @@ function TankMark:HandleSync(prefix, msg, sender)
 	if prefix ~= SYNC_PREFIX then return end
 	if not TankMark:IsTrustedSender(sender) then return end
 
-	local dataType = L._sub(msg, 1, 1) -- 'M' or 'L'
+	local dataType = L._sub(msg, 1, 1) -- 'M' (mob data)
 	local content = L._sub(msg, 3) -- Strip prefix + separator
 
 	if dataType == "M" then
@@ -156,20 +156,6 @@ function TankMark:HandleSync(prefix, msg, sender)
 				["marks"] = {numMark}, -- ✅ FIXED: Wrap in array
 				["type"] = mType,
 				["class"] = (mClass ~= "NIL") and mClass or nil
-			}
-		end
-
-	elseif dataType == "L" then
-		local _, _, zone, guid, mark, name = L._strfind(content, "^(.-);(.-);(%d+);(.-)$")
-		if zone and guid then
-			-- [PHASE 1 FIX] Validate incoming lock data
-			local numMark = L._tonumber(mark)
-			if not numMark or numMark < 0 or numMark > 8 then return end
-
-			if not TankMarkDB.StaticGUIDs[zone] then TankMarkDB.StaticGUIDs[zone] = {} end
-			TankMarkDB.StaticGUIDs[zone][guid] = {
-				["mark"] = numMark, -- GUID locks still use scalar (not array)
-				["name"] = name
 			}
 		end
 	end
@@ -231,16 +217,5 @@ function TankMark:BroadcastZone()
 		end
 	end
 
-	-- B. Broadcast Locks (Prefix: L)
-	if TankMarkDB.StaticGUIDs[zone] then
-		for guid, data in L._pairs(TankMarkDB.StaticGUIDs[zone]) do
-			local mark = (L._type(data) == "table") and data.mark or data
-			local name = (L._type(data) == "table") and data.name or "Unknown"
-			local payload = "L;" .. zone .. ";" .. guid .. ";" .. mark .. ";" .. name
-			TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
-			count = count + 1
-		end
-	end
-
-	TankMark:Print("Sync: Queued " .. count .. " items (Mobs & Locks) for zone: " .. zone)
+	TankMark:Print("Sync: Queued " .. count .. " items (Mobs) for zone: " .. zone)
 end
