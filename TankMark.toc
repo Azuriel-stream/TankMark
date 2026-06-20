@@ -11,6 +11,7 @@ TankMark.lua
 
 # Core Modules
 Core\TankMark_Session.lua
+Core\TankMark_Ledger.lua
 Core\TankMark_Permissions.lua
 Core\TankMark_Assignment.lua
 Core\TankMark_Processor.lua

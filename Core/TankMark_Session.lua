@@ -10,11 +10,8 @@ if not TankMark then return end
 -- STATE VARIABLES
 -- ==========================================================
 
--- Mark usage tracking
-TankMark.usedIcons = {}
-TankMark.activeMobNames = {}
-TankMark.activeGUIDs = {}
-TankMark.activeMobIsCaster = {}
+-- Mark ownership indices (MarkMemory, usedIcons, activeGUIDs, activeMobNames)
+-- are owned by the Mark Ledger -- see Core/TankMark_Ledger.lua.
 TankMark.disabledMarks = {}
 TankMark._skullReviewInProgress = false
 
