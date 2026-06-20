@@ -23,6 +23,7 @@ function TankMark:HasPermissions()
 end
 
 function TankMark:CanAutomate()
+    if not TankMark.IsSuperWoW then return false end
     if not TankMark.IsActive then return false end
     if not TankMark:HasPermissions() then return false end
     local zone = TankMark:GetCachedZone()

@@ -14,17 +14,15 @@ if not TankMark.MarkMemory then TankMark.MarkMemory = {} end
 local batchCandidates = {}
 
 TankMark.visibleTargets = {}
-TankMark.RangeSpellID = nil
-TankMark.RangeSpellIndex = nil
 TankMark.IsSuperWoW = false
 
 function TankMark:InitDriver()
     if L._type(SUPERWOW_VERSION) ~= "nil" then
         TankMark.IsSuperWoW = true
-        TankMark:Print("SuperWoW Detected: |cff00ff00v0.26 Hybrid Driver Loaded.|r")
+        TankMark:Print("SuperWoW Detected: |cff00ff00Scanner active.|r")
         TankMark:StartSuperScanner()
     else
-        TankMark:Print("Standard Client: Hybrid features disabled.")
+        TankMark:Print("|cffff0000TankMark requires SuperWoW. Automation disabled.|r")
     end
 end
 
@@ -121,7 +119,7 @@ function TankMark:StartSuperScanner()
         end
         
         -- 4. CLEANUP PHASE
-        if TankMark.IsSuperWoW and TankMark.ReviewSkullState and not TankMark.IsRecorderActive then
+        if TankMark.ReviewSkullState and not TankMark.IsRecorderActive then
             TankMark:ReviewSkullState("SCANNER_TICK")
         end
     end)
@@ -157,67 +155,5 @@ function TankMark:IsNameplate(frame)
     return false
 end
 
-function TankMark:ScanForRangeSpell()
-    -- 1. SuperWoW Path
-    if TankMark.IsSuperWoW then
-        TankMark.RangeSpellID = 16707
-        TankMark.RangeSpellIndex = nil
-        return
-    end
-
-    -- 2. Standard Client Path (Scan for Name -> Store Index)
-    local longRangeSpells = {
-        ["Fireball"] = 35, ["Frostbolt"] = 30, ["Shadow Bolt"] = 30,
-        ["Wrath"] = 30, ["Lightning Bolt"] = 30, ["Starfire"] = 30,
-        ["Shoot"] = 30, ["Shoot Bow"] = 30, ["Shoot Gun"] = 30, ["Shoot Crossbow"] = 30,
-        ["Hunter's Mark"] = 100, ["Mind Blast"] = 30, ["Smite"] = 30
-    }
-    
-    local bestName = nil
-    local bestRange = 0
-    local bestIndex = nil
-    local i = 1
-    
-    while true do
-        if i > 1000 then break end -- Safety Cap
-        local spellName, rank = L._GetSpellName(i, "spell")
-        if not spellName then break end
-        
-        if longRangeSpells[spellName] then
-            local range = longRangeSpells[spellName]
-            if range > bestRange then
-                bestRange = range
-                bestName = spellName
-                bestIndex = i
-            end
-        end
-        i = i + 1
-    end
-    
-    if bestIndex then
-        TankMark.RangeSpellIndex = bestIndex
-        TankMark.RangeSpellID = nil
-        TankMark:Print("Range Extension: Legacy Mode (" .. bestName .. " ~" .. bestRange .. "y).")
-    else
-        TankMark.RangeSpellIndex = nil
-        TankMark.RangeSpellID = nil
-    end
-end
-
-function TankMark:Driver_IsDistanceValid(unitOrGuid)
-    if TankMark.IsSuperWoW and TankMark.RangeSpellID and L._IsSpellInRange then
-        if L._IsSpellInRange(TankMark.RangeSpellID, unitOrGuid) == 1 then return true end
-    end
-    if L._type(unitOrGuid) == "string" and L._strfind(unitOrGuid, "^0x") then
-        local exists, mouseoverGuid = L._UnitExists("mouseover")
-        if exists and mouseoverGuid == unitOrGuid then return true end
-        return false
-    end
-    if TankMark.RangeSpellIndex and L._IsSpellInRange then
-        if L._IsSpellInRange(TankMark.RangeSpellIndex, "spell", unitOrGuid) == 1 then return true end
-    end
-    if L._type(unitOrGuid) == "string" and not L._strfind(unitOrGuid, "^0x") then
-        return L._CheckInteractDistance(unitOrGuid, 4)
-    end
-    return false
-end
+-- [v0.27] Range gating removed with the non-SuperWoW path. The scanner relies on
+-- nameplate visibility plus combat state; SuperWoW mark units are visibility-independent.

@@ -53,13 +53,6 @@ TankMark.Locals = {
     _GetRealZoneText = GetRealZoneText,
     
     -- ==========================================================
-    -- SPELL/RANGE FUNCTIONS
-    -- ==========================================================
-    _IsSpellInRange = IsSpellInRange,
-    _CheckInteractDistance = CheckInteractDistance,
-    _GetSpellName = GetSpellName,
-    
-    -- ==========================================================
     -- CHAT/MESSAGE FUNCTIONS
     -- ==========================================================
     _PlaySound = PlaySound,
@@ -173,12 +166,6 @@ function TankMark:HandleMouseover()
     
     -- [v0.21] PRIORITY 2: Batch Processing (Shift key check BEFORE permission check)
     if L._IsShiftKeyDown() then
-        -- Only available with SuperWoW
-        if not TankMark.IsSuperWoW then
-            TankMark:Print("|cffff0000Batch marking requires SuperWoW.|r")
-            return
-        end
-        
         local guid = TankMark:Driver_GetGUID("mouseover")
         if guid then
             -- [v0.21] Initialize batch on first Shift+mouseover
@@ -207,18 +194,6 @@ function TankMark:HandleMouseover()
         return
     end
     
-    -- [v0.21] PRIORITY 4: Permission check for auto-marking
-    if not TankMark:CanAutomate() then return end
-    
-    -- [v0.21] SuperWoW: Let Scanner handle marking (skip mouseover PASSIVE mode)
-    if TankMark.IsSuperWoW then
-        return
-    end
-    
-    local guid = TankMark:Driver_GetGUID("mouseover")
-    if guid then
-        TankMark:ProcessUnit(guid, "PASSIVE")
-    end
 end
 
 -- ==========================================================
@@ -243,22 +218,6 @@ function TankMark:StartBatchShiftPoller()
             end
         end
     end)
-end
-
--- [v0.26 FIX] Robust Mark Check
-function TankMark:IsMarkInUse(iconID)
-    -- 1. SuperWoW Server-Side Check (Global visibility)
-    -- This sees marks even if the unit is behind you or 100 yards away.
-    if TankMark.IsSuperWoW and L._UnitExists("mark" .. iconID) then
-        return true
-    end
-    
-    -- 2. Standard Scanner Check (Nameplate visibility)
-    if TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
-        return true
-    end
-    
-    return false
 end
 
 -- ==========================================================
@@ -287,16 +246,13 @@ TankMark:SetScript("OnEvent", function()
         
         -- Calls to Scanner Module
         TankMark:InitDriver()
-        TankMark:ScanForRangeSpell()
-        
+
         -- [v0.26 FINAL] NUCLEAR OPTION
         -- Unconditionally wipe ALL marks on startup/reload.
         -- This kills any "ghost" marks from TurtleWoW static GUIDs.
-        if TankMark.IsSuperWoW then
-            for i = 1, 8 do
-                if L._UnitExists("mark" .. i) then
-                    L._SetRaidTarget("mark" .. i, 0)
-                end
+        for i = 1, 8 do
+            if L._UnitExists("mark" .. i) then
+                L._SetRaidTarget("mark" .. i, 0)
             end
         end
 
@@ -471,12 +427,9 @@ function TankMark:SlashHandler(msg)
     elseif cmd == "zone" then
         local currentZone = TankMark:GetCachedZone()
         TankMark:Print("Current Zone: " .. currentZone)
-        TankMark:Print("Driver Mode: " .. (TankMark.IsSuperWoW and "|cff00ff00SuperWoW|r" or "|cffffaa00Standard|r"))
-        if TankMark.IsSuperWoW then
-            local count = 0
-            for k,v in L._pairs(TankMark.visibleTargets) do count = count + 1 end
-            TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
-        end
+        local count = 0
+        for k,v in L._pairs(TankMark.visibleTargets) do count = count + 1 end
+        TankMark:Print("Scanner: " .. count .. " visible targets tracked.")
         TankMark:Print("Schema Version: " .. (TankMarkDB.SchemaVersion or "Legacy"))
         
     elseif cmd == "assign" then
