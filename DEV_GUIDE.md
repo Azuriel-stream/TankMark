@@ -59,7 +59,7 @@ All visual components
 - `TankMark_Config_Mobs.lua` — State registry: `mobRows`, `selectedIcon`, accordion state flags (`isAddMobExpanded`, `isSequentialExpanded`, `isSequentialActive`), and all Mob tab widget references.
 - `TankMark_Config_Mobs_UI.lua` — [v0.27] **UI construction only.** All layout is expressed as private `local function` section builders (`CreateZoneControls`, `CreateMobList`, `CreateSearchBox`, etc.) called from the `CreateMobTab(parent)` entry point. Container frame uses `TOPLEFT 0,0 / BOTTOMRIGHT 0,0`. Zone dropdown anchored at `TOPLEFT 44,-43`. List background left edge at x=31 from the window. Exposes `UpdateMobZoneUI()`.
 - `TankMark_Config_Mobs_List.lua` — Mob list rendering and `UpdateMobList()` scroll logic.
-- `TankMark_Config_Mobs_Logic.lua` — Save/load/delete mob data, smart defaults, `ToggleLockState()`, `ResetEditorState()`.
+- `TankMark_Config_Mobs_Logic.lua` — Save/load/delete mob data, smart defaults, `ResetEditorState()`.
 - `TankMark_Config_Mobs_Sequential.lua` — Sequential mark configuration: `RefreshSequentialRows()`, `OnAddMoreMarksClicked()`, `RemoveSequentialRow()`, `ActivateSequentialAccordion()`.
 - `TankMark_Config_Mobs_Menus.lua` — Context menus: `InitIconMenu()`, `InitClassMenu()`, `InitSequentialIconMenu()`, `InitSequentialClassMenu()`.
 
@@ -150,7 +150,7 @@ In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` resul
 
 | Variable | Scope | Description |
 |---|---|---|
-| `TankMarkDB` | Account-wide | Mob database (`Zones`, `StaticGUIDs`), debug log (`DebugLog`) |
+| `TankMarkDB` | Account-wide | Mob database (`Zones`), debug log (`DebugLog`) |
 | `TankMarkProfileDB` | Per-character | Team profiles (mark → tank → healers assignments per zone) |
 | `TankMarkDB_Snapshot` | Per-character | Up to 3 database snapshots for corruption recovery |
 | `TankMarkCharConfig` | Per-character | Character-specific UI settings (HUD position, etc.) |
