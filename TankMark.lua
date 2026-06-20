@@ -335,11 +335,7 @@ TankMark:SetScript("OnEvent", function()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- [v0.26] Combat End: Flush Memory
         -- We clear the scanner memory so marks aren't "locked" to dead units.
-        if TankMark.MarkMemory then
-            for k in L._pairs(TankMark.MarkMemory) do
-                TankMark.MarkMemory[k] = nil
-            end
-        end
+        TankMark.Ledger.FlushMemory()
     end
 end)
 

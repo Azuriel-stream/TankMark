@@ -249,15 +249,10 @@ function TankMark:ProcessBatchMark(candidateData)
         local cursorIndex = TankMark.sequentialMarkCursor[mobName]
         local iconToApply = mobData.marks[cursorIndex]
         
-        -- [v0.27] Update MarkMemory BEFORE applying mark (matches ProcessKnownMob pattern)
-        -- This protects the mark from ReviewSkullState interference during the batch window
-        if TankMark.MarkMemory then
-            TankMark.MarkMemory[iconToApply] = guid
-        end
-        
-        -- Apply mark (ignore conflicts per user requirement)
+        -- [v0.27] Record ownership BEFORE applying the mark (matches ProcessKnownMob).
+        -- Protects the mark from ReviewSkullState interference during the batch window.
+        TankMark:RegisterMarkUsage(iconToApply, mobName, guid, true) -- skipProfileLookup = true
         TankMark:Driver_ApplyMark(guid, iconToApply)
-        TankMark:RegisterMarkUsage(iconToApply, mobName, guid, false, true) -- skipProfileLookup = true
         
         -- Advance cursor (with wraparound safety)
         TankMark.sequentialMarkCursor[mobName] = cursorIndex + 1

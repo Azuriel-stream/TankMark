@@ -208,41 +208,9 @@ function TankMark:VerifyMarkExistence(iconID)
 end
 
 function TankMark:EvictMarkOwner(iconID, deadGUID)
-	-- [FIX] GUID-Aware Eviction.
-	-- When deadGUID is provided, check whether MarkMemory[iconID] has already
-	-- been updated to a different GUID by a prior ReviewSkullState call in the
-	-- same event tick. If so, a new assignment is pending server confirmation
-	-- and all icon state that belongs to that new assignment must be preserved.
-	-- When deadGUID is nil (caller could not resolve it), fall back to the
-	-- original unconditional-clear behaviour to avoid silent state leaks.
-	local memGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID] or nil
-	local newAssignmentPending = deadGUID and memGUID and (memGUID ~= deadGUID)
-
-	if not newAssignmentPending then
-		TankMark.activeMobNames[iconID]    = nil
-		TankMark.usedIcons[iconID]         = nil
-		TankMark.activeMobIsCaster[iconID] = nil
-
-		if TankMark.MarkMemory then
-			TankMark.MarkMemory[iconID] = nil
-		end
-	end
-
-	-- Always remove the dead mob's own activeGUIDs entry.
-	-- When deadGUID is known, target it directly (O(1)).
-	-- When unknown, fall back to scanning all entries for this icon (O(n), max 8).
-	if deadGUID then
-		if TankMark.activeGUIDs[deadGUID] == iconID then
-			TankMark.activeGUIDs[deadGUID] = nil
-		end
-	else
-		for guid, mark in L._pairs(TankMark.activeGUIDs) do
-			if mark == iconID then
-				TankMark.activeGUIDs[guid] = nil
-			end
-		end
-	end
-
+	-- The Ledger's GUID-aware release preserves icon state when a reassignment
+	-- was already committed this tick (deadGUID no longer owns the icon).
+	TankMark.Ledger.Release(iconID, deadGUID)
 	if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
@@ -290,13 +258,11 @@ function TankMark:ReviewSkullState(callerID)
 	-- visibility (confirmed via in-game testing).
 	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
 		-- FIX: Populate MarkMemory if the skull holder is unknown
-		if TankMark.MarkMemory and not TankMark.MarkMemory[8] then
+		if not TankMark.MarkMemory[8] then
 			local _, existingGUID = L._UnitExists("mark8")
 			if existingGUID then
 				local existingName = L._UnitName("mark8") or "?"
-				local isCaster = (L._UnitPowerType(existingGUID) == 0)
-				TankMark.MarkMemory[8] = existingGUID
-				TankMark:RegisterMarkUsage(8, existingName, existingGUID, isCaster, false)
+				TankMark:RegisterMarkUsage(8, existingName, existingGUID, false)
 				if TankMark.DebugEnabled then
 					TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
 						caller = _caller,
@@ -405,17 +371,14 @@ function TankMark:ReviewSkullState(callerID)
 		end
 
 		if shouldAssign then
-			-- Commit MarkMemory BEFORE calling Driver_ApplyMark. This serves
+			-- Record ownership BEFORE calling Driver_ApplyMark. This serves
 			-- two purposes: (1) keeps internal state visible to IsMarkBusy and
 			-- GetMarkOwnerPriority, and (2) arms the duplicate-event guard above
 			-- so any second ReviewSkullState call in the same tick is blocked
 			-- before it reaches Driver_ApplyMark.
-			if TankMark.MarkMemory then
-				TankMark.MarkMemory[8] = candidateGUID
-			end
-			TankMark:Driver_ApplyMark(candidateGUID, 8)
 			local candidateName = L._UnitName(candidateGUID)
-			TankMark:RegisterMarkUsage(8, candidateName, candidateGUID, (L._UnitPowerType(candidateGUID) == 0), false)
+			TankMark:RegisterMarkUsage(8, candidateName, candidateGUID, false)
+			TankMark:Driver_ApplyMark(candidateGUID, 8)
 		end
 	end
 end
@@ -434,10 +397,8 @@ function TankMark:UnmarkUnit(unit)
 end
 
 function TankMark:ResetSession()
-	TankMark.usedIcons = {}
+	TankMark.Ledger.Clear()
 	TankMark.sessionAssignments = {}
-	TankMark.activeMobNames = {}
-	TankMark.activeGUIDs = {}
 	TankMark.recordedGUIDs = {}
 	TankMark.sequentialMarkCursor = {}
 	TankMark.alertedDeaths = {}
@@ -450,12 +411,6 @@ function TankMark:ResetSession()
 	end
 
 	if TankMark:HasPermissions() then
-		if TankMark.MarkMemory then
-			for k in L._pairs(TankMark.MarkMemory) do
-				TankMark.MarkMemory[k] = nil
-			end
-		end
-
 		for i = 1, 8 do
 			if L._UnitExists("mark" .. i) then
 				L._SetRaidTarget("mark" .. i, 0)
