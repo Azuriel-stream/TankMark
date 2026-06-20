@@ -156,12 +156,13 @@ function Ledger.IconForName(name)
     return nil
 end
 
--- Combat-end flush: forget the live owner of every mark (MarkMemory only),
--- leaving the session indices (usedIcons, activeGUIDs, activeMobNames) intact so
--- marks are no longer "locked" to units that may have died out of sight. This is
--- a deliberate PARTIAL flush -- it desyncs MarkMemory from activeGUIDs until the
--- scanner re-affirms the marks it can still see. [revisit: candidate for a full
--- reconcile once reads migrate]
+-- Combat-end flush. PLAYER_REGEN_ENABLED also fires when the addon-holder DIES
+-- (death drops you out of combat), so this must NOT wipe the marks: it clears
+-- only MarkMemory (the live-owner map) and keeps usedIcons / activeGUIDs /
+-- activeMobNames, so the HUD and icon reservations survive your death. OwnerOf's
+-- activeGUIDs fallback answers ownership while MarkMemory is empty (you are dead,
+-- so the scanner cannot re-affirm). Deliberately PARTIAL -- do not "reconcile" it
+-- into a full clear, and do not remove the OwnerOf fallback.
 function Ledger.FlushMemory()
     for k in L._pairs(TankMark.MarkMemory) do TankMark.MarkMemory[k] = nil end
 end
