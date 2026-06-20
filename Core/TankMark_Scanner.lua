@@ -56,7 +56,7 @@ function TankMark:StartSuperScanner()
                 if guid then
                     TankMark.visibleTargets[guid] = true
                     
-                    local activeIcon = TankMark.activeGUIDs[guid]
+                    local activeIcon = TankMark.Ledger.IconOf(guid)
                     
                     if activeIcon then
                         -- [SYNC] KNOWN BLOCKER

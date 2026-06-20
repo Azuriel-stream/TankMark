@@ -33,9 +33,9 @@ function TankMark:GetFreeTankIcon()
         local isBusy = false
         if TankMark.IsMarkBusy then
             isBusy = TankMark:IsMarkBusy(markID)
-        elseif TankMark.MarkMemory and TankMark.MarkMemory[markID] then
+        elseif TankMark.Ledger.OwnerOf(markID) then
             isBusy = true
-        elseif TankMark.usedIcons and (TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]) then
+        elseif TankMark.Ledger.IsUsed(markID) then
             isBusy = true
         end
 
@@ -184,7 +184,7 @@ function TankMark:FindCCPlayerForClass(requiredClass)
                 -- Use English class token (always uppercase)
                 if playerClassEng == requiredClass then
                     -- Check if mark is available (not used and not disabled)
-                    if not TankMark.usedIcons[markID] and not TankMark.disabledMarks[markID] then
+                    if not TankMark.Ledger.IsUsed(markID) and not TankMark.disabledMarks[markID] then
                         -- Check if player is alive
                         if not L._UnitIsDeadOrGhost(unit) then
                             return markID
@@ -270,25 +270,14 @@ function TankMark:GetBlockingMarkInfo()
             if markID and markID ~= 8 then
                 -- [v0.26 FIX] Skip if mark holder is dead or gone.
                 if IsMarkHolderAlive(markID) then
-                    local isInUse = TankMark.usedIcons[markID] or TankMark.usedIcons[L._tostring(markID)]
+                    local isInUse = TankMark.Ledger.IsUsed(markID)
 
                     if isInUse then
-                        -- usedIcons stores boolean, not GUID.
-                        -- Find the holder GUID via MarkMemory first (most reliable source),
-                        -- then fall back to activeGUIDs scan.
-                        local foundGUID = nil
-                        if TankMark.MarkMemory and TankMark.MarkMemory[markID] then
-                            foundGUID = TankMark.MarkMemory[markID]
-                        end
-
-                        if not foundGUID and TankMark.activeGUIDs then
-                            for guid, icon in L._pairs(TankMark.activeGUIDs) do
-                                if icon == markID then foundGUID = guid; break end
-                            end
-                        end
+                        -- OwnerOf folds in the MarkMemory-then-activeGUIDs lookup.
+                        local foundGUID = TankMark.Ledger.OwnerOf(markID)
 
                         if foundGUID then
-                            local mobName = TankMark.activeMobNames[markID]
+                            local mobName = TankMark.Ledger.NameFor(markID)
                             if not mobName then mobName = L._UnitName(foundGUID) end
 
                             local mobPrio = 5 -- Safety default
@@ -372,7 +361,7 @@ function TankMark:FindEmergencyCandidate()
             if guid and not L._UnitIsDead(guid) and 
                not L._UnitIsPlayer(guid) and 
                not L._UnitIsFriend("player", guid) and
-               not TankMark.activeGUIDs[guid] then -- Must not already have a mark
+               not TankMark.Ledger.IconOf(guid) then -- Must not already have a mark
                 
                 -- Is it in combat with us?
                 if TankMark:IsGUIDInCombat(guid) then
