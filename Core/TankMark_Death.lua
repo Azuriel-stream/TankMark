@@ -21,31 +21,15 @@ function TankMark:HandleCombatLog(msg)
 	if not TankMark:CanAutomate() or not TankMark.DeathPattern then return end
 	local _, _, deadMobName = L._strfind(msg, TankMark.DeathPattern)
 	if deadMobName then
-		for iconID, name in L._pairs(TankMark.activeMobNames) do
-			if name == deadMobName then
-				if not TankMark:VerifyMarkExistence(iconID) then
-					-- [FIX] Resolve dead mob GUID before eviction so EvictMarkOwner
-					-- can distinguish it from a freshly-assigned replacement.
-					-- Reverse-lookup activeGUIDs (max 8 entries, negligible cost).
-					-- Falls back to MarkMemory if activeGUIDs has no match
-					-- (e.g. state was partially reset).
-					local deadGUID = nil
-					for guid, mark in L._pairs(TankMark.activeGUIDs) do
-						if mark == iconID then
-							deadGUID = guid
-							break
-						end
-					end
-					if not deadGUID and TankMark.MarkMemory then
-						deadGUID = TankMark.MarkMemory[iconID]
-					end
-
-					TankMark:EvictMarkOwner(iconID, deadGUID)
-					if iconID == 8 then
-						TankMark:ReviewSkullState("COMBAT_LOG")
-					end
-					return
-				end
+		local iconID = TankMark.Ledger.IconForName(deadMobName)
+		if iconID and not TankMark:VerifyMarkExistence(iconID) then
+			-- Resolve the dead mob's GUID so EvictMarkOwner can distinguish it
+			-- from a freshly-assigned replacement. OwnerOf folds in the
+			-- MarkMemory / activeGUIDs lookup.
+			local deadGUID = TankMark.Ledger.OwnerOf(iconID)
+			TankMark:EvictMarkOwner(iconID, deadGUID)
+			if iconID == 8 then
+				TankMark:ReviewSkullState("COMBAT_LOG")
 			end
 		end
 	end
@@ -68,8 +52,8 @@ function TankMark:HandleDeath(unitID)
 			-- UnitGUID is still valid at 0 HP before the mob despawns.
 			-- Falls back to MarkMemory[icon] if UnitGUID returns nil.
 			local _, deadGUID = L._UnitExists(unitID)
-			if not deadGUID and TankMark.MarkMemory then
-				deadGUID = TankMark.MarkMemory[icon]
+			if not deadGUID then
+				deadGUID = TankMark.Ledger.OwnerOf(icon)
 			end
 
 			TankMark:EvictMarkOwner(icon, deadGUID)
@@ -227,9 +211,9 @@ function TankMark:ReviewSkullState(callerID)
 	local mark8Exists = L._UnitExists("mark8") or false
 	local mark8IsDead = mark8Exists and (L._UnitIsDead("mark8") == 1) or false
 	local mark8Name   = mark8Exists and (L._UnitName("mark8") or "?") or "nil"
-	local memGUID     = TankMark.MarkMemory and TankMark.MarkMemory[8] or nil
+	local memGUID     = TankMark.Ledger.MemoryOwner(8)
 	local memMobName  = memGUID and (L._UnitName(memGUID) or "?") or "nil"
-	local activeName8 = TankMark.activeMobNames and TankMark.activeMobNames[8] or "nil"
+	local activeName8 = TankMark.Ledger.NameFor(8) or "nil"
 
 	if TankMark.DebugEnabled then
 		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState entry", {
@@ -258,7 +242,7 @@ function TankMark:ReviewSkullState(callerID)
 	-- visibility (confirmed via in-game testing).
 	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
 		-- FIX: Populate MarkMemory if the skull holder is unknown
-		if not TankMark.MarkMemory[8] then
+		if not TankMark.Ledger.MemoryOwner(8) then
 			local _, existingGUID = L._UnitExists("mark8")
 			if existingGUID then
 				local existingName = L._UnitName("mark8") or "?"
@@ -290,11 +274,11 @@ function TankMark:ReviewSkullState(callerID)
 	-- duplicate caller. Block immediately to prevent a second SetRaidTarget.
 	-- EvictMarkOwner's GUID-aware logic ensures MarkMemory[8] is only nil
 	-- when no new assignment has been committed in this tick.
-	if TankMark.MarkMemory and TankMark.MarkMemory[8] then
+	if TankMark.Ledger.MemoryOwner(8) then
 		if TankMark.DebugEnabled then
 			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
 				caller     = _caller,
-				lockedGUID = TankMark.MarkMemory[8],
+				lockedGUID = TankMark.Ledger.MemoryOwner(8),
 			})
 		end
 		return
@@ -302,7 +286,7 @@ function TankMark:ReviewSkullState(callerID)
 
 	-- [v0.26] Sequential Marking Guard
 	-- Prevents auto-skull if the mob is part of a sequential kill list (e.g. Majordomo)
-	local skullName = TankMark.activeMobNames and TankMark.activeMobNames[8]
+	local skullName = TankMark.Ledger.NameFor(8)
 	if skullName and TankMark.activeDB and TankMark.activeDB[skullName] then
 		local data = TankMark.activeDB[skullName]
 		if data.marks and L._tgetn(data.marks) > 1 then

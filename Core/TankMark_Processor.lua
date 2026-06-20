@@ -91,14 +91,14 @@ function TankMark:ProcessUnit(guid, mode)
     end
 
     if currentIcon then
-        if not TankMark.usedIcons[currentIcon] or not TankMark.activeGUIDs[guid] then
+        if not TankMark.Ledger.IsUsed(currentIcon) or not TankMark.Ledger.IconOf(guid) then
             if TankMark.DebugEnabled then
                 TankMark:DebugLog("PROCESS", "Re-registering existing mark", {
                     icon       = currentIcon,
                     guid       = guid,
                     mob        = mobName,
-                    usedIcons  = L._tostring(TankMark.usedIcons[currentIcon]),
-                    activeGUIDs = L._tostring(TankMark.activeGUIDs[guid])
+                    usedIcons  = L._tostring(TankMark.Ledger.IsUsed(currentIcon)),
+                    activeGUIDs = L._tostring(TankMark.Ledger.IconOf(guid))
                 })
             end
             TankMark:RegisterMarkUsage(currentIcon, L._UnitName(guid), guid, false)
@@ -113,12 +113,12 @@ function TankMark:ProcessUnit(guid, mode)
     -- Only the icon-level state (usedIcons, MarkMemory, etc.) is cleared if
     -- MarkMemory confirms this mob still owns that slot, preventing us from
     -- accidentally evicting a different mob that has since taken the same icon.
-    if TankMark.activeGUIDs[guid] then
+    if TankMark.Ledger.IconOf(guid) then
         if TankMark.DebugEnabled then
             TankMark:DebugLog("PROCESS", "Stale activeGUIDs - invalidating", {
                 guid         = guid,
                 mob          = mobName or "nil",
-                expectedIcon = TankMark.activeGUIDs[guid]
+                expectedIcon = TankMark.Ledger.IconOf(guid)
             })
         end
         TankMark.Ledger.Evict(guid)
@@ -162,25 +162,25 @@ end
 function TankMark:IsMarkBusy(iconID)
     local reason = nil
     local result = false
-    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
+    if TankMark.Ledger.OwnerOf(iconID) then
         reason = "MarkMemory"
         result = true
     elseif L._UnitExists("mark"..iconID) and not L._UnitIsDead("mark"..iconID) then
         reason = "MarkUnit"
         result = true
-    elseif TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]) then
+    elseif TankMark.Ledger.IsUsed(iconID) then
         reason = "usedIcons"
         result = true
     end
-    
+
     -- [DEBUG] Log every IsMarkBusy check (generic)
     if TankMark.DebugEnabled then
-        local holderGUID = TankMark.MarkMemory and TankMark.MarkMemory[iconID]
+        local holderGUID = TankMark.Ledger.OwnerOf(iconID)
         TankMark:DebugLog("BUSY", "IsMarkBusy(" .. L._tostring(iconID) .. ") check", {
             result  = L._tostring(result),
             reason  = reason or "none",
             Memory  = holderGUID and L._sub(holderGUID, 1, 10) .. "..." or "nil",
-            used    = L._tostring(TankMark.usedIcons and (TankMark.usedIcons[iconID] or TankMark.usedIcons[L._tostring(iconID)]))
+            used    = L._tostring(TankMark.Ledger.IsUsed(iconID))
         })
     end
     
@@ -189,19 +189,7 @@ end
 
 -- [v0.26] Helper to find priority of current mark holder
 function TankMark:GetMarkOwnerPriority(iconID)
-    local holderGUID = nil
-
-    -- 1. Check Memory (Primary Source)
-    if TankMark.MarkMemory and TankMark.MarkMemory[iconID] then
-        holderGUID = TankMark.MarkMemory[iconID]
-    end
-
-    -- 2. Check Active GUIDs
-    if not holderGUID and TankMark.activeGUIDs then
-        for guid, icon in L._pairs(TankMark.activeGUIDs) do
-            if icon == iconID then holderGUID = guid; break end
-        end
-    end
+    local holderGUID = TankMark.Ledger.OwnerOf(iconID)
 
     if holderGUID then
         local name = L._UnitName(holderGUID)

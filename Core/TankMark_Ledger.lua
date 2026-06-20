@@ -105,6 +105,57 @@ function Ledger.Evict(guid)
     end
 end
 
+-- ===== Read accessors =====================================================
+-- New code reads ownership through these (existing direct reads migrate to them).
+
+-- Raw MarkMemory entry, no fallback. This is the skull duplicate-event guard's
+-- predicate ("a reassignment was committed this tick"); do NOT swap it for
+-- OwnerOf, whose fallback scan would also match a pre-existing holder.
+function Ledger.MemoryOwner(icon)
+    if not icon then return nil end
+    return TankMark.MarkMemory[icon]
+end
+
+-- The guid holding `icon`. Prefers MarkMemory; falls back to the reverse index
+-- for the combat-end window where FlushMemory wiped MarkMemory but activeGUIDs
+-- still holds the mark until the scanner re-affirms it.
+function Ledger.OwnerOf(icon)
+    if not icon then return nil end
+    local g = TankMark.MarkMemory[icon]
+    if g then return g end
+    for guid, i in L._pairs(TankMark.activeGUIDs) do
+        if i == icon then return guid end
+    end
+    return nil
+end
+
+-- The icon `guid` currently holds (reverse lookup).
+function Ledger.IconOf(guid)
+    if not guid then return nil end
+    return TankMark.activeGUIDs[guid]
+end
+
+-- The recorded mob name for `icon` (HUD label).
+function Ledger.NameFor(icon)
+    if not icon then return nil end
+    return TankMark.activeMobNames[icon]
+end
+
+-- Whether `icon` is flagged in use (ownership or reservation).
+function Ledger.IsUsed(icon)
+    if not icon then return false end
+    return TankMark.usedIcons[icon] and true or false
+end
+
+-- The icon currently labelled with `name` (reverse name lookup, used on death).
+function Ledger.IconForName(name)
+    if not name then return nil end
+    for icon, n in L._pairs(TankMark.activeMobNames) do
+        if n == name then return icon end
+    end
+    return nil
+end
+
 -- Combat-end flush: forget the live owner of every mark (MarkMemory only),
 -- leaving the session indices (usedIcons, activeGUIDs, activeMobNames) intact so
 -- marks are no longer "locked" to units that may have died out of sight. This is
