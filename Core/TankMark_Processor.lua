@@ -197,38 +197,46 @@ function TankMark:ResolveCC(mobData)
     return TankMark:FindCCPlayerForClass(mobData.class)
 end
 
-function TankMark:ProcessKnownMob(mobData, guid, mode)
-    -- [DEBUG] Entry
-    if TankMark.DebugEnabled then
-        TankMark:DebugLog("KNOWN", "ProcessKnownMob", {
-            mob   = mobData.name,
-            guid  = guid,
-            prio  = mobData.prio,
-            marks = mobData.marks and mobData.marks[1] or "nil"
-        })
+-- [v0.28] Known-mob decision (decide/apply split, roadmap #2). Returns an
+-- inspectable intent { icon, reason, wasBusy?, override? } and applies NOTHING.
+-- Order: sequential/zero bails -> SCANNER combat gate -> CC seam -> primary-mark
+-- selection (with selection-time skull theft, myPrio < ownerPrio) -> free-icon
+-- fallback -> skull governor gate. Skips are values, not bare returns.
+--
+-- Governor landmine: BOTH operators are preserved and MUST stay distinct --
+-- `myPrio < ownerPrio` (steal an occupied skull) and `myPrio >= blockPrio`
+-- (incumbency block when skull is free). The governor gate stays inline this
+-- commit; it is unified with the unknown path's copy (allowSteal flag) in
+-- commit 5. Sequential (marks>1) stays out of scope -- Batch owns that cursor.
+function TankMark:DecideKnownMark(mobData, guid, mode)
+    if mobData.marks and L._tgetn(mobData.marks) > 1 then
+        return { icon = nil, reason = "sequential-marks" }
     end
-
-    if mobData.marks and L._tgetn(mobData.marks) > 1 then return end
     local markToUse = mobData.marks and mobData.marks[1] or 8
-    if markToUse == 0 then return end
+    if markToUse == 0 then
+        return { icon = nil, reason = "mark-zero" }
+    end
 
     if mode == "SCANNER" then
         local playerInCombat = L._UnitAffectingCombat("player")
         local mobInCombat    = TankMark:IsGUIDInCombat(guid)
-        if not mobInCombat and not playerInCombat then return end
+        if not mobInCombat and not playerInCombat then
+            return { icon = nil, reason = "not-in-combat" }
+        end
     end
 
     local iconToApply = nil
     local isBusy      = false
     local canOverride = false
 
-    -- [v0.28] CC Logic via ResolveCC seam (decide/apply split, roadmap #2).
+    -- [v0.28] CC Logic via ResolveCC seam.
     iconToApply = TankMark:ResolveCC(mobData)
 
     if not iconToApply then
         isBusy = TankMark:IsMarkBusy(markToUse)
 
-        -- [v0.26] AGGRESSIVE THEFT LOGIC
+        -- [v0.26] AGGRESSIVE THEFT LOGIC (selection-time steal of an occupied
+        -- primary skull; inline because it is icon selection, not a block).
         if isBusy and markToUse == 8 then
             local myPrio    = mobData.prio or 5
             local ownerPrio = TankMark:GetMarkOwnerPriority(markToUse)
@@ -247,50 +255,48 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
         end
     end
 
-    if iconToApply then
-        if TankMark.DebugEnabled then
-            TankMark:DebugLog("KNOWN", "Will apply mark", {
-                icon        = iconToApply,
-                mob         = mobData.name,
-                wasBusy     = isBusy,
-                canOverride = canOverride
-            })
-        end
-    else
-        if TankMark.DebugEnabled then
-            TankMark:DebugLog("KNOWN", "No icon determined", {
-                mob         = mobData.name,
-                primaryMark = markToUse,
-                isBusy      = isBusy
-            })
-        end
+    if not iconToApply then
+        return { icon = nil, reason = "no-icon", wasBusy = isBusy }
     end
 
-    -- GOVERNOR CHECK
+    -- GOVERNOR CHECK (skull incumbency). iconToApply is non-nil here.
     if iconToApply == 8 and mode ~= "FORCE" then
-        local blocked  = false
-        local isBusy8  = TankMark:IsMarkBusy(8)
-        local myPrio   = mobData.prio or 5
+        local isBusy8 = TankMark:IsMarkBusy(8)
+        local myPrio  = mobData.prio or 5
         if isBusy8 then
-            -- Path A: Mark is TAKEN. Can we steal it?
-            local ownerPrio    = TankMark:GetMarkOwnerPriority(8)
+            -- Path A: Skull is TAKEN. Can we steal it? (myPrio < ownerPrio)
+            local ownerPrio     = TankMark:GetMarkOwnerPriority(8)
             local overrideValid = (myPrio < ownerPrio)
-            if not overrideValid then blocked = true end
+            if not overrideValid then
+                return { icon = nil, reason = "governor-skull-taken", wasBusy = isBusy }
+            end
         else
-            -- Path B: Mark is FREE. Is it blocked by a lower mark (Incumbency)?
+            -- Path B: Skull is FREE. Blocked by a lower incumbent? (myPrio >= blockPrio)
             if TankMark.GetBlockingMarkInfo then
                 local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-                if blockIcon then
-                    if myPrio >= blockPrio then blocked = true end
+                if blockIcon and myPrio >= blockPrio then
+                    return { icon = nil, reason = "governor-incumbency", wasBusy = isBusy }
                 end
             end
         end
-        if blocked then return end
     end
 
-    if iconToApply then
-        -- [v0.28] Apply edge centralized in ApplyMarkIntent (decide/apply split, roadmap #2).
-        TankMark:ApplyMarkIntent(guid, mobData.name, { icon = iconToApply }, false)
+    return { icon = iconToApply, reason = "known", wasBusy = isBusy, override = canOverride }
+end
+
+function TankMark:ProcessKnownMob(mobData, guid, mode)
+    local intent = TankMark:DecideKnownMark(mobData, guid, mode)
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("DECIDE", "known: " .. (intent.reason or "?"), {
+            icon     = intent.icon,
+            mob      = mobData.name,
+            prio     = mobData.prio,
+            wasBusy  = intent.wasBusy,
+            override = intent.override
+        })
+    end
+    if intent.icon then
+        TankMark:ApplyMarkIntent(guid, mobData.name, intent, false)
     end
 end
 
