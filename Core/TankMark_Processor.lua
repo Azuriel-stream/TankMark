@@ -108,7 +108,7 @@ function TankMark:ProcessUnit(guid, mode)
     -- [FIX] At this point currentIcon is nil - the mob has no mark in-game.
     -- If activeGUIDs still has an entry for this GUID, it is a stale record from
     -- a previous encounter (or an externally removed mark). Invalidate it and
-    -- fall through so ProcessKnownMob can re-mark the mob correctly.
+    -- fall through so DecideMark can re-mark the mob correctly.
     -- Only the icon-level state (usedIcons, MarkMemory, etc.) is cleared if
     -- MarkMemory confirms this mob still owns that slot, preventing us from
     -- accidentally evicting a different mob that has since taken the same icon.
@@ -327,16 +327,6 @@ function TankMark:DecideMark(mobData, guid, mode)
     return intent
 end
 
--- [v0.28] Thin Batch-compat shim over DecideMark + ApplyMarkIntent. ProcessUnit
--- calls DecideMark directly; Batch still calls this. Commit 6 migrates Batch and
--- deletes the shims.
-function TankMark:ProcessKnownMob(mobData, guid, mode)
-    local intent = TankMark:DecideMark(mobData, guid, mode)
-    if intent.icon then
-        TankMark:ApplyMarkIntent(guid, mobData.name, intent, false)
-    end
-end
-
 -- [v0.28] Unknown-mob decision (decide/apply split, roadmap #2). Returns an
 -- inspectable intent { icon, reason } and applies NOTHING; the shell applies.
 -- Unknown mobs are Prio 5: they take the highest free tank icon, and only take
@@ -364,14 +354,6 @@ function TankMark:DecideUnknownMark(guid, mode)
     end
 
     return { icon = iconToApply, reason = "unknown-free" }
-end
-
--- [v0.28] Thin Batch-compat shim over DecideMark + ApplyMarkIntent (see above).
-function TankMark:ProcessUnknownMob(guid, mode)
-    local intent = TankMark:DecideMark(nil, guid, mode)
-    if intent.icon then
-        TankMark:ApplyMarkIntent(guid, L._UnitName(guid), intent, false)
-    end
 end
 
 -- [v0.28] Centralized apply edge for the decide/apply split (roadmap #2).

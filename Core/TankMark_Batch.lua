@@ -249,7 +249,7 @@ function TankMark:ProcessBatchMark(candidateData)
         local cursorIndex = TankMark.sequentialMarkCursor[mobName]
         local iconToApply = mobData.marks[cursorIndex]
         
-        -- [v0.27] Record ownership BEFORE applying the mark (matches ProcessKnownMob).
+        -- [v0.27] Record ownership BEFORE applying the mark (matches ApplyMarkIntent's record-before-apply order).
         -- Protects the mark from ReviewSkullState interference during the batch window.
         TankMark:RegisterMarkUsage(iconToApply, mobName, guid, true) -- skipProfileLookup = true
         TankMark:Driver_ApplyMark(guid, iconToApply)
@@ -260,11 +260,12 @@ function TankMark:ProcessBatchMark(candidateData)
             TankMark.sequentialMarkCursor[mobName] = 1 -- Reset (for 5th+ mobs)
         end
     else
-        -- Single mark or unknown mob (existing logic)
-        if mobData then
-            TankMark:ProcessKnownMob(mobData, guid, "FORCE")
-        else
-            TankMark:ProcessUnknownMob(guid, "FORCE")
+        -- [v0.28] Single-mark / unknown: decide via the unified seam, then apply
+        -- at the centralized edge (migrated off the deleted Process* shims).
+        local intent = TankMark:DecideMark(mobData, guid, "FORCE")
+        if intent.icon then
+            local name = mobData and mobData.name or L._UnitName(guid)
+            TankMark:ApplyMarkIntent(guid, name, intent, false)
         end
     end
 end
