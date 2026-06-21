@@ -327,20 +327,11 @@ function TankMark:ReviewSkullState(callerID)
 			return
 		end
 
-		local shouldAssign = true
-
-		-- [v0.26] STRICT INCUMBENCY RULE
-		if blockIcon then
-			-- Safe fallback if prio is nil
-			candidatePrio = candidatePrio or 5
-			blockPrio = blockPrio or 99
-			-- IF BLOCKER EXISTS:
-			-- Only assign if Candidate is STRICTLY better (Lower Prio #).
-			-- If Prio is Equal (5 vs 5), DO NOT ASSIGN.
-			if candidatePrio >= blockPrio then
-				shouldAssign = false
-			end
-		end
+		-- [v0.28] STRICT INCUMBENCY RULE via the shared IncumbencyBlocks predicate
+		-- (single-sourced with GovernorBlocks so the >= operator can't drift).
+		-- Only (re)assign skull when the candidate is strictly better (lower prio
+		-- number) than the incumbent blocker; an equal-prio incumbent blocks.
+		local shouldAssign = not TankMark:IncumbencyBlocks(candidatePrio or 5, blockIcon, blockPrio)
 
 		if TankMark.DebugEnabled then
 			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState decision", {
