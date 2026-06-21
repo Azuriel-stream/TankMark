@@ -214,7 +214,9 @@ function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal)
     -- Skull FREE: yield to a lower incumbent mark (incumbency).
     if TankMark.GetBlockingMarkInfo then
         local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-        if blockIcon and myPrio >= blockPrio then
+        -- [v0.28] Incumbency rule via the shared IncumbencyBlocks predicate
+        -- (single-sourced with ReviewSkullState so >= can't drift).
+        if TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio) then
             return "governor-incumbency"
         end
     end

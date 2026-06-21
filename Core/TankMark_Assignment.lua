@@ -224,6 +224,16 @@ function TankMark:GetAssigneeForMark(markID)
     return nil
 end
 
+-- [v0.28] Single source of the skull incumbency comparison. Shared by the
+-- decide-path governor (GovernorBlocks, Processor) and the death-path skull
+-- review (ReviewSkullState, Death) so the >= operator can never drift between
+-- the two. Pure: callers fetch GetBlockingMarkInfo themselves and pass the
+-- blocker icon/prio in. A skull candidate is blocked when an incumbent blocker
+-- exists and the candidate is NOT strictly better (lower prio number).
+function TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio)
+    return blockIcon and myPrio >= (blockPrio or 99) and true or false
+end
+
 -- [v0.26 FIXED] Safe GUID Handling + Liveness Guard
 -- A mark holder only qualifies as a blocker if its mark unit token currently
 -- exists server-side AND is not dead. This prevents dead-but-not-yet-evicted
