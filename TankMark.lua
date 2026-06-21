@@ -84,7 +84,6 @@ TankMark.Locals = {
     _lower = string.lower,
     _strupper = string.upper,
     _format = string.format,
-    _strmatch = string.match,
     _UNITDIESOTHER = UNITDIESOTHER,
     
     -- ==========================================================
@@ -402,22 +401,27 @@ function TankMark:SlashHandler(msg)
         end
         
     elseif cmd == "debug" then
-        if args == "on" then
+        -- [v0.28] Split debug args into subcommand + optional category so
+        -- "dump <category>" filters generically (APPLY, BUSY, DECIDE, KNOWN,
+        -- PROCESS, ...) per the documented syntax, instead of a hardcoded word
+        -- per category. Category is upper-cased to match how it is stored.
+        local _, _, subcmd, category = L._strfind(args or "", "^(%S*)%s*(.*)$")
+        if subcmd == "on" then
             TankMark.DebugEnabled = true
             TankMark:Print("Debug logging |cff00ff00enabled|r.")
-        elseif args == "off" then
+        elseif subcmd == "off" then
             TankMark.DebugEnabled = false
             TankMark:Print("Debug logging |cffff0000disabled|r.")
-        elseif args == "clear" then
+        elseif subcmd == "clear" then
             TankMark:ClearDebugLog()
-        elseif args == "dump" then
-            TankMark:DumpDebugLog()
-        elseif args == "apply" then
-            TankMark:DumpDebugLog("APPLY")
-        elseif args == "busy" then
-            TankMark:DumpDebugLog("BUSY")
+        elseif subcmd == "dump" then
+            if category and category ~= "" then
+                TankMark:DumpDebugLog(L._strupper(category))
+            else
+                TankMark:DumpDebugLog()
+            end
         else
-            TankMark:Print("Usage: /tm debug [on|off|clear|dump|apply|busy]")
+            TankMark:Print("Usage: /tm debug [on | off | clear | dump [category]]")
         end
 
     elseif cmd == "zone" then
