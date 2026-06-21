@@ -282,11 +282,8 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     end
 
     if iconToApply then
-        -- RegisterMarkUsage -> Ledger.Assign records ownership and evicts any
-        -- prior holder of this icon. Record before applying so our state is
-        -- consistent when RAID_TARGET_UPDATE fires.
-        TankMark:RegisterMarkUsage(iconToApply, mobData.name, guid, false)
-        TankMark:Driver_ApplyMark(guid, iconToApply)
+        -- [v0.28] Apply edge centralized in ApplyMarkIntent (decide/apply split, roadmap #2).
+        TankMark:ApplyMarkIntent(guid, mobData.name, { icon = iconToApply }, false)
     end
 end
 
@@ -313,9 +310,23 @@ function TankMark:ProcessUnknownMob(guid, mode)
     end
 
     if iconToApply then
-        TankMark:RegisterMarkUsage(iconToApply, L._UnitName(guid), guid, false)
-        TankMark:Driver_ApplyMark(guid, iconToApply)
+        -- [v0.28] Apply edge centralized in ApplyMarkIntent (decide/apply split, roadmap #2).
+        TankMark:ApplyMarkIntent(guid, L._UnitName(guid), { icon = iconToApply }, false)
     end
+end
+
+-- [v0.28] Centralized apply edge for the decide/apply split (roadmap #2).
+-- The single place a mark intent becomes action: record ownership in the Ledger
+-- (via RegisterMarkUsage) BEFORE applying, so state is consistent when
+-- RAID_TARGET_UPDATE fires, then call the sole SetRaidTarget driver. `intent` is
+-- the decision table { icon = N, reason?, override?, wasBusy? }; a nil/iconless
+-- intent is a no-op skip. `skipProfileLookup` is apply-policy, not a decision
+-- field (false for the scanner/decide path; the Batch sequential path passes
+-- true). Driver_ApplyMark stays the lone SetRaidTarget site.
+function TankMark:ApplyMarkIntent(guid, name, intent, skipProfileLookup)
+    if not intent or not intent.icon then return end
+    TankMark:RegisterMarkUsage(intent.icon, name, guid, skipProfileLookup)
+    TankMark:Driver_ApplyMark(guid, intent.icon)
 end
 
 function TankMark:RegisterMarkUsage(icon, name, guid, skipProfileLookup)
