@@ -8,14 +8,15 @@
 ### Core/
 Contains business logic (marking algorithms, death handling, scanner, etc.)
 
-- **TankMark_Session.lua**: Centralized runtime state variables (`usedIcons`, `activeGUIDs`, `activeMobNames`, `disabledMarks`, `sessionAssignments`, `MarkNormals`, etc.) and the `MarkInfo` constants table. Loaded first among Core modules.
+- **TankMark_Session.lua**: Centralized runtime state variables (`usedIcons`, `activeGUIDs`, `activeMobNames`, `disabledMarks`, `sessionAssignments`, `MarkNormals`, etc.), the `MarkInfo` constants table, and **[v0.28]** `CCAuraSet` — the flattened set of parked-CC aura IDs (built at load from the grouped `CC_SOURCE` table) that `IsMarkCCd` reads. Loaded first among Core modules.
 - **TankMark_Permissions.lua**: `CanAutomate()`, `HasPermissions()`, `Driver_GetGUID()`, and `Driver_ApplyMark()`. The latter wraps `SetRaidTarget` with debug logging (guarded by `TankMark.DebugEnabled`).
 - **TankMark_Assignment.lua**: Mark assignment algorithms and player detection:
   - `GetFreeTankIcon()` — iterates Team Profile entries, uses `IsMarkBusy()` to check availability.
   - `FindCCPlayerForClass()` — matches CC-capable players by English class token.
-  - `GetBlockingMarkInfo()` — [v0.26] finds the highest-priority non-skull mark holder (liveness-checked via SuperWoW `mark` unit tokens). Used by the Governor Check.
+  - `GetBlockingMarkInfo()` — [v0.26] finds the highest-priority non-skull mark holder (liveness-checked via SuperWoW `mark` unit tokens). Used by the Governor Check. **[v0.28]** its private `UpdateBest` chokepoint excludes parked/CC'd holders via `IsMarkCCd()`, so a sheeped incumbent no longer blocks skull (roadmap #3 sheep-edge, PR #47).
   - `FindEmergencyCandidate()` — [v0.26] scans `visibleTargets` for the best skull candidate. Rejects mobs whose DB mark is explicitly not skull.
   - `IncumbencyBlocks(myPrio, blockIcon, blockPrio)` — [v0.28] the single source of the skull incumbency comparison (`blockIcon and myPrio >= blockPrio`). Pure — callers fetch `GetBlockingMarkInfo()` and pass the blocker in. Shared by the decide-path governor (`GovernorBlocks`) and the death-path review (`ReviewSkullState`) so the `>=` operator can't drift between them (roadmap #3).
+  - `IsMarkCCd(icon)` — [v0.28] true when the mob holding `icon` wears a parked-CC debuff (Polymorph/Sap/Shackle/Banish/Hibernate/Freezing-Trap/Wyvern-Sting/Seduction). Polls `UnitDebuff` on the SuperWoW `mark` token — the aura id is the **4th** return — against `Session.lua`'s `CCAuraSet`. Used by the `UpdateBest` early-out in `GetBlockingMarkInfo` so a parked incumbent is not a skull-blocker (roadmap #3 sheep-edge, PR #47). Fail-safe: an unrecognized/stale debuff → not-CC → blocks as before.
   - `GetUnitIDForName()` — resolves a player name to a unit ID.
   - `IsPlayerAliveAndInRaid()`, `IsPlayerCCClass()`, `GetAssigneeForMark()`, `AssignCC()`.
 - **TankMark_Processor.lua**: Core marking decision logic. **[v0.28] split into decide / apply** (roadmap #2):
@@ -104,10 +105,10 @@ A table (`TankMark.MarkMemory`) mapping `iconID → GUID` that tracks which mob 
 **Used by:** `IsMarkBusy()`, `GetMarkOwnerPriority()`, `EvictMarkOwner()`, `ReviewSkullState()`, `ProcessUnit()` (stale GUID cleanup), `GetBlockingMarkInfo()`, `GetFreeTankIcon()`.
 
 ### Governor Check (Skull Incumbency)
-Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. **[v0.28]** The decide-path gate is `GovernorBlocks()` (shared by `DecideKnownMark`/`DecideUnknownMark` via the `allowSteal` flag); the death-path gate is `ReviewSkullState()`. **Both share one incumbency comparison** — `IncumbencyBlocks(myPrio, blockIcon, blockPrio)` in `TankMark_Assignment.lua` (roadmap #3, PR #43) — so the `>=` operator is single-sourced and can't drift. The shared pass deliberately left the *policy* questions frozen and behavior-identical: the equal-prio sheep-edge (a parked CC'd incumbent blocks reassignment) and the unknown-path `allowSteal` asymmetry.
+Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. **[v0.28]** The decide-path gate is `GovernorBlocks()` (shared by `DecideKnownMark`/`DecideUnknownMark` via the `allowSteal` flag); the death-path gate is `ReviewSkullState()`. **Both share one incumbency comparison** — `IncumbencyBlocks(myPrio, blockIcon, blockPrio)` in `TankMark_Assignment.lua` (roadmap #3, PR #43) — so the `>=` operator is single-sourced and can't drift. The PR #43 consolidation deliberately left the *policy* questions frozen; **[v0.28, PR #47]** the equal-prio **sheep-edge is now fixed** — a parked/CC'd incumbent is excluded from blocking via `IsMarkCCd()` (in `GetBlockingMarkInfo`/`UpdateBest`), while the `>=` operator itself is unchanged (a *non*-CC'd equal-prio incumbent still blocks). The unknown-path `allowSteal` asymmetry remains the one frozen policy question.
 
 ### Debug Logging
-Toggle with `/tm debug on|off`. Dump with `/tm debug dump`, optionally filtered by category: `/tm debug dump APPLY`, `/tm debug dump DECIDE`, `/tm debug dump BUSY` (any category, case-insensitive). Clear with `/tm debug clear`.
+Toggle with `/tm debug on|off`. Dump with `/tm debug dump`, optionally filtered by category: `/tm debug dump APPLY`, `/tm debug dump DECIDE`, `/tm debug dump BUSY` (any category, case-insensitive). Clear with `/tm debug clear`. **[v0.28]** `/tm debug ccscan` dumps the current target's debuffs with their aura IDs (the 4th `UnitDebuff` return) for gathering parked-CC IDs into `CCAuraSet` — a dev helper retained until the CC list is validated against Turtle.
 
 **Performance rule:** All `DebugLog()` call sites MUST be wrapped in `if TankMark.DebugEnabled then ... end` to prevent argument construction when debug is off. See `Core/TankMark_Permissions.lua` `Driver_ApplyMark()` for the canonical pattern.
 
