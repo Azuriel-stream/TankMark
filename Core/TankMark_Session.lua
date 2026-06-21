@@ -61,9 +61,9 @@ TankMark.MarkInfo = {
 -- Fear/root/stun/snare/gouge are EXCLUDED -- those mobs are still being fought.
 --
 -- IDs are standard Vanilla 1.12 spell IDs. 118 confirmed in-game on Turtle via
--- `/tm debug ccscan`; 3355/19386/18647/6358 confirmed against Classic Wowhead.
+-- `/tmark debug ccscan`; 3355/19386/18647/6358 confirmed against Classic Wowhead.
 -- Turtle honors base-game IDs, so these should match; if a Turtle-custom CC is
--- missed in play, capture its aura id with `/tm debug ccscan` and add it here.
+-- missed in play, capture its aura id with `/tmark debug ccscan` and add it here.
 -- Fail-safe: an unrecognized debuff just falls through to current behavior.
 -- Freezing Trap uses the EFFECT aura ids (3355/14308/14309), NOT the trap-cast
 -- ids -- IsMarkCCd reads the debuff the mob wears, not the spell that applied it.
