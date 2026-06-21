@@ -234,6 +234,28 @@ function TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio)
     return blockIcon and myPrio >= (blockPrio or 99) and true or false
 end
 
+-- [v0.28] Parked-CC test (roadmap #3, sheep-edge). True when the mob currently
+-- holding `icon` is wearing one of the incapacitate/sleep/banish/shackle debuffs
+-- in TankMark.CCAuraSet -- i.e. it is deliberately benched, not being killed, so
+-- it must NOT count as a skull-blocker (see the UpdateBest early-out in
+-- GetBlockingMarkInfo). Uses the SuperWoW mark unit token (server-resolved, so it
+-- works even when the parked mob is not our target/nameplate) and reads the aura
+-- id from the 4th return of UnitDebuff (texture, applications, dispelType, AURAID
+-- -- confirmed in-game via `/tm debug ccscan`). Fail-safe: a dead/gone holder or
+-- an unrecognized/stale debuff returns false, yielding current blocking behavior.
+function TankMark:IsMarkCCd(icon)
+    if not icon then return false end
+    local unit = "mark" .. icon
+    if not L._UnitExists(unit) then return false end
+    for i = 1, 16 do
+        local _, _, _, auraID = L._UnitDebuff(unit, i)
+        if auraID and TankMark.CCAuraSet[auraID] then
+            return true
+        end
+    end
+    return false
+end
+
 -- [v0.26 FIXED] Safe GUID Handling + Liveness Guard
 -- A mark holder only qualifies as a blocker if its mark unit token currently
 -- exists server-side AND is not dead. This prevents dead-but-not-yet-evicted
@@ -247,6 +269,20 @@ function TankMark:GetBlockingMarkInfo()
     }
 
     local function UpdateBest(icon, guid, prio, hp)
+        -- [v0.28] Sheep-edge (roadmap #3): a parked/CC'd mark holder is removed
+        -- from the kill order, so it must not block SKULL reassignment. Single
+        -- chokepoint for all three discovery passes below. Both governor paths
+        -- (decide-path GovernorBlocks + death-path ReviewSkullState) read this
+        -- function, so excluding here fixes both with no duplication.
+        if TankMark:IsMarkCCd(icon) then
+            if TankMark.DebugEnabled then
+                TankMark:DebugLog("SKULL_REVIEW", "blocker excluded: parked CC", {
+                    icon = icon,
+                    guid = guid,
+                })
+            end
+            return
+        end
         prio = prio or 99
         hp = hp or 999999
         if prio < bestBlocker.prio then
