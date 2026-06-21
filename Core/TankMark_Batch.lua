@@ -247,17 +247,29 @@ function TankMark:ProcessBatchMark(candidateData)
         end
         
         local cursorIndex = TankMark.sequentialMarkCursor[mobName]
-        local iconToApply = mobData.marks[cursorIndex]
-        
-        -- [v0.27] Record ownership BEFORE applying the mark (matches ApplyMarkIntent's record-before-apply order).
-        -- Protects the mark from ReviewSkullState interference during the batch window.
-        TankMark:RegisterMarkUsage(iconToApply, mobName, guid, true) -- skipProfileLookup = true
-        TankMark:Driver_ApplyMark(guid, iconToApply)
-        
-        -- Advance cursor (with wraparound safety)
-        TankMark.sequentialMarkCursor[mobName] = cursorIndex + 1
-        if TankMark.sequentialMarkCursor[mobName] > L._tgetn(mobData.marks) then
-            TankMark.sequentialMarkCursor[mobName] = 1 -- Reset (for 5th+ mobs)
+
+        if cursorIndex > L._tgetn(mobData.marks) then
+            -- [v0.28] Sequence exhausted: this body is beyond the defined
+            -- sequence. Treat it as a free-icon pickup, governed like an unknown
+            -- (prio 5, never steals). Never wrap back and re-grab marks[1] -- the
+            -- former "Reset (for 5th+ mobs)" wrap re-stole an already-used icon
+            -- (e.g. SKULL jumped off the first mob). Reuses the unknown
+            -- decide/apply seam; cursor stays clamped past the end (no advance).
+            local intent = TankMark:DecideUnknownMark(guid, "FORCE")
+            if intent.icon then
+                TankMark:ApplyMarkIntent(guid, mobName, intent, false)
+            end
+        else
+            local iconToApply = mobData.marks[cursorIndex]
+
+            -- [v0.27] Record ownership BEFORE applying the mark (matches ApplyMarkIntent's record-before-apply order).
+            -- Protects the mark from ReviewSkullState interference during the batch window.
+            TankMark:RegisterMarkUsage(iconToApply, mobName, guid, true) -- skipProfileLookup = true
+            TankMark:Driver_ApplyMark(guid, iconToApply)
+
+            -- Advance cursor (clamp, never wrap -- the exhausted branch above
+            -- handles every body past the sequence length).
+            TankMark.sequentialMarkCursor[mobName] = cursorIndex + 1
         end
     else
         -- [v0.28] Single-mark / unknown: decide via the unified seam, then apply
