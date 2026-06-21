@@ -133,11 +133,15 @@ function TankMark:ProcessUnit(guid, mode)
     end
     if mobData then
         mobData.name = mobName
-        TankMark:ProcessKnownMob(mobData, guid, mode)
-    else
-        if mode == "FORCE" or mode == "SCANNER" then
-            TankMark:ProcessUnknownMob(guid, mode)
-        end
+    elseif mode ~= "FORCE" and mode ~= "SCANNER" then
+        -- Unknown mobs are only marked under FORCE/SCANNER.
+        return
+    end
+
+    -- [v0.28] Decide once via the unified seam, then apply at the centralized edge.
+    local intent = TankMark:DecideMark(mobData, guid, mode)
+    if intent.icon then
+        TankMark:ApplyMarkIntent(guid, mobName, intent, false)
     end
 end
 
@@ -187,6 +191,36 @@ function TankMark:GetMarkOwnerPriority(iconID)
     return 99
 end
 
+-- [v0.28] Shared skull governor gate (decide/apply split, roadmap #2). Collapses
+-- the duplicated incumbency checks from the known + unknown decision paths into
+-- one helper. Returns a block-reason string, or nil if the icon is allowed.
+-- Only gates Skull (icon 8) and only when mode ~= "FORCE".
+--   allowSteal=true  (known): may steal an occupied skull if myPrio < ownerPrio.
+--   allowSteal=false (unknown, prio 5): never steals -- any busy skull blocks.
+-- The allowSteal split freezes the prio-5 asymmetry EXACTLY (Tier 1 preserves
+-- behavior): the unknown path must NOT gain steal-from-untracked-holder here.
+-- Whether unknown SHOULD steal is a policy question deferred to roadmap #3.
+-- Both operators stay distinct: `myPrio < ownerPrio` (steal an occupied skull)
+-- and `myPrio >= blockPrio` (incumbency block when skull is free).
+function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal)
+    if icon ~= 8 or mode == "FORCE" then return nil end
+    if TankMark:IsMarkBusy(8) then
+        -- Skull TAKEN.
+        if not allowSteal then return "governor-skull-taken" end
+        local ownerPrio = TankMark:GetMarkOwnerPriority(8)
+        if not (myPrio < ownerPrio) then return "governor-skull-taken" end
+        return nil
+    end
+    -- Skull FREE: yield to a lower incumbent mark (incumbency).
+    if TankMark.GetBlockingMarkInfo then
+        local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
+        if blockIcon and myPrio >= blockPrio then
+            return "governor-incumbency"
+        end
+    end
+    return nil
+end
+
 -- [v0.28] CC resolver seam (decide/apply split, roadmap #2). Returns the CC
 -- mark icon for this mob, or nil if it is not a CC target or no CC player is
 -- assigned to its class. Pure extraction -- behavior-identical to the inline
@@ -205,9 +239,9 @@ end
 --
 -- Governor landmine: BOTH operators are preserved and MUST stay distinct --
 -- `myPrio < ownerPrio` (steal an occupied skull) and `myPrio >= blockPrio`
--- (incumbency block when skull is free). The governor gate stays inline this
--- commit; it is unified with the unknown path's copy (allowSteal flag) in
--- commit 5. Sequential (marks>1) stays out of scope -- Batch owns that cursor.
+-- (incumbency block when skull is free). The governor gate is the shared
+-- GovernorBlocks helper (allowSteal=true here). Sequential (marks>1) stays out
+-- of scope -- Batch owns that cursor.
 function TankMark:DecideKnownMark(mobData, guid, mode)
     if mobData.marks and L._tgetn(mobData.marks) > 1 then
         return { icon = nil, reason = "sequential-marks" }
@@ -259,42 +293,45 @@ function TankMark:DecideKnownMark(mobData, guid, mode)
         return { icon = nil, reason = "no-icon", wasBusy = isBusy }
     end
 
-    -- GOVERNOR CHECK (skull incumbency). iconToApply is non-nil here.
-    if iconToApply == 8 and mode ~= "FORCE" then
-        local isBusy8 = TankMark:IsMarkBusy(8)
-        local myPrio  = mobData.prio or 5
-        if isBusy8 then
-            -- Path A: Skull is TAKEN. Can we steal it? (myPrio < ownerPrio)
-            local ownerPrio     = TankMark:GetMarkOwnerPriority(8)
-            local overrideValid = (myPrio < ownerPrio)
-            if not overrideValid then
-                return { icon = nil, reason = "governor-skull-taken", wasBusy = isBusy }
-            end
-        else
-            -- Path B: Skull is FREE. Blocked by a lower incumbent? (myPrio >= blockPrio)
-            if TankMark.GetBlockingMarkInfo then
-                local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-                if blockIcon and myPrio >= blockPrio then
-                    return { icon = nil, reason = "governor-incumbency", wasBusy = isBusy }
-                end
-            end
-        end
+    -- [v0.28] GOVERNOR CHECK via shared helper. Known mobs may steal an occupied
+    -- skull (allowSteal=true) when they outrank the holder.
+    local block = TankMark:GovernorBlocks(iconToApply, mobData.prio or 5, mode, true)
+    if block then
+        return { icon = nil, reason = block, wasBusy = isBusy }
     end
 
     return { icon = iconToApply, reason = "known", wasBusy = isBusy, override = canOverride }
 end
 
-function TankMark:ProcessKnownMob(mobData, guid, mode)
-    local intent = TankMark:DecideKnownMark(mobData, guid, mode)
+-- [v0.28] Single decision entry point (decide/apply split, roadmap #2). Routes
+-- by mobData (nil -> unknown path), logs the resulting intent ONCE, and returns
+-- an inspectable intent { icon, reason, ... }. Applies NOTHING -- callers apply
+-- via ApplyMarkIntent. ProcessUnit (scanner) and the Batch shims all funnel
+-- through here, so the decision and its DECIDE log live in exactly one place.
+function TankMark:DecideMark(mobData, guid, mode)
+    local intent
+    if mobData == nil then
+        intent = TankMark:DecideUnknownMark(guid, mode)
+    else
+        intent = TankMark:DecideKnownMark(mobData, guid, mode)
+    end
     if TankMark.DebugEnabled then
-        TankMark:DebugLog("DECIDE", "known: " .. (intent.reason or "?"), {
+        TankMark:DebugLog("DECIDE", (mobData and "known: " or "unknown: ") .. (intent.reason or "?"), {
             icon     = intent.icon,
-            mob      = mobData.name,
-            prio     = mobData.prio,
+            mob      = mobData and mobData.name or L._UnitName(guid),
+            prio     = mobData and mobData.prio,
             wasBusy  = intent.wasBusy,
             override = intent.override
         })
     end
+    return intent
+end
+
+-- [v0.28] Thin Batch-compat shim over DecideMark + ApplyMarkIntent. ProcessUnit
+-- calls DecideMark directly; Batch still calls this. Commit 6 migrates Batch and
+-- deletes the shims.
+function TankMark:ProcessKnownMob(mobData, guid, mode)
+    local intent = TankMark:DecideMark(mobData, guid, mode)
     if intent.icon then
         TankMark:ApplyMarkIntent(guid, mobData.name, intent, false)
     end
@@ -319,33 +356,19 @@ function TankMark:DecideUnknownMark(guid, mode)
         return { icon = nil, reason = "no-free-icon" }
     end
 
-    -- Prio 5: only take Skull if genuinely free; never steal an occupied one,
-    -- and yield to any lower-mark incumbent (governor incumbency check).
-    if iconToApply == 8 and mode ~= "FORCE" then
-        if TankMark:IsMarkBusy(8) then
-            return { icon = nil, reason = "skull-busy" }
-        end
-        if TankMark.GetBlockingMarkInfo then
-            local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-            if blockIcon then
-                local myPrio = 5
-                if myPrio >= blockPrio then
-                    return { icon = nil, reason = "skull-incumbency" }
-                end
-            end
-        end
+    -- [v0.28] Prio 5, allowSteal=false: never steal an occupied skull; yield to
+    -- a lower incumbent. Same shared governor as the known path.
+    local block = TankMark:GovernorBlocks(iconToApply, 5, mode, false)
+    if block then
+        return { icon = nil, reason = block }
     end
 
     return { icon = iconToApply, reason = "unknown-free" }
 end
 
+-- [v0.28] Thin Batch-compat shim over DecideMark + ApplyMarkIntent (see above).
 function TankMark:ProcessUnknownMob(guid, mode)
-    local intent = TankMark:DecideUnknownMark(guid, mode)
-    if TankMark.DebugEnabled then
-        TankMark:DebugLog("DECIDE", "unknown: " .. (intent.reason or "?"), {
-            icon = intent.icon
-        })
-    end
+    local intent = TankMark:DecideMark(nil, guid, mode)
     if intent.icon then
         TankMark:ApplyMarkIntent(guid, L._UnitName(guid), intent, false)
     end
