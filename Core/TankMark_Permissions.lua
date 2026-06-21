@@ -60,9 +60,11 @@ function TankMark:Driver_ApplyMark(unitOrGuid, icon)
             guidShort = L._sub(unitOrGuid, 1, 10) .. "..."
         end
         
-        -- Get calling function from stack
+        -- Get calling function from stack ([v0.28] Lua 5.0 has no string.match;
+        -- use strfind captures -- matches the idiom used elsewhere in the addon)
         local caller = L._debugstack(2, 1, 0)
-        local callerShort = L._strmatch(caller, "in function `([^']+)'") or "Unknown"
+        local _, _, callerShort = L._strfind(caller or "", "in function `([^']+)'")
+        callerShort = callerShort or "Unknown"
         
         TankMark:DebugLog("APPLY", "Applying mark", {
             icon = icon,

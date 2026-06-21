@@ -102,7 +102,7 @@ A table (`TankMark.MarkMemory`) mapping `iconID → GUID` that tracks which mob 
 Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. Implemented in both `ProcessKnownMob()` and `ReviewSkullState()` via `GetBlockingMarkInfo()`.
 
 ### Debug Logging
-Toggle with `/tm debug on|off`. Dump with `/tm debug dump`. Filter by category: `/tm debug apply`, `/tm debug busy`. Clear with `/tm debug clear`.
+Toggle with `/tm debug on|off`. Dump with `/tm debug dump`, optionally filtered by category: `/tm debug dump APPLY`, `/tm debug dump DECIDE`, `/tm debug dump BUSY` (any category, case-insensitive). Clear with `/tm debug clear`.
 
 **Performance rule:** All `DebugLog()` call sites MUST be wrapped in `if TankMark.DebugEnabled then ... end` to prevent argument construction when debug is off. See `Core/TankMark_Permissions.lua` `Driver_ApplyMark()` for the canonical pattern.
 
