@@ -17,12 +17,16 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - `FindEmergencyCandidate()` — [v0.26] scans `visibleTargets` for the best skull candidate. Rejects mobs whose DB mark is explicitly not skull.
   - `GetUnitIDForName()` — resolves a player name to a unit ID.
   - `IsPlayerAliveAndInRaid()`, `IsPlayerCCClass()`, `GetAssigneeForMark()`, `AssignCC()`.
-- **TankMark_Processor.lua**: Core marking decision logic:
-  - `ProcessUnit()` — main entry point. Validates unit, checks current mark with server-side ownership verification (SuperWoW), handles stale `activeGUIDs` invalidation, routes to `ProcessKnownMob()` or `ProcessUnknownMob()`.
+- **TankMark_Processor.lua**: Core marking decision logic. **[v0.28] split into decide / apply** (roadmap #2):
+  - `ProcessUnit()` — main entry point. Validates unit, checks current mark with server-side ownership verification (SuperWoW), handles stale `activeGUIDs` invalidation, then calls `DecideMark()` + `ApplyMarkIntent()`.
+  - `DecideMark(mobData, guid, mode)` — [v0.28] single decision entry point. Routes by `mobData` (`nil` → unknown path), emits the one `DECIDE` debug log, and returns an inspectable intent `{ icon, reason, wasBusy?, override? }`. Applies NOTHING.
+  - `DecideKnownMark()` — [v0.28] known-mob decision: sequential/zero bails → SCANNER combat gate → `ResolveCC` → primary-mark selection (with selection-time skull theft) → free-icon fallback → governor. Returns an intent.
+  - `DecideUnknownMark()` — [v0.28] unknown-mob decision (prio 5): highest free tank icon, skull only when genuinely free, never steals. Returns an intent.
+  - `ResolveCC(mobData)` — [v0.28] CC resolver seam; returns the CC mark icon or nil (owns the `type=="CC"` guard). The decide-once+notify CC model is future work behind this seam.
+  - `GovernorBlocks(icon, myPrio, mode, allowSteal)` — [v0.28] shared skull-governor gate. `allowSteal` freezes the prio-5 asymmetry (known=true may steal an occupied skull; unknown=false never does). Returns a block-reason string or nil.
+  - `ApplyMarkIntent(guid, name, intent, skipProfileLookup)` — [v0.28] sole decide-path apply edge: `RegisterMarkUsage` (Ledger record) then `Driver_ApplyMark`. (Batch's sequential `marks>1` cursor still applies directly.)
   - `IsMarkBusy(iconID)` — [v0.26] checks `MarkMemory`, SuperWoW `mark` units, and `usedIcons`. Debug logging guarded by `TankMark.DebugEnabled`.
   - `GetMarkOwnerPriority(iconID)` — [v0.26] resolves the priority of the current mark holder.
-  - `ProcessKnownMob()` — handles CC assignment, aggressive skull theft logic, Governor Check (incumbency rule), and `MarkMemory` state cleanup on theft.
-  - `ProcessUnknownMob()` — assigns free marks to unknown mobs with Governor Check for skull.
   - `RegisterMarkUsage()`, `RecordUnit()`.
 - **TankMark_Death.lua**: Death detection, mark cleanup, and skull priority management:
   - `HandleCombatLog()` / `HandleDeath()` — resolve dead mob GUID before eviction.
@@ -99,7 +103,7 @@ A table (`TankMark.MarkMemory`) mapping `iconID → GUID` that tracks which mob 
 **Used by:** `IsMarkBusy()`, `GetMarkOwnerPriority()`, `EvictMarkOwner()`, `ReviewSkullState()`, `ProcessUnit()` (stale GUID cleanup), `GetBlockingMarkInfo()`, `GetFreeTankIcon()`.
 
 ### Governor Check (Skull Incumbency)
-Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. Implemented in both `ProcessKnownMob()` and `ReviewSkullState()` via `GetBlockingMarkInfo()`.
+Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. **[v0.28]** The decide-path gate is `GovernorBlocks()` (shared by `DecideKnownMark`/`DecideUnknownMark` via the `allowSteal` flag); `ReviewSkullState()` is a separate copy via `GetBlockingMarkInfo()`. Consolidating the two is roadmap #3.
 
 ### Debug Logging
 Toggle with `/tm debug on|off`. Dump with `/tm debug dump`, optionally filtered by category: `/tm debug dump APPLY`, `/tm debug dump DECIDE`, `/tm debug dump BUSY` (any category, case-insensitive). Clear with `/tm debug clear`.
@@ -114,8 +118,8 @@ In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` resul
 ### Adding a New Mark Assignment Rule
 1. Open `Core/TankMark_Assignment.lua`
 2. Add your logic to `GetFreeTankIcon()` or create a new function
-3. Call it from `Core/TankMark_Processor.lua` in `ProcessKnownMob()`
-4. If the rule affects skull assignment, also update the Governor Check in `ProcessKnownMob()` and `ReviewSkullState()` in `Core/TankMark_Death.lua`
+3. Call it from `DecideKnownMark()` in `Core/TankMark_Processor.lua` (return an intent — do not apply directly)
+4. If the rule affects skull assignment, also update `GovernorBlocks()` and `ReviewSkullState()` in `Core/TankMark_Death.lua`
 
 ### Adding a New Debug Log Category
 1. Add `DebugLog()` calls with your category string (e.g., "MYFEATURE")
