@@ -15,6 +15,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - `FindCCPlayerForClass()` — matches CC-capable players by English class token.
   - `GetBlockingMarkInfo()` — [v0.26] finds the highest-priority non-skull mark holder (liveness-checked via SuperWoW `mark` unit tokens). Used by the Governor Check.
   - `FindEmergencyCandidate()` — [v0.26] scans `visibleTargets` for the best skull candidate. Rejects mobs whose DB mark is explicitly not skull.
+  - `IncumbencyBlocks(myPrio, blockIcon, blockPrio)` — [v0.28] the single source of the skull incumbency comparison (`blockIcon and myPrio >= blockPrio`). Pure — callers fetch `GetBlockingMarkInfo()` and pass the blocker in. Shared by the decide-path governor (`GovernorBlocks`) and the death-path review (`ReviewSkullState`) so the `>=` operator can't drift between them (roadmap #3).
   - `GetUnitIDForName()` — resolves a player name to a unit ID.
   - `IsPlayerAliveAndInRaid()`, `IsPlayerCCClass()`, `GetAssigneeForMark()`, `AssignCC()`.
 - **TankMark_Processor.lua**: Core marking decision logic. **[v0.28] split into decide / apply** (roadmap #2):
@@ -23,7 +24,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - `DecideKnownMark()` — [v0.28] known-mob decision: sequential/zero bails → SCANNER combat gate → `ResolveCC` → primary-mark selection (with selection-time skull theft) → free-icon fallback → governor. Returns an intent.
   - `DecideUnknownMark()` — [v0.28] unknown-mob decision (prio 5): highest free tank icon, skull only when genuinely free, never steals. Returns an intent.
   - `ResolveCC(mobData)` — [v0.28] CC resolver seam; returns the CC mark icon or nil (owns the `type=="CC"` guard). The decide-once+notify CC model is future work behind this seam.
-  - `GovernorBlocks(icon, myPrio, mode, allowSteal)` — [v0.28] shared skull-governor gate. `allowSteal` freezes the prio-5 asymmetry (known=true may steal an occupied skull; unknown=false never does). Returns a block-reason string or nil.
+  - `GovernorBlocks(icon, myPrio, mode, allowSteal)` — [v0.28] shared skull-governor gate. `allowSteal` freezes the prio-5 asymmetry (known=true may steal an occupied skull; unknown=false never does). The skull-free incumbency check routes through the shared `IncumbencyBlocks()` predicate (roadmap #3). Returns a block-reason string or nil.
   - `ApplyMarkIntent(guid, name, intent, skipProfileLookup)` — [v0.28] sole decide-path apply edge: `RegisterMarkUsage` (Ledger record) then `Driver_ApplyMark`. (Batch's sequential `marks>1` cursor still applies directly.)
   - `IsMarkBusy(iconID)` — [v0.26] checks `MarkMemory`, SuperWoW `mark` units, and `usedIcons`. Debug logging guarded by `TankMark.DebugEnabled`.
   - `GetMarkOwnerPriority(iconID)` — [v0.26] resolves the priority of the current mark holder.
@@ -31,7 +32,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
 - **TankMark_Death.lua**: Death detection, mark cleanup, and skull priority management:
   - `HandleCombatLog()` / `HandleDeath()` — resolve dead mob GUID before eviction.
   - `EvictMarkOwner(iconID, deadGUID)` — [v0.26] GUID-aware eviction. Preserves state when `MarkMemory` already points to a new assignment.
-  - `ReviewSkullState(callerID)` — [v0.26] complete rewrite. Uses SuperWoW `mark8` for liveness check, duplicate-event guard via `MarkMemory[8]`, sequential marking guard, Governor/Incumbency rule via `GetBlockingMarkInfo()` + `FindEmergencyCandidate()`.
+  - `ReviewSkullState(callerID)` — [v0.26] complete rewrite. Uses SuperWoW `mark8` for liveness check, duplicate-event guard via `MarkMemory[8]`, sequential marking guard, Governor/Incumbency rule via `GetBlockingMarkInfo()` + `FindEmergencyCandidate()`. **[v0.28]** the incumbency comparison now routes through the shared `IncumbencyBlocks()` predicate (`shouldAssign = not IncumbencyBlocks(...)`), single-sourced with `GovernorBlocks` (roadmap #3).
   - `VerifyMarkExistence()` — uses SuperWoW `mark` units for server-side tracking.
   - `ResetSession()` — wipes all state including `MarkMemory`.
 - **TankMark_Batch.lua**: Shift+mouseover batch marking system with delayed queue execution.
@@ -103,7 +104,7 @@ A table (`TankMark.MarkMemory`) mapping `iconID → GUID` that tracks which mob 
 **Used by:** `IsMarkBusy()`, `GetMarkOwnerPriority()`, `EvictMarkOwner()`, `ReviewSkullState()`, `ProcessUnit()` (stale GUID cleanup), `GetBlockingMarkInfo()`, `GetFreeTankIcon()`.
 
 ### Governor Check (Skull Incumbency)
-Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. **[v0.28]** The decide-path gate is `GovernorBlocks()` (shared by `DecideKnownMark`/`DecideUnknownMark` via the `allowSteal` flag); `ReviewSkullState()` is a separate copy via `GetBlockingMarkInfo()`. Consolidating the two is roadmap #3.
+Prevents skull from being assigned to a mob when existing marked mobs have equal or higher priority. **[v0.28]** The decide-path gate is `GovernorBlocks()` (shared by `DecideKnownMark`/`DecideUnknownMark` via the `allowSteal` flag); the death-path gate is `ReviewSkullState()`. **Both share one incumbency comparison** — `IncumbencyBlocks(myPrio, blockIcon, blockPrio)` in `TankMark_Assignment.lua` (roadmap #3, PR #43) — so the `>=` operator is single-sourced and can't drift. The shared pass deliberately left the *policy* questions frozen and behavior-identical: the equal-prio sheep-edge (a parked CC'd incumbent blocks reassignment) and the unknown-path `allowSteal` asymmetry.
 
 ### Debug Logging
 Toggle with `/tm debug on|off`. Dump with `/tm debug dump`, optionally filtered by category: `/tm debug dump APPLY`, `/tm debug dump DECIDE`, `/tm debug dump BUSY` (any category, case-insensitive). Clear with `/tm debug clear`.
