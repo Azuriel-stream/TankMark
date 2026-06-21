@@ -25,7 +25,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - `DecideUnknownMark()` — [v0.28] unknown-mob decision (prio 5): highest free tank icon, skull only when genuinely free, never steals. Returns an intent.
   - `ResolveCC(mobData)` — [v0.28] CC resolver seam; returns the CC mark icon or nil (owns the `type=="CC"` guard). The decide-once+notify CC model is future work behind this seam.
   - `GovernorBlocks(icon, myPrio, mode, allowSteal)` — [v0.28] shared skull-governor gate. `allowSteal` freezes the prio-5 asymmetry (known=true may steal an occupied skull; unknown=false never does). The skull-free incumbency check routes through the shared `IncumbencyBlocks()` predicate (roadmap #3). Returns a block-reason string or nil.
-  - `ApplyMarkIntent(guid, name, intent, skipProfileLookup)` — [v0.28] sole decide-path apply edge: `RegisterMarkUsage` (Ledger record) then `Driver_ApplyMark`. (Batch's sequential `marks>1` cursor still applies directly.)
+  - `ApplyMarkIntent(guid, name, intent, skipProfileLookup)` — [v0.28] sole decide-path apply edge: `RegisterMarkUsage` (Ledger record) then `Driver_ApplyMark`. (Batch's within-sequence `marks>1` cursor still applies directly; bodies *beyond* the sequence route through this edge via `DecideUnknownMark` — the cursor clamps instead of wrapping, PR #45.)
   - `IsMarkBusy(iconID)` — [v0.26] checks `MarkMemory`, SuperWoW `mark` units, and `usedIcons`. Debug logging guarded by `TankMark.DebugEnabled`.
   - `GetMarkOwnerPriority(iconID)` — [v0.26] resolves the priority of the current mark holder.
   - `RegisterMarkUsage()`, `RecordUnit()`.
