@@ -451,8 +451,32 @@ function TankMark:SlashHandler(msg)
                 end
                 if not found then TankMark:Print("ccscan: target has no debuffs.") end
             end
+        elseif subcmd == "only" then
+            -- [v0.28] Capture-time category allow-list. "/tm debug only PROCESS
+            -- DECIDE APPLY" makes the ring store ONLY those categories, so the
+            -- SKULL_REVIEW spam can't evict the decision entries. No args prints
+            -- the current filter; "/tm debug all" clears it.
+            if category and category ~= "" then
+                local set = {}
+                local names = ""
+                for word in L._gfind(L._strupper(category), "%S+") do
+                    set[word] = true
+                    names = names .. " " .. word
+                end
+                TankMark.DebugCategories = set
+                TankMark:Print("Debug now logging only:|cff00ff00" .. names .. "|r")
+            elseif TankMark.DebugCategories then
+                local names = ""
+                for cat in L._pairs(TankMark.DebugCategories) do names = names .. " " .. cat end
+                TankMark:Print("Debug category filter:|cff00ff00" .. names .. "|r  (clear with /tm debug all)")
+            else
+                TankMark:Print("Debug category filter: |cffccccccnone|r (logging all categories).")
+            end
+        elseif subcmd == "all" then
+            TankMark.DebugCategories = nil
+            TankMark:Print("Debug category filter |cff00ff00cleared|r -- logging all categories.")
         else
-            TankMark:Print("Usage: /tm debug [on | off | clear | dump [category] | ccscan]")
+            TankMark:Print("Usage: /tm debug [on | off | clear | dump [category] | only <cats...> | all | ccscan]")
         end
 
     elseif cmd == "zone" then
