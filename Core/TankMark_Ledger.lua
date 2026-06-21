@@ -9,7 +9,7 @@
 --   activeMobNames[icon] = name   (display label for the HUD)
 --
 -- MarkMemory, activeGUIDs and activeMobNames are written ONLY here. usedIcons is
--- also set true by the assignment/reservation paths (CC, /tm assign, sync, HUD),
+-- also set true by the assignment/reservation paths (CC, /tmark assign, sync, HUD),
 -- which pair it with sessionAssignments -- that is the assignment concern, not
 -- ownership, and stays in those callers.
 --

@@ -241,7 +241,7 @@ end
 -- GetBlockingMarkInfo). Uses the SuperWoW mark unit token (server-resolved, so it
 -- works even when the parked mob is not our target/nameplate) and reads the aura
 -- id from the 4th return of UnitDebuff (texture, applications, dispelType, AURAID
--- -- confirmed in-game via `/tm debug ccscan`). Fail-safe: a dead/gone holder or
+-- -- confirmed in-game via `/tmark debug ccscan`). Fail-safe: a dead/gone holder or
 -- an unrecognized/stale debuff returns false, yielding current blocking behavior.
 function TankMark:IsMarkCCd(icon)
     if not icon then return false end
