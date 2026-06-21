@@ -411,10 +411,18 @@ end
 
 TankMark.DebugEnabled = false  -- Toggle with /tm debug on/off
 TankMark.DebugLogMaxSize = 500  -- Circular buffer size
+-- [v0.28] Optional capture-time category allow-list. nil = log every category
+-- (default, unchanged behavior). When set to a set of upper-cased category names,
+-- DebugLog drops any category NOT in it BEFORE it enters the 500-slot ring -- so
+-- a spammy category (e.g. SKULL_REVIEW, ~2-4 entries/tick) can no longer evict the
+-- decision entries you actually want to capture. Set via "/tm debug only <cats..>",
+-- cleared via "/tm debug all". Runtime-only (resets on /reload, like DebugEnabled).
+TankMark.DebugCategories = nil
 
 function TankMark:DebugLog(category, message, data)
     if not TankMark.DebugEnabled then return end
-    
+    if TankMark.DebugCategories and not TankMark.DebugCategories[category] then return end
+
     local entry = {
         time = L._date("%H:%M:%S"),
         tick = L._GetTime(),
