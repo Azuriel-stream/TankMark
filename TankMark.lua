@@ -35,7 +35,9 @@ TankMark.Locals = {
     _UnitIsConnected = UnitIsConnected,
     _UnitPlayerControlled = UnitPlayerControlled,
     _UnitIsPartyLeader = UnitIsPartyLeader,
-    
+    _UnitDebuff = UnitDebuff,        -- SuperWoW: additionally returns aura id
+    _SpellInfo = SpellInfo,          -- SuperWoW: SpellInfo(id) -> name, rank, tex, minR, maxR
+
     -- ==========================================================
     -- RAID/PARTY FUNCTIONS
     -- ==========================================================
@@ -420,8 +422,37 @@ function TankMark:SlashHandler(msg)
             else
                 TankMark:DumpDebugLog()
             end
+        elseif subcmd == "ccscan" then
+            -- [v0.28] Dev helper for gathering parked-CC aura IDs (TankMark.CCAuraSet,
+            -- Session.lua). Dumps every UnitDebuff return for the current target
+            -- (the aura id is the 4th return), then labels numeric returns via
+            -- SpellInfo. RETAINED while the CC list is validated against Turtle in
+            -- live play -- remove (with _SpellInfo) once the list is settled.
+            if not L._UnitExists("target") then
+                TankMark:Print("ccscan: no target.")
+            else
+                TankMark:Print("ccscan: debuffs on " .. (L._UnitName("target") or "?") .. "  [slot | tex | b | c | d | e]")
+                local function tryLabel(v)
+                    if L._type(v) == "number" and v > 0 then
+                        local n, r = L._SpellInfo(v)
+                        if n then
+                            TankMark:Print("    id " .. v .. " = " .. L._tostring(n) .. " " .. L._tostring(r or ""))
+                        end
+                    end
+                end
+                local found = false
+                for i = 1, 16 do
+                    local a, b, c, d, e = L._UnitDebuff("target", i)
+                    if a then
+                        found = true
+                        TankMark:Print(i .. " | " .. L._tostring(a) .. " | " .. L._tostring(b) .. " | " .. L._tostring(c) .. " | " .. L._tostring(d) .. " | " .. L._tostring(e))
+                        tryLabel(a); tryLabel(b); tryLabel(c); tryLabel(d); tryLabel(e)
+                    end
+                end
+                if not found then TankMark:Print("ccscan: target has no debuffs.") end
+            end
         else
-            TankMark:Print("Usage: /tm debug [on | off | clear | dump [category]]")
+            TankMark:Print("Usage: /tm debug [on | off | clear | dump [category] | ccscan]")
         end
 
     elseif cmd == "zone" then
