@@ -187,6 +187,16 @@ function TankMark:GetMarkOwnerPriority(iconID)
     return 99
 end
 
+-- [v0.28] CC resolver seam (decide/apply split, roadmap #2). Returns the CC
+-- mark icon for this mob, or nil if it is not a CC target or no CC player is
+-- assigned to its class. Pure extraction -- behavior-identical to the inline
+-- block it replaced; owns the type=="CC" guard so callers just read the return.
+-- The decide-once+notify CC model is future work that lands behind this seam.
+function TankMark:ResolveCC(mobData)
+    if mobData.type ~= "CC" or not mobData.class then return nil end
+    return TankMark:FindCCPlayerForClass(mobData.class)
+end
+
 function TankMark:ProcessKnownMob(mobData, guid, mode)
     -- [DEBUG] Entry
     if TankMark.DebugEnabled then
@@ -212,11 +222,8 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     local isBusy      = false
     local canOverride = false
 
-    -- CC Logic
-    if mobData.type == "CC" and mobData.class then
-        local ccMark = TankMark:FindCCPlayerForClass(mobData.class)
-        if ccMark then iconToApply = ccMark end
-    end
+    -- [v0.28] CC Logic via ResolveCC seam (decide/apply split, roadmap #2).
+    iconToApply = TankMark:ResolveCC(mobData)
 
     if not iconToApply then
         isBusy = TankMark:IsMarkBusy(markToUse)
