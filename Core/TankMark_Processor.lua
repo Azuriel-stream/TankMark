@@ -287,31 +287,54 @@ function TankMark:ProcessKnownMob(mobData, guid, mode)
     end
 end
 
-function TankMark:ProcessUnknownMob(guid, mode)
+-- [v0.28] Unknown-mob decision (decide/apply split, roadmap #2). Returns an
+-- inspectable intent { icon, reason } and applies NOTHING; the shell applies.
+-- Unknown mobs are Prio 5: they take the highest free tank icon, and only take
+-- Skull when it is genuinely free -- they NEVER steal it (allowSteal=false, the
+-- prio-5 case of the governor). Skips are values, not bare returns.
+function TankMark:DecideUnknownMark(guid, mode)
     if mode == "SCANNER" then
         local playerInCombat = L._UnitAffectingCombat("player")
         local mobInCombat    = TankMark:IsGUIDInCombat(guid)
-        if not mobInCombat and not playerInCombat then return end
+        if not mobInCombat and not playerInCombat then
+            return { icon = nil, reason = "not-in-combat" }
+        end
     end
 
     local iconToApply = TankMark:GetFreeTankIcon()
+    if not iconToApply then
+        return { icon = nil, reason = "no-free-icon" }
+    end
 
-    -- Unknown mobs are Prio 5. They can never steal Skull (Owner is at least 5).
-    -- They only take Skull if it's genuinely free.
+    -- Prio 5: only take Skull if genuinely free; never steal an occupied one,
+    -- and yield to any lower-mark incumbent (governor incumbency check).
     if iconToApply == 8 and mode ~= "FORCE" then
-        if TankMark:IsMarkBusy(8) then return end
+        if TankMark:IsMarkBusy(8) then
+            return { icon = nil, reason = "skull-busy" }
+        end
         if TankMark.GetBlockingMarkInfo then
             local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
             if blockIcon then
                 local myPrio = 5
-                if myPrio >= blockPrio then return end
+                if myPrio >= blockPrio then
+                    return { icon = nil, reason = "skull-incumbency" }
+                end
             end
         end
     end
 
-    if iconToApply then
-        -- [v0.28] Apply edge centralized in ApplyMarkIntent (decide/apply split, roadmap #2).
-        TankMark:ApplyMarkIntent(guid, L._UnitName(guid), { icon = iconToApply }, false)
+    return { icon = iconToApply, reason = "unknown-free" }
+end
+
+function TankMark:ProcessUnknownMob(guid, mode)
+    local intent = TankMark:DecideUnknownMark(guid, mode)
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("DECIDE", "unknown: " .. (intent.reason or "?"), {
+            icon = intent.icon
+        })
+    end
+    if intent.icon then
+        TankMark:ApplyMarkIntent(guid, L._UnitName(guid), intent, false)
     end
 end
 
