@@ -206,16 +206,19 @@ function TankMark:ReviewSkullState(callerID)
 	local _caller = callerID or "UNKNOWN"
 
 	-- DEBUG: Entry Snapshot
-	-- Captures full skull-related state at invocation time.
-	-- Primary instrument for diagnosing multiple-call issues.
-	local mark8Exists = L._UnitExists("mark8") or false
-	local mark8IsDead = mark8Exists and (L._UnitIsDead("mark8") == 1) or false
-	local mark8Name   = mark8Exists and (L._UnitName("mark8") or "?") or "nil"
-	local memGUID     = TankMark.Ledger.MemoryOwner(8)
-	local memMobName  = memGUID and (L._UnitName(memGUID) or "?") or "nil"
-	local activeName8 = TankMark.Ledger.NameFor(8) or "nil"
-
+	-- Captures full skull-related state at invocation time. Primary instrument for
+	-- diagnosing multiple-call issues. [v0.28] Computed INSIDE the debug guard: the
+	-- scanner CLEANUP phase calls this every tick (grouped, in OR out of combat), and
+	-- these ~6 WoW API reads feed only the log -- they must not run on the hot path
+	-- when debug is off. The real logic below recomputes mark8/MemoryOwner fresh.
 	if TankMark.DebugEnabled then
+		local mark8Exists = L._UnitExists("mark8") or false
+		local mark8IsDead = mark8Exists and (L._UnitIsDead("mark8") == 1) or false
+		local mark8Name   = mark8Exists and (L._UnitName("mark8") or "?") or "nil"
+		local memGUID     = TankMark.Ledger.MemoryOwner(8)
+		local memMobName  = memGUID and (L._UnitName(memGUID) or "?") or "nil"
+		local activeName8 = TankMark.Ledger.NameFor(8) or "nil"
+
 		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState entry", {
 			caller       = _caller,
 			mark8_exists = mark8Exists,

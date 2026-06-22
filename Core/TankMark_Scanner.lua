@@ -117,7 +117,13 @@ function TankMark:StartSuperScanner()
         end
         
         -- 4. CLEANUP PHASE
-        if TankMark.ReviewSkullState and not TankMark.IsRecorderActive then
+        -- [v0.28] Skip skull review when there is provably nothing to review: no skull
+        -- token to adopt/reassess AND no unmarked in-combat candidate this tick
+        -- (batchIndex counts exactly the unmarked in-combat candidates this tick, the
+        -- same set FindEmergencyCandidate would search). Death-driven reassignment is
+        -- unaffected -- it runs via the COMBAT_LOG/UNIT_DEATH callers, not this tick.
+        if TankMark.ReviewSkullState and not TankMark.IsRecorderActive
+            and (batchIndex > 0 or L._UnitExists("mark8")) then
             TankMark:ReviewSkullState("SCANNER_TICK")
         end
     end)
