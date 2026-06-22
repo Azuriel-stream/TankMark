@@ -8,6 +8,11 @@ if not TankMark then return end
 
 local L = TankMark.Locals
 
+-- [v0.28] Last alive-skull GUID we emitted a steady-state confirm log for, so
+-- ReviewSkullState breadcrumbs once per DISTINCT holder instead of every tick
+-- (roadmap candidate 0: mark8-alive poll de-noise). Runtime-only; resets on /reload.
+local lastAliveSkullLogged = nil
+
 -- ==========================================================
 -- COMBAT LOG PARSER
 -- ==========================================================
@@ -204,6 +209,34 @@ end
 
 function TankMark:ReviewSkullState(callerID)
 	local _caller = callerID or "UNKNOWN"
+
+	-- [v0.28] Steady-state skull-confirm short-circuit (roadmap candidate 0:
+	-- mark8-alive poll de-noise). When a skull is alive AND we already own that
+	-- exact GUID, this call is a pure no-op confirm -- every downstream branch
+	-- returns without touching a mark. The scanner CLEANUP phase calls this every
+	-- tick the whole time a skull is up, so without this the entry log + the
+	-- "BLOCKED - mark8 alive" log spammed ~2 lines/tick (125 in a 79s trace),
+	-- evicting the real decision entries from the 500-slot ring. Return before the
+	-- entry log and emit one breadcrumb per DISTINCT holder only. Adoption (owner
+	-- nil) and theft/mismatch (owner ~= live GUID) fall through to the full logic
+	-- below, so the wedge tell ("registered pre-existing skull holder") is intact;
+	-- an adopted holder becomes owner==live next tick and then goes quiet here.
+	-- The mark8 reads run every tick anyway (the real alive check below), so this
+	-- adds no hot-path cost when debug is off -- it short-circuits earlier.
+	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
+		local _, liveSkullGUID = L._UnitExists("mark8")
+		if liveSkullGUID and TankMark.Ledger.MemoryOwner(8) == liveSkullGUID then
+			if TankMark.DebugEnabled and liveSkullGUID ~= lastAliveSkullLogged then
+				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState confirm - mark8 alive (owned)", {
+					caller     = _caller,
+					guid       = liveSkullGUID,
+					mark8_name = L._UnitName("mark8") or "?",
+				})
+				lastAliveSkullLogged = liveSkullGUID
+			end
+			return
+		end
+	end
 
 	-- DEBUG: Entry Snapshot
 	-- Captures full skull-related state at invocation time. Primary instrument for
