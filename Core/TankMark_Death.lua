@@ -371,6 +371,42 @@ function TankMark:UnmarkUnit(unit)
 	end
 end
 
+-- [v0.28] Pull-end physical mark clear. Fired from PLAYER_REGEN_ENABLED only when
+-- the addon-holder is ALIVE -- a tank's only alive combat-exit is the pull genuinely
+-- resolving (everything dead or evaded). Eliminates Turtle's retained-mark ghosts at
+-- the source: Turtle WoW keeps raid-target icons on mobs through death AND respawn,
+-- so a respawn wearing a retained skull can be adopted by ReviewSkullState and wedge
+-- skull for the rest of the run. Physically stripping every hostile-worn mark at true
+-- pull-end means there is no retained icon to carry onto a respawn. This is NOT
+-- /tmark reset: it preserves the raid leader's plan (sessionAssignments, profile DB,
+-- disabledMarks, sequentialMarkCursor, recorder) -- none of which are Ledger indices.
+function TankMark:ClearMarksForPullEnd()
+	if not TankMark:HasPermissions() then return end
+
+	local n = 0
+	for i = 1, 8 do
+		local token = "mark" .. i
+		-- Hostile-only: never strip a manually placed player mark (MT marks for healers, etc.).
+		if L._UnitExists(token) and not L._UnitIsPlayer(token) then
+			L._SetRaidTarget(token, 0)
+			n = n + 1
+		end
+	end
+
+	-- Wipe the four ownership indices. The plan survives (sessionAssignments / profile
+	-- DB / disabledMarks / sequentialMarkCursor are not Ledger indices). Clearing
+	-- usedIcons here matches the [v0.26] "usedIcons reflects live mob marks only" rule.
+	TankMark.Ledger.Clear()
+
+	if TankMark.DebugEnabled then
+		TankMark:DebugLog("PULL_END", "cleared", { marks = n })
+	end
+
+	if TankMark.UpdateHUD then
+		TankMark:UpdateHUD()
+	end
+end
+
 function TankMark:ResetSession()
 	TankMark.Ledger.Clear()
 	TankMark.sessionAssignments = {}

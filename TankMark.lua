@@ -337,6 +337,17 @@ TankMark:SetScript("OnEvent", function()
         -- [v0.26] Combat End: Flush Memory
         -- We clear the scanner memory so marks aren't "locked" to dead units.
         TankMark.Ledger.FlushMemory()
+
+        -- [v0.28] Pull-end mark clear. Fire only when ALIVE: a tank's only alive
+        -- combat-exit is the pull resolving, so alive+REGEN ~= pull over. REGEN also
+        -- fires when the addon-holder DIES -- skip that so marks survive your own
+        -- death (same rationale as FlushMemory's deliberately partial wipe). Kills
+        -- Turtle's retained-mark ghosts at the source.
+        if not L._UnitIsDeadOrGhost("player") then
+            TankMark:ClearMarksForPullEnd()
+        elseif TankMark.DebugEnabled then
+            TankMark:DebugLog("PULL_END", "skipped - player dead/ghost")
+        end
     end
 end)
 
