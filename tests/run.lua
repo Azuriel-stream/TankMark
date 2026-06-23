@@ -12,6 +12,7 @@ dofile("tests/support/board.lua")
 local SPECS = {
     "tests/incumbency_spec.lua",
     "tests/decide_mark_spec.lua",
+    "tests/governor_spec.lua",
 }
 for _, spec in ipairs(SPECS) do
     local fh = io.open(spec, "r")
