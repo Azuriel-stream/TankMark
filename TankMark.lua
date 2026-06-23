@@ -116,6 +116,11 @@ TankMark.Locals = {
     -- DEBUG FUNCTIONS (ADD THIS SECTION)
     -- ==========================================================
     _debugstack = debugstack,
+
+    -- ==========================================================
+    -- ADDON METADATA
+    -- ==========================================================
+    _GetAddOnMetadata = GetAddOnMetadata,
 }
 
 -- ==========================================================
@@ -123,6 +128,14 @@ TankMark.Locals = {
 -- ==========================================================
 
 local L = TankMark.Locals
+
+-- ==========================================================
+-- VERSION
+-- ==========================================================
+-- Single version reference for the addon. Sourced from the .toc (## Version)
+-- via GetAddOnMetadata so it tracks the source of truth and never drifts; the
+-- literal is only a fallback if that API is unavailable on the client.
+TankMark.VERSION = (L._GetAddOnMetadata and L._GetAddOnMetadata("TankMark", "Version")) or "0.27"
 
 -- ==========================================================
 -- ZONE CACHING
@@ -262,7 +275,7 @@ TankMark:SetScript("OnEvent", function()
             end
         end
         
-        TankMark:Print("TankMark v0.26 loaded.")
+        TankMark:Print("TankMark v" .. TankMark.VERSION .. " loaded.")
         
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
@@ -519,7 +532,7 @@ function TankMark:SlashHandler(msg)
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
     else
-        TankMark:Print("|cff00ffffTankMark v0.26 Commands:|r")
+        TankMark:Print("|cff00ffffTankMark Commands:|r")
         TankMark:Print(" |cffffffff/tmark reset|r - Clear all marks and reset session")
         TankMark:Print(" |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
         TankMark:Print(" |cffffffff/tmark normals|r - Toggle marking normal mobs")
