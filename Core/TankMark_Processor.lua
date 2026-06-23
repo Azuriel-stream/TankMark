@@ -197,9 +197,11 @@ end
 -- Only gates Skull (icon 8) and only when mode ~= "FORCE".
 --   allowSteal=true  (known): may steal an occupied skull if myPrio < ownerPrio.
 --   allowSteal=false (unknown, prio 5): never steals -- any busy skull blocks.
--- The allowSteal split freezes the prio-5 asymmetry EXACTLY (Tier 1 preserves
--- behavior): the unknown path must NOT gain steal-from-untracked-holder here.
--- Whether unknown SHOULD steal is a policy question deferred to roadmap #3.
+-- The allowSteal split is the DELIBERATE prio-5 asymmetry, not a TODO: known
+-- honors its DB designation (asserts the plan over a phantom/foreign holder),
+-- while unknown has nothing to assert and stays hands-off an occupied skull.
+-- [v0.28] policy RESOLVED -- roadmap #3's last loose end: unknown NEVER steals
+-- (decided 2026-06-23; no behavior change -- this was already the shipped state).
 -- Both operators stay distinct: `myPrio < ownerPrio` (steal an occupied skull)
 -- and `myPrio >= blockPrio` (incumbency block when skull is free).
 function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal)
@@ -333,7 +335,8 @@ end
 -- inspectable intent { icon, reason } and applies NOTHING; the shell applies.
 -- Unknown mobs are Prio 5: they take the highest free tank icon, and only take
 -- Skull when it is genuinely free -- they NEVER steal it (allowSteal=false, the
--- prio-5 case of the governor). Skips are values, not bare returns.
+-- prio-5 case of the governor; [v0.28] policy RESOLVED, not deferred -- see
+-- GovernorBlocks). Skips are values, not bare returns.
 function TankMark:DecideUnknownMark(guid, mode)
     if mode == "SCANNER" then
         local playerInCombat = L._UnitAffectingCombat("player")
