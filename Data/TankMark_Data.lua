@@ -52,7 +52,7 @@ function TankMark:InitializeDB()
         return
     end
     
-    TankMark:Print("Database initialized (v0.22 Resilience System active).")
+    TankMark:Print("Database initialized (Resilience System active).")
 end
 
 -- [v0.23] CORRUPTION DETECTION (Layer 3)
