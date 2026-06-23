@@ -156,6 +156,41 @@ In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` resul
 - **Global function references:** Use `L._SendChatMessage()`, `L._SetRaidTarget()`, `L._PlaySound()`, `L._CreateFrame()`, etc. — all WoW API calls must go through the Locals table.
 - **UI file structure:** Config tab UI files must use private `local function` section builders. No UI construction code inside the public entry point beyond calling section builders and returning the container frame. See `UI/Config/Database/TankMark_Config_Mobs_UI.lua` and `UI/Config/Profiles/TankMark_Config_Profiles_UI.lua` as the canonical patterns.
 
+## Testing (v0.28)
+
+TankMark has an **off-client unit-test suite** for the decision layer. It runs
+outside the WoW client — no `/reload` needed — because the decision layer
+(`DecideMark` and its helpers in `Core/TankMark_Processor.lua`) reads the world
+only through an injected **board** of ports (roadmap #2 Tier 2). Production wires
+`TankMark.LiveBoard` (closures over the live methods); tests inject a mock board.
+
+**Run it** (from the repo root):
+```
+lua5.1 tests/run.lua
+```
+Exits non-zero if any assertion fails. The harness needs only Lua itself — no WoW
+client, and no mock of the `Locals` table: the decide layer is zero-global apart
+from the pure-language `L._tgetn`, which the harness shims with `table.getn`.
+
+**Runtime:** production code stays Lua **5.0**-idiomatic (Vanilla WoW); the harness
+runs on Lua **5.1** (closest widely-available interpreter — it still has
+`table.getn`, removed in 5.2+). Do not introduce 5.1-only idioms into shipped code.
+
+**Layout** (`tests/`, dev-only — never shipped to the AddOns folder; the deploy
+script excludes the whole tree by path prefix):
+- `run.lua` — entry point; lists the spec files and prints a pass/fail summary.
+- `support/harness.lua` — stubs the minimum, loads the SUT (`Assignment.lua` +
+  `Processor.lua`, both definition-only), and provides a tiny `describe`/`it`/`eq`
+  /`eq_intent` runner.
+- `support/board.lua` — `make_board(overrides)`, a mock ports board with safe
+  defaults (in combat, nothing busy/disabled/free, no CC, no blocker).
+- `*_spec.lua` — `incumbency_spec` (the pure `IncumbencyBlocks` predicate),
+  `decide_mark_spec` (combat gate, selection, fallback, bails), `governor_spec`
+  (skull governor, CC, the `allowSteal` asymmetry).
+
+**Adding a spec:** create `tests/<name>_spec.lua` using `describe`/`it`/`eq`/
+`eq_intent` and `make_board{...}`, then add it to the `SPECS` list in `run.lua`.
+
 ## SavedVariables
 
 | Variable | Scope | Description |
