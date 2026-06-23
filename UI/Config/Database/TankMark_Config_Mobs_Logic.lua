@@ -1,5 +1,3 @@
--- TankMark: v0.23
--- File: TankMark_Config_Mobs_Logic.lua
 -- Business logic for Mob Database configuration
 
 if not TankMark then return end

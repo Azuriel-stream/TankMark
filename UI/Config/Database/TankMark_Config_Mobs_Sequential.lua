@@ -1,5 +1,3 @@
--- TankMark: v0.23
--- File: TankMark_Config_Mobs_Sequential.lua
 -- Sequential marking functionality
 
 if not TankMark then return end

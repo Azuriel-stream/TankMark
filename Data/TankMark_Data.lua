@@ -1,5 +1,3 @@
--- TankMark: v0.26
--- File: Data/TankMark_Data.lua
 -- Database initialization, snapshot system, and corruption detection
 
 if not TankMark then

@@ -1,5 +1,3 @@
--- TankMark v0.23
--- File: TankMark_Defaults.lua
 -- [v0.23] Default Mob Database - Curated baseline priorities for top-tier content
 
 -- DEFAULT MOB DATABASE

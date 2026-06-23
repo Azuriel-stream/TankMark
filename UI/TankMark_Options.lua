@@ -1,7 +1,3 @@
--- TankMark: v0.21
-
--- File: TankMark_Options.lua
-
 -- Configuration panel with tab system and popup dialogs
 
 if not TankMark then return end

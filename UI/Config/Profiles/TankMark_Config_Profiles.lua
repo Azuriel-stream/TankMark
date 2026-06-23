@@ -1,5 +1,3 @@
--- TankMark: v0.27
--- File: TankMark_Config_Profiles.lua
 -- State registry and data constants for Team Profiles tab
 
 if not TankMark then return end

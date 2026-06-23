@@ -1,7 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Session.lua
--- Module Version: 1.0
--- Last Updated: 2026-02-08
 -- Runtime session state management (mark tracking, assignments, and constants)
 
 if not TankMark then return end

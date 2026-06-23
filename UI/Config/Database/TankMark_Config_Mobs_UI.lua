@@ -1,5 +1,3 @@
--- TankMark: v0.23
--- File: TankMark_Config_Mobs_UI.lua
 -- UI construction for Mobs tab (Wireframe v2 Layout)
 
 if not TankMark then return end

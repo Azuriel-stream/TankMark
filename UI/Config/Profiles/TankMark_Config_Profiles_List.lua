@@ -1,5 +1,3 @@
--- TankMark: v0.27
--- File: TankMark_Config_Profiles_List.lua
 -- List rendering and UI sync for Team Profiles tab
 
 if not TankMark then return end

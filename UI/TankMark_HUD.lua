@@ -1,7 +1,3 @@
--- TankMark: v0.24 (Release Candidate)
--- File: TankMark_HUD.lua
--- [PHASE 2] Use cached zone lookups
-
 if not TankMark then return end
 
 -- ==========================================================

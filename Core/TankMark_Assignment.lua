@@ -1,7 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Assignment.lua
--- Module Version: 1.2
--- Last Updated: 2026-02-24
 -- Mark assignment algorithms and player detection
 
 if not TankMark then return end

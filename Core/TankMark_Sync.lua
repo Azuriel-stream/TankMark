@@ -1,5 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Sync.lua
 -- Raid data synchronization and TWA integration
 
 if not TankMark then return end

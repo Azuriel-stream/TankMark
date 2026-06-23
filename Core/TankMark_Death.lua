@@ -1,7 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Death.lua
--- Module Version: 1.2
--- Last Updated: 2026-02-24
 -- Death detection, mark cleanup, and skull priority management
 
 if not TankMark then return end
