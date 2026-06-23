@@ -255,7 +255,7 @@ function TankMark:ProcessBatchMark(candidateData)
             -- former "Reset (for 5th+ mobs)" wrap re-stole an already-used icon
             -- (e.g. SKULL jumped off the first mob). Reuses the unknown
             -- decide/apply seam; cursor stays clamped past the end (no advance).
-            local intent = TankMark:DecideUnknownMark(guid, "FORCE")
+            local intent = TankMark:DecideUnknownMark(guid, "FORCE", TankMark.LiveBoard)
             if intent.icon then
                 TankMark:ApplyMarkIntent(guid, mobName, intent, false)
             end
@@ -274,7 +274,7 @@ function TankMark:ProcessBatchMark(candidateData)
     else
         -- [v0.28] Single-mark / unknown: decide via the unified seam, then apply
         -- at the centralized edge (migrated off the deleted Process* shims).
-        local intent = TankMark:DecideMark(mobData, guid, "FORCE")
+        local intent = TankMark:DecideMark(mobData, guid, "FORCE", TankMark.LiveBoard)
         if intent.icon then
             local name = mobData and mobData.name or L._UnitName(guid)
             TankMark:ApplyMarkIntent(guid, name, intent, false)

@@ -9,6 +9,41 @@ if not TankMark then return end
 local L = TankMark.Locals
 
 -- ==========================================================
+-- LIVE BOARD (decide/apply split Tier 2, roadmap #2)
+-- ==========================================================
+-- [v0.28] The single dependency the pure decision layer (DecideMark and below)
+-- reads the outside world through: one table of closures over the live TankMark
+-- methods. Closures resolve at CALL time, so Ledger ownership reads stay LIVE
+-- across a scanner tick (candidate #1's Assign is visible to candidate #2's
+-- getFreeTankIcon) -- a frozen snapshot could not do that. Tests inject a mock
+-- board instead, so the decision functions never touch a WoW/Ledger/session
+-- global directly. Built once: the closures never change tick to tick.
+TankMark.LiveBoard = {
+    playerInCombat      = function()      return L._UnitAffectingCombat("player") end,
+    guidInCombat        = function(guid)  return TankMark:IsGUIDInCombat(guid) end,
+    isMarkBusy          = function(icon)  return TankMark:IsMarkBusy(icon) end,
+    markOwnerPriority   = function(icon)  return TankMark:GetMarkOwnerPriority(icon) end,
+    getFreeTankIcon     = function()      return TankMark:GetFreeTankIcon() end,
+    getBlockingMarkInfo = function()      return TankMark:GetBlockingMarkInfo() end,
+    findCCPlayer        = function(class) return TankMark:FindCCPlayerForClass(class) end,
+    isDisabled          = function(icon)  return TankMark.disabledMarks[icon] end,
+    -- [v0.28] Side-effect SINK (not a read): the single DECIDE log. Production
+    -- emits the guarded DebugLog (resolving the unknown-path name via UnitName);
+    -- tests pass a no-op. Keeps the one-log-site Tier 1 created while letting
+    -- DecideMark stay zero-global -- the last global it touched lived here.
+    logDecision         = function(mobData, guid, intent)
+        if not TankMark.DebugEnabled then return end
+        TankMark:DebugLog("DECIDE", (mobData and "known: " or "unknown: ") .. (intent.reason or "?"), {
+            icon     = intent.icon,
+            mob      = mobData and mobData.name or L._UnitName(guid),
+            prio     = mobData and mobData.prio,
+            wasBusy  = intent.wasBusy,
+            override = intent.override
+        })
+    end,
+}
+
+-- ==========================================================
 -- PROCESS LOGIC
 -- ==========================================================
 
@@ -139,7 +174,7 @@ function TankMark:ProcessUnit(guid, mode)
     end
 
     -- [v0.28] Decide once via the unified seam, then apply at the centralized edge.
-    local intent = TankMark:DecideMark(mobData, guid, mode)
+    local intent = TankMark:DecideMark(mobData, guid, mode, TankMark.LiveBoard)
     if intent.icon then
         TankMark:ApplyMarkIntent(guid, mobName, intent, false)
     end
@@ -204,23 +239,22 @@ end
 -- (decided 2026-06-23; no behavior change -- this was already the shipped state).
 -- Both operators stay distinct: `myPrio < ownerPrio` (steal an occupied skull)
 -- and `myPrio >= blockPrio` (incumbency block when skull is free).
-function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal)
+function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal, board)
     if icon ~= 8 or mode == "FORCE" then return nil end
-    if TankMark:IsMarkBusy(8) then
+    if board.isMarkBusy(8) then
         -- Skull TAKEN.
         if not allowSteal then return "governor-skull-taken" end
-        local ownerPrio = TankMark:GetMarkOwnerPriority(8)
+        local ownerPrio = board.markOwnerPriority(8)
         if not (myPrio < ownerPrio) then return "governor-skull-taken" end
         return nil
     end
     -- Skull FREE: yield to a lower incumbent mark (incumbency).
-    if TankMark.GetBlockingMarkInfo then
-        local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-        -- [v0.28] Incumbency rule via the shared IncumbencyBlocks predicate
-        -- (single-sourced with ReviewSkullState so >= can't drift).
-        if TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio) then
-            return "governor-incumbency"
-        end
+    local blockIcon, _, blockPrio, _ = board.getBlockingMarkInfo()
+    -- [v0.28] Incumbency rule via the shared IncumbencyBlocks predicate
+    -- (single-sourced with ReviewSkullState so >= can't drift). IncumbencyBlocks
+    -- stays a direct pure-value call -- not a board port (it reads no state).
+    if TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio) then
+        return "governor-incumbency"
     end
     return nil
 end
@@ -230,9 +264,9 @@ end
 -- assigned to its class. Pure extraction -- behavior-identical to the inline
 -- block it replaced; owns the type=="CC" guard so callers just read the return.
 -- The decide-once+notify CC model is future work that lands behind this seam.
-function TankMark:ResolveCC(mobData)
+function TankMark:ResolveCC(mobData, board)
     if mobData.type ~= "CC" or not mobData.class then return nil end
-    return TankMark:FindCCPlayerForClass(mobData.class)
+    return board.findCCPlayer(mobData.class)
 end
 
 -- [v0.28] Known-mob decision (decide/apply split, roadmap #2). Returns an
@@ -246,7 +280,7 @@ end
 -- (incumbency block when skull is free). The governor gate is the shared
 -- GovernorBlocks helper (allowSteal=true here). Sequential (marks>1) stays out
 -- of scope -- Batch owns that cursor.
-function TankMark:DecideKnownMark(mobData, guid, mode)
+function TankMark:DecideKnownMark(mobData, guid, mode, board)
     if mobData.marks and L._tgetn(mobData.marks) > 1 then
         return { icon = nil, reason = "sequential-marks" }
     end
@@ -256,8 +290,8 @@ function TankMark:DecideKnownMark(mobData, guid, mode)
     end
 
     if mode == "SCANNER" then
-        local playerInCombat = L._UnitAffectingCombat("player")
-        local mobInCombat    = TankMark:IsGUIDInCombat(guid)
+        local playerInCombat = board.playerInCombat()
+        local mobInCombat    = board.guidInCombat(guid)
         if not mobInCombat and not playerInCombat then
             return { icon = nil, reason = "not-in-combat" }
         end
@@ -268,28 +302,28 @@ function TankMark:DecideKnownMark(mobData, guid, mode)
     local canOverride = false
 
     -- [v0.28] CC Logic via ResolveCC seam.
-    iconToApply = TankMark:ResolveCC(mobData)
+    iconToApply = TankMark:ResolveCC(mobData, board)
 
     if not iconToApply then
-        isBusy = TankMark:IsMarkBusy(markToUse)
+        isBusy = board.isMarkBusy(markToUse)
 
         -- [v0.26] AGGRESSIVE THEFT LOGIC (selection-time steal of an occupied
         -- primary skull; inline because it is icon selection, not a block).
         if isBusy and markToUse == 8 then
             local myPrio    = mobData.prio or 5
-            local ownerPrio = TankMark:GetMarkOwnerPriority(markToUse)
+            local ownerPrio = board.markOwnerPriority(markToUse)
             if myPrio < ownerPrio then
                 canOverride = true
             end
         end
 
-        if (not isBusy or canOverride) and (mode == "FORCE" or not TankMark.disabledMarks[markToUse]) then
+        if (not isBusy or canOverride) and (mode == "FORCE" or not board.isDisabled(markToUse)) then
             iconToApply = markToUse
         end
 
         -- Fallback to free icon only if we failed to secure the primary mark
         if not iconToApply then
-            iconToApply = TankMark:GetFreeTankIcon()
+            iconToApply = board.getFreeTankIcon()
         end
     end
 
@@ -299,7 +333,7 @@ function TankMark:DecideKnownMark(mobData, guid, mode)
 
     -- [v0.28] GOVERNOR CHECK via shared helper. Known mobs may steal an occupied
     -- skull (allowSteal=true) when they outrank the holder.
-    local block = TankMark:GovernorBlocks(iconToApply, mobData.prio or 5, mode, true)
+    local block = TankMark:GovernorBlocks(iconToApply, mobData.prio or 5, mode, true, board)
     if block then
         return { icon = nil, reason = block, wasBusy = isBusy }
     end
@@ -312,22 +346,14 @@ end
 -- an inspectable intent { icon, reason, ... }. Applies NOTHING -- callers apply
 -- via ApplyMarkIntent. ProcessUnit (scanner) and the Batch shims all funnel
 -- through here, so the decision and its DECIDE log live in exactly one place.
-function TankMark:DecideMark(mobData, guid, mode)
+function TankMark:DecideMark(mobData, guid, mode, board)
     local intent
     if mobData == nil then
-        intent = TankMark:DecideUnknownMark(guid, mode)
+        intent = TankMark:DecideUnknownMark(guid, mode, board)
     else
-        intent = TankMark:DecideKnownMark(mobData, guid, mode)
+        intent = TankMark:DecideKnownMark(mobData, guid, mode, board)
     end
-    if TankMark.DebugEnabled then
-        TankMark:DebugLog("DECIDE", (mobData and "known: " or "unknown: ") .. (intent.reason or "?"), {
-            icon     = intent.icon,
-            mob      = mobData and mobData.name or L._UnitName(guid),
-            prio     = mobData and mobData.prio,
-            wasBusy  = intent.wasBusy,
-            override = intent.override
-        })
-    end
+    board.logDecision(mobData, guid, intent)
     return intent
 end
 
@@ -337,23 +363,23 @@ end
 -- Skull when it is genuinely free -- they NEVER steal it (allowSteal=false, the
 -- prio-5 case of the governor; [v0.28] policy RESOLVED, not deferred -- see
 -- GovernorBlocks). Skips are values, not bare returns.
-function TankMark:DecideUnknownMark(guid, mode)
+function TankMark:DecideUnknownMark(guid, mode, board)
     if mode == "SCANNER" then
-        local playerInCombat = L._UnitAffectingCombat("player")
-        local mobInCombat    = TankMark:IsGUIDInCombat(guid)
+        local playerInCombat = board.playerInCombat()
+        local mobInCombat    = board.guidInCombat(guid)
         if not mobInCombat and not playerInCombat then
             return { icon = nil, reason = "not-in-combat" }
         end
     end
 
-    local iconToApply = TankMark:GetFreeTankIcon()
+    local iconToApply = board.getFreeTankIcon()
     if not iconToApply then
         return { icon = nil, reason = "no-free-icon" }
     end
 
     -- [v0.28] Prio 5, allowSteal=false: never steal an occupied skull; yield to
     -- a lower incumbent. Same shared governor as the known path.
-    local block = TankMark:GovernorBlocks(iconToApply, 5, mode, false)
+    local block = TankMark:GovernorBlocks(iconToApply, 5, mode, false, board)
     if block then
         return { icon = nil, reason = block }
     end
