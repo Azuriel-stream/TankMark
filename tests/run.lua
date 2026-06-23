@@ -5,11 +5,13 @@
 -- if any assertion failed (CI-ready, though the project has no CI yet).
 
 dofile("tests/support/harness.lua")
+dofile("tests/support/board.lua")
 
 -- Specs run in listed order. Missing files are skipped, so the list can grow
 -- ahead of the specs themselves across commits.
 local SPECS = {
     "tests/incumbency_spec.lua",
+    "tests/decide_mark_spec.lua",
 }
 for _, spec in ipairs(SPECS) do
     local fh = io.open(spec, "r")
