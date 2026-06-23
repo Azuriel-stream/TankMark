@@ -228,21 +228,20 @@ end
 -- and `myPrio >= blockPrio` (incumbency block when skull is free).
 function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal, board)
     if icon ~= 8 or mode == "FORCE" then return nil end
-    if TankMark:IsMarkBusy(8) then
+    if board.isMarkBusy(8) then
         -- Skull TAKEN.
         if not allowSteal then return "governor-skull-taken" end
-        local ownerPrio = TankMark:GetMarkOwnerPriority(8)
+        local ownerPrio = board.markOwnerPriority(8)
         if not (myPrio < ownerPrio) then return "governor-skull-taken" end
         return nil
     end
     -- Skull FREE: yield to a lower incumbent mark (incumbency).
-    if TankMark.GetBlockingMarkInfo then
-        local blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-        -- [v0.28] Incumbency rule via the shared IncumbencyBlocks predicate
-        -- (single-sourced with ReviewSkullState so >= can't drift).
-        if TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio) then
-            return "governor-incumbency"
-        end
+    local blockIcon, _, blockPrio, _ = board.getBlockingMarkInfo()
+    -- [v0.28] Incumbency rule via the shared IncumbencyBlocks predicate
+    -- (single-sourced with ReviewSkullState so >= can't drift). IncumbencyBlocks
+    -- stays a direct pure-value call -- not a board port (it reads no state).
+    if TankMark:IncumbencyBlocks(myPrio, blockIcon, blockPrio) then
+        return "governor-incumbency"
     end
     return nil
 end
@@ -254,7 +253,7 @@ end
 -- The decide-once+notify CC model is future work that lands behind this seam.
 function TankMark:ResolveCC(mobData, board)
     if mobData.type ~= "CC" or not mobData.class then return nil end
-    return TankMark:FindCCPlayerForClass(mobData.class)
+    return board.findCCPlayer(mobData.class)
 end
 
 -- [v0.28] Known-mob decision (decide/apply split, roadmap #2). Returns an
