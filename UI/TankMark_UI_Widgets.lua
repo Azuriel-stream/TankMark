@@ -1,6 +1,3 @@
--- TankMark: v0.16 (UI Widgets Module)
--- File: TankMark_UI_Widgets.lua
-
 if not TankMark then return end
 
 -- ==========================================================

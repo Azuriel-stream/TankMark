@@ -1,5 +1,3 @@
--- TankMark: v0.26
--- File: TankMark.lua
 -- Entry point, Event Handlers, and Slash Commands
 
 if not TankMark then 

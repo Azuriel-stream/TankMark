@@ -1,5 +1,3 @@
--- TankMark: v0.27
--- File: TankMark_Config_Profiles_Logic.lua
 -- Business logic for Team Profiles configuration
 
 if not TankMark then return end

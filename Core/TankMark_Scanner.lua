@@ -1,5 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Scanner.lua
 -- SuperWoW nameplate scanner with Snapshot Batching and Table Reuse
 
 if not TankMark then return end

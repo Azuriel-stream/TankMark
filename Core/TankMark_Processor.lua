@@ -1,7 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Processor.lua
--- Module Version: 1.4
--- Last Updated: 2026-02-23
 -- Core marking decision logic
 
 if not TankMark then return end

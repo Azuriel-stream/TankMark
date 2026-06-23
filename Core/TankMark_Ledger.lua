@@ -1,5 +1,3 @@
--- TankMark: v0.27
--- File: Core/TankMark_Ledger.lua
 -- The Mark Ledger: the single owner of mark-ownership state.
 --
 -- Owns four indices over "which mob holds which raid mark":

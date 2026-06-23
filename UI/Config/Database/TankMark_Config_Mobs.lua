@@ -1,5 +1,3 @@
--- TankMark: v0.23
--- File: TankMark_Config_Mobs.lua
 -- State registry for Mobs configuration tab
 
 if not TankMark then return end

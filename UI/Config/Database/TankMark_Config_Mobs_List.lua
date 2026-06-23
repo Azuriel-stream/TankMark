@@ -1,5 +1,3 @@
--- TankMark: v0.23
--- File: TankMark_Config_Mobs_List.lua
 -- Mob list rendering and data management
 
 if not TankMark then return end

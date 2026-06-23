@@ -1,7 +1,3 @@
--- TankMark: v0.26
--- File: Core/TankMark_Batch.lua
--- Module Version: 1.0
--- Last Updated: 2026-02-08
 -- Batch marking system (Shift+Mouseover)
 
 if not TankMark then return end
