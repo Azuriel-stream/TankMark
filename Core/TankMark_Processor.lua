@@ -18,7 +18,6 @@ local L = TankMark.Locals
 -- getFreeTankIcon) -- a frozen snapshot could not do that. Tests inject a mock
 -- board instead, so the decision functions never touch a WoW/Ledger/session
 -- global directly. Built once: the closures never change tick to tick.
--- (logDecision sink added in a later commit of this tier.)
 TankMark.LiveBoard = {
     playerInCombat      = function()      return L._UnitAffectingCombat("player") end,
     guidInCombat        = function(guid)  return TankMark:IsGUIDInCombat(guid) end,
@@ -28,6 +27,20 @@ TankMark.LiveBoard = {
     getBlockingMarkInfo = function()      return TankMark:GetBlockingMarkInfo() end,
     findCCPlayer        = function(class) return TankMark:FindCCPlayerForClass(class) end,
     isDisabled          = function(icon)  return TankMark.disabledMarks[icon] end,
+    -- [v0.28] Side-effect SINK (not a read): the single DECIDE log. Production
+    -- emits the guarded DebugLog (resolving the unknown-path name via UnitName);
+    -- tests pass a no-op. Keeps the one-log-site Tier 1 created while letting
+    -- DecideMark stay zero-global -- the last global it touched lived here.
+    logDecision         = function(mobData, guid, intent)
+        if not TankMark.DebugEnabled then return end
+        TankMark:DebugLog("DECIDE", (mobData and "known: " or "unknown: ") .. (intent.reason or "?"), {
+            icon     = intent.icon,
+            mob      = mobData and mobData.name or L._UnitName(guid),
+            prio     = mobData and mobData.prio,
+            wasBusy  = intent.wasBusy,
+            override = intent.override
+        })
+    end,
 }
 
 -- ==========================================================
@@ -340,15 +353,7 @@ function TankMark:DecideMark(mobData, guid, mode, board)
     else
         intent = TankMark:DecideKnownMark(mobData, guid, mode, board)
     end
-    if TankMark.DebugEnabled then
-        TankMark:DebugLog("DECIDE", (mobData and "known: " or "unknown: ") .. (intent.reason or "?"), {
-            icon     = intent.icon,
-            mob      = mobData and mobData.name or L._UnitName(guid),
-            prio     = mobData and mobData.prio,
-            wasBusy  = intent.wasBusy,
-            override = intent.override
-        })
-    end
+    board.logDecision(mobData, guid, intent)
     return intent
 end
 
