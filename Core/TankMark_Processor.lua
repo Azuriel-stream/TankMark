@@ -293,25 +293,25 @@ function TankMark:DecideKnownMark(mobData, guid, mode, board)
     iconToApply = TankMark:ResolveCC(mobData, board)
 
     if not iconToApply then
-        isBusy = TankMark:IsMarkBusy(markToUse)
+        isBusy = board.isMarkBusy(markToUse)
 
         -- [v0.26] AGGRESSIVE THEFT LOGIC (selection-time steal of an occupied
         -- primary skull; inline because it is icon selection, not a block).
         if isBusy and markToUse == 8 then
             local myPrio    = mobData.prio or 5
-            local ownerPrio = TankMark:GetMarkOwnerPriority(markToUse)
+            local ownerPrio = board.markOwnerPriority(markToUse)
             if myPrio < ownerPrio then
                 canOverride = true
             end
         end
 
-        if (not isBusy or canOverride) and (mode == "FORCE" or not TankMark.disabledMarks[markToUse]) then
+        if (not isBusy or canOverride) and (mode == "FORCE" or not board.isDisabled(markToUse)) then
             iconToApply = markToUse
         end
 
         -- Fallback to free icon only if we failed to secure the primary mark
         if not iconToApply then
-            iconToApply = TankMark:GetFreeTankIcon()
+            iconToApply = board.getFreeTankIcon()
         end
     end
 
@@ -368,7 +368,7 @@ function TankMark:DecideUnknownMark(guid, mode, board)
         end
     end
 
-    local iconToApply = TankMark:GetFreeTankIcon()
+    local iconToApply = board.getFreeTankIcon()
     if not iconToApply then
         return { icon = nil, reason = "no-free-icon" }
     end
