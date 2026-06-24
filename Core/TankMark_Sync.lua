@@ -42,29 +42,19 @@ function TankMark:HandleSync(prefix, msg, sender)
 	if prefix ~= SYNC_PREFIX then return end
 	if not TankMark:IsTrustedSender(sender) then return end
 
-	local dataType = L._sub(msg, 1, 1) -- 'M' (mob data)
-	local content = L._sub(msg, 3) -- Strip prefix + separator
+	-- [v0.29] Decode + validate through the pure codec. The DB write below is the
+	-- single stateful apply edge (mirrors the Ledger / ApplyMarkIntent pattern).
+	local rec = TankMark.SyncCodec.Decode(msg)
+	if not rec or rec.kind ~= "M" then return end
 
-	if dataType == "M" then
-		local _, _, zone, mob, prio, mark, mType, mClass = L._strfind(content, "^(.-);(.-);(%d+);(%d+);(.-);(.-)$")
-		if zone and mob then
-			-- [PHASE 1 FIX] Validate incoming sync data
-			local numPrio = L._tonumber(prio)
-			local numMark = L._tonumber(mark)
-			if not numPrio or not numMark then return end -- Reject malformed data
-			if numMark < 0 or numMark > 8 then return end -- Invalid mark range
-
-			if not TankMarkDB.Zones[zone] then TankMarkDB.Zones[zone] = {} end
-
-			-- [v0.23] FIX: Use marks array instead of scalar mark
-			TankMarkDB.Zones[zone][mob] = {
-				["prio"] = numPrio,
-				["marks"] = {numMark}, -- ✅ FIXED: Wrap in array
-				["type"] = mType,
-				["class"] = (mClass ~= "NIL") and mClass or nil
-			}
-		end
-	end
+	if not TankMarkDB.Zones[rec.zone] then TankMarkDB.Zones[rec.zone] = {} end
+	-- [v0.23] marks stored as an array (the wire carries only the first mark).
+	TankMarkDB.Zones[rec.zone][rec.mob] = {
+		["prio"] = rec.prio,
+		["marks"] = { rec.mark },
+		["type"] = rec.type,
+		["class"] = rec.class,
+	}
 end
 
 -- ==========================================================
@@ -74,7 +64,7 @@ TankMark.MsgQueue = {}
 TankMark.LastSendTime = 0
 local THROTTLE_INTERVAL = 0.3
 
-local throttleFrame = CreateFrame("Frame", "TankMarkThrottleFrame")
+local throttleFrame = L._CreateFrame("Frame", "TankMarkThrottleFrame")
 throttleFrame:Hide()
 throttleFrame:SetScript("OnUpdate", function()
 	if L._tgetn(TankMark.MsgQueue) == 0 then
@@ -84,7 +74,7 @@ throttleFrame:SetScript("OnUpdate", function()
 	local now = L._GetTime()
 	if (now - TankMark.LastSendTime) >= THROTTLE_INTERVAL then
 		local msgData = L._tremove(TankMark.MsgQueue, 1)
-		SendAddonMessage(msgData.prefix, msgData.text, msgData.channel)
+		L._SendAddonMessage(msgData.prefix, msgData.text, msgData.channel)
 		TankMark.LastSendTime = now
 	end
 end)
@@ -106,20 +96,15 @@ function TankMark:BroadcastZone()
 	local channel = "PARTY"
 	if L._GetNumRaidMembers() > 0 then channel = "RAID" end
 
-	-- A. Broadcast Mobs (Prefix: M)
+	-- A. Broadcast Mobs (Prefix: M). The wire format is single-sourced in the
+	-- codec; EncodeMob syncs only the first mark (sequential marks stay local).
 	if TankMarkDB.Zones[zone] then
 		for mob, data in L._pairs(TankMarkDB.Zones[zone]) do
-			local safeClass = data.class or "NIL"
-			local safeType = data.type or "KILL"
-
-			-- [v0.23] FIX: Extract first mark from marks array
-			local firstMark = (data.marks and data.marks[1]) or 8
-
-			-- [v0.23] NOTE: Sync protocol only transmits FIRST mark
-			-- Sequential marks are NOT synced (local-only feature)
-			local payload = "M;" .. zone .. ";" .. mob .. ";" .. data.prio .. ";" .. firstMark .. ";" .. safeType .. ";" .. safeClass
-			TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
-			count = count + 1
+			local payload = TankMark.SyncCodec.EncodeMob(zone, mob, data)
+			if payload then
+				TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
+				count = count + 1
+			end
 		end
 	end
 

@@ -9,18 +9,28 @@
 -- describe/it/eq runner. Entry point: tests/run.lua (run from the repo root).
 
 -- ---- SUT environment -------------------------------------------------------
--- DecideMark and friends are zero-global except L._tgetn, a pure language util
--- (not WoW state). Nothing here mocks game/Ledger/session state -- that is the
--- board's job, injected per test.
+-- The SUT is zero-global except for a handful of pure *language* utilities it
+-- reaches through L._ (not WoW state): table.getn for the decision layer, and
+-- string/tonumber for the SyncCodec. Stubbing these to their stock Lua versions
+-- is faithful -- in-game they are just WoW's aliases of the same functions.
+-- Nothing here mocks game/Ledger/session state -- that is the board's job,
+-- injected per test.
 TankMark = TankMark or {}
 TankMark.Locals = TankMark.Locals or {}
-TankMark.Locals._tgetn = TankMark.Locals._tgetn or table.getn
+TankMark.Locals._tgetn    = TankMark.Locals._tgetn    or table.getn
+TankMark.Locals._sub      = TankMark.Locals._sub      or string.sub
+TankMark.Locals._strfind  = TankMark.Locals._strfind  or string.find
+TankMark.Locals._tonumber = TankMark.Locals._tonumber or tonumber
 
 -- ---- load the system under test --------------------------------------------
 -- Both files are definition-only (no top-level execution), so they load cleanly
 -- under the stub above. Assignment.lua is loaded for the REAL pure IncumbencyBlocks
 -- that GovernorBlocks calls -- so a drift in its >= operator is actually caught.
-local SUT = { "Core/TankMark_Assignment.lua", "Core/TankMark_Processor.lua" }
+local SUT = {
+    "Core/TankMark_Assignment.lua",
+    "Core/TankMark_Processor.lua",
+    "Core/TankMark_SyncCodec.lua",
+}
 for _, path in ipairs(SUT) do
     local fh = io.open(path, "r")
     if not fh then
