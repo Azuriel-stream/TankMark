@@ -144,7 +144,10 @@ TankMark.VERSION = (L._GetAddOnMetadata and L._GetAddOnMetadata("TankMark", "Ver
 TankMark.currentZone = nil
 
 function TankMark:GetCachedZone()
-    if not TankMark.currentZone then
+    -- [v0.29] Treat "" like nil. On a cold login GetRealZoneText() can return ""
+    -- (zone APIs not ready yet); "" is truthy in Lua, so without this guard a
+    -- stale empty zone would stick and every TankMarkProfileDB[zone] lookup misses.
+    if not TankMark.currentZone or TankMark.currentZone == "" then
         TankMark.currentZone = L._GetRealZoneText()
     end
     return TankMark.currentZone
@@ -276,7 +279,24 @@ TankMark:SetScript("OnEvent", function()
         end
         
         TankMark:Print("TankMark v" .. TankMark.VERSION .. " loaded.")
-        
+
+    elseif (event == "PLAYER_ENTERING_WORLD") then
+        -- [v0.29] First point where the zone APIs are reliable on a cold login
+        -- (and it fires after every loading screen). PLAYER_LOGIN caches the zone
+        -- too early -- GetRealZoneText() can still be "" there -- so re-read it
+        -- here and repaint, else the profile HUD is stuck on "NO PROFILE LOADED"
+        -- until some unrelated UpdateHUD fires.
+        local realZone = L._GetRealZoneText()
+        if realZone and realZone ~= "" then
+            TankMark.currentZone = realZone
+            if TankMark.LoadZoneData then
+                TankMark:LoadZoneData(realZone)
+            end
+        end
+        if L._GetNumRaidMembers() > 0 or L._GetNumPartyMembers() > 0 then
+            if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+        end
+
     elseif (event == "ZONE_CHANGED_NEW_AREA") then
         local oldZone = TankMark.currentZone
         TankMark.currentZone = L._GetRealZoneText()
@@ -285,7 +305,14 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.LoadZoneData then
             TankMark:LoadZoneData(TankMark.currentZone)
         end
-        
+
+        -- [v0.29] Repaint the HUD for the new zone's profile. This branch also
+        -- silently corrects a bad cold-login zone, so without this repaint the
+        -- HUD can stay stale until an unrelated UpdateHUD fires.
+        if L._GetNumRaidMembers() > 0 or L._GetNumPartyMembers() > 0 then
+            if TankMark.UpdateHUD then TankMark:UpdateHUD() end
+        end
+
         if TankMark.UpdateZoneDropdowns then TankMark:UpdateZoneDropdowns() end
         
         -- Disable Flight Recorder on zone change (safety)
@@ -364,6 +391,7 @@ end)
 
 TankMark:RegisterEvent("ADDON_LOADED")
 TankMark:RegisterEvent("PLAYER_LOGIN")
+TankMark:RegisterEvent("PLAYER_ENTERING_WORLD")
 TankMark:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 TankMark:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 TankMark:RegisterEvent("UNIT_HEALTH")
