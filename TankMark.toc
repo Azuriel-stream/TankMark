@@ -18,6 +18,7 @@ Core\TankMark_Processor.lua
 Core\TankMark_Death.lua
 Core\TankMark_Batch.lua
 Core\TankMark_Scanner.lua
+Core\TankMark_SyncCodec.lua
 Core\TankMark_Sync.lua
 
 # Data Management

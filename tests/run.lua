@@ -13,6 +13,7 @@ local SPECS = {
     "tests/incumbency_spec.lua",
     "tests/decide_mark_spec.lua",
     "tests/governor_spec.lua",
+    "tests/sync_codec_spec.lua",
 }
 for _, spec in ipairs(SPECS) do
     local fh = io.open(spec, "r")
