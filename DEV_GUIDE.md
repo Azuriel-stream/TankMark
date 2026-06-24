@@ -43,7 +43,8 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
   - Initializes `TankMark.MarkMemory` table.
   - `StartSuperScanner()` — OnUpdate loop with 4 phases: Reset → Snapshot (capture nameplates, reinforce `MarkMemory` for known marks, buffer candidates) → Decision (priority-sort candidates, execute `ProcessUnit`) → Cleanup (`ReviewSkullState`). **[v0.28, PR #53]** the Cleanup call is gated: `ReviewSkullState("SCANNER_TICK")` runs only when `batchIndex > 0 or UnitExists("mark8")` (an unmarked in-combat candidate exists, or a skull token needs review); when neither holds it has nothing to do, so the idle tick skips it (and stops spamming the SKULL_REVIEW debug log). Death-driven skull reassignment is unaffected — it runs via the `COMBAT_LOG`/`UNIT_DEATH` callers in `Death.lua`, not the scanner tick. **[v0.28, PR #55]** for the complementary *in-combat* case (a skull stays up, so this gate keeps calling every tick), `ReviewSkullState`'s own steady-state confirm short-circuit keeps the per-tick SKULL_REVIEW noise down — see its entry above.
   - `IsGUIDInCombat()`, `IsNameplate()`, `ScanForRangeSpell()`, `Driver_IsDistanceValid()`.
-- **TankMark_Sync.lua**: Raid data synchronization and TWA integration via addon messages.
+- **TankMark_SyncCodec.lua**: **[v0.29, swarm slice 1, PR #66]** Pure, definition-only wire codec for addon-message sync — the single source of truth for the `M` mob-record format. `EncodeMob(zone, mob, data)` → wire string; `Decode(msg)` → typed record `{ kind="M", zone, mob, prio, mark, type, class }` or nil. Owns the field order, `;` separator, `M` tag, defaults (first-mark-only / `KILL` / `NIL`-class sentinel), and all validation (numeric prio/mark, 0–8 range). No WoW/Ledger/session state and no top-level execution, so the off-client harness loads it directly (unlike `Sync.lua`, which builds a frame at load). Loaded before `Sync.lua`. See **Sync Wire Codec** under Key Systems.
+- **TankMark_Sync.lua**: Raid data synchronization via `TM_SYNC` addon messages. **[v0.29, swarm slice 0, PR #64]** the TWA/BigWigs inbound integration (`HandleTWABW`, `TWA_MarkMap`) is **removed** — one TM-native dialect now. `HandleSync` decodes via `SyncCodec.Decode` then performs the `TankMarkDB.Zones` write — the lone stateful apply edge (mirrors Ledger / `ApplyMarkIntent`); `BroadcastZone` encodes via `SyncCodec.EncodeMob`. Trust-gated by `IsTrustedSender` (raid Assist/Leader or party leader). Receiver-side consent hardening (offer/accept + per-player trust axis) is a later swarm slice (`SWARM_DESIGN.md` §7).
 
 ### Data/
 Database management and persistence
@@ -127,6 +128,12 @@ Toggle with `/tmark debug on|off`. Dump with `/tmark debug dump`, optionally fil
 ### Ownership Verification
 In `ProcessUnit()`, when SuperWoW is available, `GetRaidTargetIndex(guid)` results are cross-checked against `UnitExists("mark"..icon)` to detect stale marks from theft scenarios.
 
+### Sync Wire Codec
+**[v0.29, swarm slice 1, PR #66]** The `M` mob-record wire format is single-sourced in the pure `Core/TankMark_SyncCodec.lua` (`EncodeMob` / `Decode`), replacing two hand-rolled copies that previously lived apart in `Sync.lua` — the encoder in `BroadcastZone`, the decoder in `HandleSync` (the original roadmap #4 defect). Same shape as the Decision Layer: a **pure** core (decode → validate → reject malformed → typed record; no WoW/Ledger/session state) plus a **single guarded apply edge** — `HandleSync`'s `TankMarkDB.Zones` write — that owns the stateful effect. This is what makes the codec unit-testable off-client (see **Testing**), and it is the intended substrate for the swarm's wider message set (heartbeat, profile, handoff — `SWARM_DESIGN.md` §8). **[v0.29, swarm slice 0, PR #64]** the second dialect (TWA/BigWigs inbound) is removed, so the codec is purely TM-native. Receiver-side consent (offer/accept + trust axis) is designed but deferred to a later slice (§7).
+
+### Zone Cache & Cold-Login HUD Refresh
+**[v0.29, PR #65]** `TankMark.currentZone` caches the current zone; `GetCachedZone()` is the read accessor. On a *cold* login `GetRealZoneText()` can return `""` before the zone APIs are ready, and `""` is truthy in Lua — so a naive cache sticks on the empty string and every `TankMarkProfileDB[zone]` lookup (and the HUD) misses, showing **"NO PROFILE LOADED"**. Fixed three ways: `GetCachedZone()` treats `""` like nil; a new **`PLAYER_ENTERING_WORLD`** handler (the first reliable zone moment on login, and it fires after every loading screen) re-reads the zone, runs `LoadZoneData`, and repaints the HUD when grouped; and `ZONE_CHANGED_NEW_AREA` now repaints too. Vanilla gotcha to remember: zone APIs are unreliable until `PLAYER_ENTERING_WORLD` / `ZONE_CHANGED_NEW_AREA` — `PLAYER_LOGIN` is too early.
+
 ## Adding New Features
 
 ### Adding a New Mark Assignment Rule
@@ -177,8 +184,10 @@ only through an injected **board** of ports (roadmap #2 Tier 2). Production wire
 lua5.1 tests/run.lua
 ```
 Exits non-zero if any assertion fails. The harness needs only Lua itself — no WoW
-client, and no mock of the `Locals` table: the decide layer is zero-global apart
-from the pure-language `L._tgetn`, which the harness shims with `table.getn`.
+client, and no mock of the `Locals` table: the system under test is zero-global
+apart from a few pure-language utilities the harness shims to their stock Lua
+versions — `L._tgetn` (→ `table.getn`) for the decide layer, and **[v0.29]**
+`L._sub` / `L._strfind` / `L._tonumber` for the SyncCodec.
 
 **Runtime:** production code stays Lua **5.0**-idiomatic (Vanilla WoW); the harness
 runs on Lua **5.1** (closest widely-available interpreter — it still has
@@ -187,14 +196,15 @@ runs on Lua **5.1** (closest widely-available interpreter — it still has
 **Layout** (`tests/`, dev-only — never shipped to the AddOns folder; the deploy
 script excludes the whole tree by path prefix):
 - `run.lua` — entry point; lists the spec files and prints a pass/fail summary.
-- `support/harness.lua` — stubs the minimum, loads the SUT (`Assignment.lua` +
-  `Processor.lua`, both definition-only), and provides a tiny `describe`/`it`/`eq`
-  /`eq_intent` runner.
+- `support/harness.lua` — stubs the minimum, loads the SUT (`Assignment.lua`,
+  `Processor.lua`, and **[v0.29]** `SyncCodec.lua` — all definition-only), and
+  provides a tiny `describe`/`it`/`eq`/`eq_intent` runner.
 - `support/board.lua` — `make_board(overrides)`, a mock ports board with safe
   defaults (in combat, nothing busy/disabled/free, no CC, no blocker).
 - `*_spec.lua` — `incumbency_spec` (the pure `IncumbencyBlocks` predicate),
   `decide_mark_spec` (combat gate, selection, fallback, bails), `governor_spec`
-  (skull governor, CC, the `allowSteal` asymmetry).
+  (skull governor, CC, the `allowSteal` asymmetry), and **[v0.29]** `sync_codec_spec`
+  (the pure `SyncCodec` encode/decode round-trip + every rejection rule).
 
 **Adding a spec:** create `tests/<name>_spec.lua` using `describe`/`it`/`eq`/
 `eq_intent` and `make_board{...}`, then add it to the `SPECS` list in `run.lua`.
