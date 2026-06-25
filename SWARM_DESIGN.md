@@ -435,8 +435,13 @@ real raid before any behavior depends on it; the automation-gate flip (slice 3) 
 data plane (4) and handoff (5) layer on; security (6) is reviewable in isolation; the bulky
 opt-in DB attach (7) lands last.
 
-**Build status (2026-06-25):** slices **0** (remove TWA, PR #64) and **1** (codec + harness,
-PR #66) are shipped and in-game-verified. **Slice 2's design is ratified — see §5.8** (pure
-`ElectQueen`, two-filter candidate set, 15s bootstrap, claimant-count split-brain resolution,
-display-only scope). Slices 3–7 are unchanged. Next action: build slice 2 (election pure-core
-test-first in `tests/`, then wire the shell / heartbeat / HUD).
+**Build status (2026-06-25):** slices **0** (remove TWA, PR #64), **1** (codec + harness,
+PR #66), and **2** (control-plane tracer, PR #69) are shipped and in-game-verified. Slice 2
+landed in three harness-checkpointed commits — pure election core (`Core/TankMark_Swarm.lua`:
+`ElectQueen`/`ComputePresence`/`DeriveRole`, §5.8) + `Q` heartbeat in the codec, then the
+runtime shell (beat frame / roster build / bootstrap / `Recompute`), then the HUD status line
++ debounced chat notice. The deterministic election held live: exact 15s bootstrap windows,
+correct party-leader DRONE deference, no double-queen. **Display-only confirmed** — no marking
+path was touched. Slices **3–7 are unchanged. Next action: build slice 3** (single-marker
+enforcement — the isolated `CanAutomate`/`Driver_ApplyMark` flip, acting on slice 2's verified
+queen).
