@@ -274,7 +274,12 @@ whenever marking is possible the frame exists and `selfAmQueen` governs.
   un-gated every drone races to strip the queen's marks the instant combat ends** — and the
   **physical-strip loop only** inside `ResetSession` (the local-state reset above it stays
   ungated, so `/tmark reset` on a drone clears local state without stripping the group's world
-  marks).
+  marks). **[build, PR #72]** the audit during the build surfaced a *third* site this list
+  originally missed: **`ReviewSkullState`** records skull ownership (`RegisterMarkUsage`)
+  *before* `Driver_ApplyMark`, so it reaches `SetRaidTarget` indirectly and didn't show in the
+  direct-write grep. All its callers are already `ShouldDriveMarks`-gated, but its own gate was
+  tightened too (defense-in-depth, so a non-queen can never record a phantom drone-Ledger
+  skull). Net migration: **7 `CanAutomate` + 3 `HasPermissions` = 10 gates.**
 
 **Deliberately untouched:** `CanAutomate` body · `SelfIsCandidate` (candidacy) · `BroadcastZone`
 (data-plane sync eligibility, not a marking edge) · `ResetSession`'s local-state reset · the
@@ -533,8 +538,11 @@ landed in three harness-checkpointed commits — pure election core (`Core/TankM
 runtime shell (beat frame / roster build / bootstrap / `Recompute`), then the HUD status line
 + debounced chat notice. The deterministic election held live: exact 15s bootstrap windows,
 correct party-leader DRONE deference, no double-queen. **Display-only confirmed** — no marking
-path was touched. **Slice 3's design is now ratified (§5.9)** — the candidacy/active-marking
-split (`ShouldDriveMarks()`, fail-open), the 7-site `CanAutomate` migration + the audit-found
-`HasPermissions` holes (automatic pull-end clear, `ResetSession` strip), and the consciously
-out-of-scope NUCLEAR wipe. Slices **4–7 are unchanged. Next action: build slice 3** against
-this ratified spec, then in-game 2-box verify.
+path was touched. **Slice 3 (single-marker enforcement) is shipped and in-game-verified
+(PR #72, §5.9)** — the candidacy/active-marking split (`ShouldDriveMarks()`, fail-open), the
+**10-gate** migration (7 `CanAutomate` + 3 `HasPermissions`: automatic pull-end clear,
+`ResetSession` strip, and the build-found `ReviewSkullState` record-before-apply path), with
+the NUCLEAR wipe consciously left alone. 2-box live: queen marks / drone silent / DRONE
+deference (queen=Frostkeg) / failover reclaim with no gap; harness 75/0. **Next action: build
+slice 4** (profile-sync — drones render the queen's plan, filling the mark grid that slice 3
+intentionally left blank).
