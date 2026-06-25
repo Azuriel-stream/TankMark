@@ -133,6 +133,15 @@ Swarm.bootstrapping  = false
 Swarm.bootstrapUntil = 0
 Swarm.wasCandidate   = false
 
+-- [v0.29] slice 2 tracer: chat-notice debounce. The HUD line follows the election
+-- live, but a chat announcement waits for the (role,queen) pair to survive >= one
+-- heartbeat cycle, so the ~1s NONE flicker on a leader handover never reaches chat.
+Swarm.committedRole  = nil
+Swarm.committedQueen = nil
+Swarm.pendingRole    = nil
+Swarm.pendingQueen   = nil
+Swarm.pendingSince   = 0
+
 function Swarm.SelfName()
     return L._UnitName("player")
 end
@@ -214,6 +223,44 @@ function Swarm.Recompute(now)
         end
         Swarm.lastRole     = role
         Swarm.currentQueen = queen
+        -- [v0.29] slice 2 tracer: the HUD status line follows the election live.
+        -- Repaint only an already-built HUD so we never force early creation.
+        if TankMark.hudFrame and TankMark.UpdateHUD then TankMark:UpdateHUD() end
+    end
+
+    -- [v0.29] Debounced chat notice -- evaluated EVERY recompute (not only on a
+    -- transition) so the commit can fire on a later tick once the state settles.
+    Swarm.UpdateNotice(now, role, queen)
+end
+
+-- Debounced chat announcer (slice 2 tracer). A (role,queen) pair must persist for
+-- >= one heartbeat cycle before it is announced, so a transient flicker (e.g. a 1s
+-- NONE during a leader handover) is swallowed. BOOTSTRAP commits silently -- it
+-- always resolves to QUEEN/DRONE/NONE within the window. DISPLAY-ONLY: this prints
+-- chat, it never marks.
+function Swarm.UpdateNotice(now, role, queen)
+    if role ~= Swarm.pendingRole or queen ~= Swarm.pendingQueen then
+        Swarm.pendingRole, Swarm.pendingQueen = role, queen
+        Swarm.pendingSince = now
+        return
+    end
+    if (now - Swarm.pendingSince) < Swarm.HEARTBEAT_INTERVAL then return end
+    if role == Swarm.committedRole and queen == Swarm.committedQueen then return end
+
+    Swarm.committedRole, Swarm.committedQueen = role, queen
+    if role == "BOOTSTRAP" then return end -- transient: settle silently
+
+    -- Solo has no swarm to narrate -- commit silently so a later group transition
+    -- still announces correctly, but keep chat quiet (the HUD line still shows).
+    if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
+
+    if role == "QUEEN" then
+        TankMark:Print("You are the marking |cffffd100Queen|r.")
+    elseif role == "DRONE" then
+        TankMark:Print("|cffffd100" .. (queen or "?")
+            .. "|r is the marking Queen. You are a drone (read-only).")
+    else -- NONE
+        TankMark:Print("No marking Queen -- marking is paused.")
     end
 end
 
