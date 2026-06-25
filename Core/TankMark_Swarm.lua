@@ -314,3 +314,11 @@ function Swarm.InitSwarm()
     Swarm.frame = f
     Swarm.Recompute(L._GetTime())
 end
+
+-- [v0.29] slice 3: liveness predicate for the marking gate. ShouldDriveMarks
+-- (Permissions.lua) reads this to decide whether selfAmQueen is authoritative.
+-- True once InitSwarm has built the beat frame (so the election is producing a
+-- queen). Pure read. When false, ShouldDriveMarks fails open (see sec.5.9).
+function Swarm.IsRunning()
+    return Swarm.frame ~= nil
+end

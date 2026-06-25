@@ -29,6 +29,27 @@ function TankMark:CanAutomate()
     return true
 end
 
+-- [v0.29] swarm slice 3: the MARKING gate, deliberately distinct from the
+-- candidacy gate above. CanAutomate answers "am I ELIGIBLE to mark?" -- it drives
+-- the swarm election / failover pool (Swarm.SelfIsCandidate reads it), so it must
+-- stay unchanged or the candidate set collapses. ShouldDriveMarks answers "should
+-- I mark RIGHT NOW?" = eligible AND the swarm says I am the queen. Fail-open: if
+-- the election shell is not running (Swarm absent / InitSwarm never fired), degrade
+-- to today's eligible-clients-mark behavior rather than going silent -- the swarm
+-- is an enhancement over a working baseline, and the server rank-gate is the real
+-- safety backstop. This is the ONE gate every slice-3 marking site reads. No
+-- circular dependency: it reads the STORED field selfAmQueen (set by Recompute from
+-- SelfIsCandidate->CanAutomate), never CanAutomate's queen-status. See
+-- SWARM_DESIGN.md sec.5.9.
+function TankMark:ShouldDriveMarks()
+    if not TankMark:CanAutomate() then return false end
+    local swarm = TankMark.Swarm
+    if swarm and swarm.IsRunning() and not swarm.selfAmQueen then
+        return false
+    end
+    return true
+end
+
 -- ==========================================================
 -- UTILITIES
 -- ==========================================================
