@@ -32,7 +32,11 @@ function TankMark:StartSuperScanner()
         elapsed = 0
         
         if not TankMark.IsRecorderActive then
-            if not TankMark:CanAutomate() then return end
+            -- [v0.29] slice 3: only the swarm queen drives the scan (was CanAutomate).
+            -- A non-queen drone does ZERO scan work -- no snapshot, no Reaffirm, no
+            -- decision -- matching "a drone is a passive renderer, no scanner". The
+            -- recorder bypass above is preserved: recording stays open to anyone.
+            if not TankMark:ShouldDriveMarks() then return end
             if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
         end
         
