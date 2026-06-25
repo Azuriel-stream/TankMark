@@ -21,6 +21,9 @@ TankMark.Locals._tgetn    = TankMark.Locals._tgetn    or table.getn
 TankMark.Locals._sub      = TankMark.Locals._sub      or string.sub
 TankMark.Locals._strfind  = TankMark.Locals._strfind  or string.find
 TankMark.Locals._tonumber = TankMark.Locals._tonumber or tonumber
+TankMark.Locals._tinsert  = TankMark.Locals._tinsert  or table.insert
+TankMark.Locals._pairs    = TankMark.Locals._pairs    or pairs
+TankMark.Locals._ipairs   = TankMark.Locals._ipairs   or ipairs
 
 -- ---- load the system under test --------------------------------------------
 -- Both files are definition-only (no top-level execution), so they load cleanly
@@ -30,6 +33,7 @@ local SUT = {
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",
     "Core/TankMark_SyncCodec.lua",
+    "Core/TankMark_Swarm.lua",
 }
 for _, path in ipairs(SUT) do
     local fh = io.open(path, "r")
