@@ -115,3 +115,155 @@ function Swarm.DeriveRole(selfName, queenName, bootstrapping)
     if queenName == selfName then return "QUEEN" end
     return "DRONE"
 end
+
+-- ==========================================================
+-- RUNTIME SHELL  [v0.29] slice 2 -- the stateful wiring around the pure core.
+-- This section reads WoW state and builds a frame, so it runs in-game only (the
+-- tests/ harness exercises the pure functions above). It NEVER marks: there is no
+-- SetRaidTarget here and CanAutomate is only ever READ.
+-- ==========================================================
+
+-- Heard-state, runtime only (bounded by raid size, keyed by player name).
+Swarm.lastHeard      = {}    -- [name] = GetTime() of last beat
+Swarm.amQueenHeard   = {}    -- [name] = that beat's amQueen flag
+Swarm.selfAmQueen    = false -- what WE currently advertise
+Swarm.currentQueen   = nil   -- last elected queen (transition/repaint detection)
+Swarm.lastRole       = nil
+Swarm.bootstrapping  = false
+Swarm.bootstrapUntil = 0
+Swarm.wasCandidate   = false
+
+function Swarm.SelfName()
+    return L._UnitName("player")
+end
+
+-- The existing automation gate IS the candidacy gate (SWARM_DESIGN.md sec.5.8 /
+-- Q1). Read-only -- slice 2 never mutates CanAutomate.
+function Swarm.SelfIsCandidate()
+    return TankMark:CanAutomate()
+end
+
+-- Build { [name] = rank } from the server-authoritative roster. Raid: real ranks
+-- (0/1/2). Party: only the leader is a candidate, so model the leader as rank 2
+-- and everyone else 0 (the rank>=1 filter keeps just the leader). Solo: self at
+-- rank 2. Rank is read here, never trusted from a heartbeat payload.
+function Swarm.BuildRoster()
+    local roster = {}
+    if L._GetNumRaidMembers() > 0 then
+        for i = 1, 40 do
+            local n, rank = L._GetRaidRosterInfo(i)
+            if n then roster[n] = rank or 0 end
+        end
+    elseif L._GetNumPartyMembers() > 0 then
+        local me = Swarm.SelfName()
+        if me then roster[me] = L._IsPartyLeader() and 2 or 0 end
+        for i = 1, 4 do
+            local n = L._UnitName("party"..i)
+            if n then roster[n] = L._UnitIsPartyLeader("party"..i) and 2 or 0 end
+        end
+    else
+        local me = Swarm.SelfName()
+        if me then roster[me] = 2 end -- solo: sole candidate
+    end
+    return roster
+end
+
+-- The orchestrator: rebuild the world, run bootstrap entry/exit, run the pure
+-- election, update our own claim, and log transitions. Idempotent -- safe to call
+-- on any trigger (tick, receive, roster change).
+function Swarm.Recompute(now)
+    local selfName = Swarm.SelfName()
+    if not selfName then return end
+
+    local selfIsCandidate = Swarm.SelfIsCandidate()
+
+    -- Bootstrap ENTRY: just became a candidate -> open the listen-window.
+    if selfIsCandidate and not Swarm.wasCandidate then
+        Swarm.bootstrapping  = true
+        Swarm.bootstrapUntil = now + Swarm.PRESENCE_WINDOW
+        Swarm.selfAmQueen    = false
+    end
+    Swarm.wasCandidate = selfIsCandidate
+
+    local roster = Swarm.BuildRoster()
+    local present, claimants = Swarm.ComputePresence(
+        selfName, selfIsCandidate, Swarm.selfAmQueen,
+        Swarm.lastHeard, Swarm.amQueenHeard, roster, now, Swarm.PRESENCE_WINDOW)
+
+    -- Bootstrap EXIT: defer to any heard incumbent (during bootstrap we do not
+    -- claim, so any claimant is someone else), or when the listen-window elapses.
+    if Swarm.bootstrapping and (L._tgetn(claimants) >= 1 or now >= Swarm.bootstrapUntil) then
+        Swarm.bootstrapping = false
+    end
+
+    local queen = Swarm.ElectQueen(present, claimants, roster)
+
+    -- Assert queen only once past bootstrap, still a candidate, and elected.
+    Swarm.selfAmQueen = (not Swarm.bootstrapping) and selfIsCandidate and (queen == selfName)
+
+    local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
+    if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen then
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("SWARM", "election -> " .. role, {
+                queen     = queen or "none",
+                present   = L._tgetn(present),
+                claimants = L._tgetn(claimants),
+                boot      = Swarm.bootstrapping and "Y" or "N",
+                amQueen   = Swarm.selfAmQueen and "Y" or "N",
+            })
+        end
+        Swarm.lastRole     = role
+        Swarm.currentQueen = queen
+    end
+end
+
+-- Emit one heartbeat if we are a candidate and there is a group to hear it. Rides
+-- the shared TM_SYNC prefix + 0.3s throttle; the 3-miss threshold absorbs any
+-- delay behind a mob-sync burst.
+function Swarm.SendBeat()
+    if not Swarm.SelfIsCandidate() then return end
+    if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
+    local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    TankMark:QueueMessage(TankMark.SyncPrefix,
+        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen), channel)
+end
+
+-- Receive path, dispatched from HandleSync on kind=="Q". sender is the
+-- server-authoritative unit name; rec is the decoded heartbeat. Stamp presence +
+-- claim, then recompute immediately.
+function Swarm.OnHeartbeat(sender, rec)
+    if not sender or not rec then return end
+    local now = L._GetTime()
+    Swarm.lastHeard[sender]    = now
+    Swarm.amQueenHeard[sender] = rec.amQueen and true or false
+    Swarm.Recompute(now)
+end
+
+-- Roster-change recompute: catches a demote/leave instantly via the eligibility
+-- filter, not the 15s presence timeout.
+function Swarm.OnRosterChange()
+    Swarm.Recompute(L._GetTime())
+end
+
+-- The 5s tick: beat, then recompute (the recompute also sweeps stale candidates
+-- via the presence filter -- the sole detector of a silent drop-out).
+function Swarm.Tick(now)
+    Swarm.SendBeat()
+    Swarm.Recompute(now)
+end
+
+-- Deferred init (called from the entry point, SuperWoW-gated). Builds the beat
+-- frame and runs one immediate compute so the role is known at once. Idempotent.
+function Swarm.InitSwarm()
+    if Swarm.frame then return end
+    local f = L._CreateFrame("Frame", "TMSwarmFrame")
+    local elapsed = 0
+    f:SetScript("OnUpdate", function()
+        elapsed = elapsed + arg1
+        if elapsed < Swarm.HEARTBEAT_INTERVAL then return end
+        elapsed = 0
+        Swarm.Tick(L._GetTime())
+    end)
+    Swarm.frame = f
+    Swarm.Recompute(L._GetTime())
+end

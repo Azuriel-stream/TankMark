@@ -262,6 +262,13 @@ TankMark:SetScript("OnEvent", function()
         -- Calls to Scanner Module
         TankMark:InitDriver()
 
+        -- [v0.29] Swarm slice 2: start the control-plane tracer (display-only).
+        -- SuperWoW-gated like the rest of automation -- a non-SuperWoW client is
+        -- never a candidate. Computes/displays the queen; changes NO marking.
+        if TankMark.IsSuperWoW and TankMark.Swarm then
+            TankMark.Swarm.InitSwarm()
+        end
+
         -- [v0.26 FINAL] NUCLEAR OPTION
         -- Unconditionally wipe ALL marks on startup/reload.
         -- This kills any "ghost" marks from TurtleWoW static GUIDs.
@@ -341,6 +348,10 @@ TankMark:SetScript("OnEvent", function()
         end
         
     elseif (event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED") then
+        -- [v0.29] Swarm: recompute on every roster change so a demote/leave drops
+        -- a candidate instantly via the eligibility filter (not the 15s timeout).
+        if TankMark.Swarm then TankMark.Swarm.OnRosterChange() end
+
         -- [v0.22] Check if player left party/raid
         local numRaid = L._GetNumRaidMembers()
         local numParty = L._GetNumPartyMembers()

@@ -3,6 +3,9 @@
 if not TankMark then return end
 
 local SYNC_PREFIX = "TM_SYNC"
+-- [v0.29] Exposed so the swarm shell (Core/TankMark_Swarm.lua) sends heartbeats
+-- on the same prefix it receives them on. One transport, one trust gate.
+TankMark.SyncPrefix = SYNC_PREFIX
 
 -- ==========================================================
 -- LOCALIZATIONS
@@ -45,7 +48,18 @@ function TankMark:HandleSync(prefix, msg, sender)
 	-- [v0.29] Decode + validate through the pure codec. The DB write below is the
 	-- single stateful apply edge (mirrors the Ledger / ApplyMarkIntent pattern).
 	local rec = TankMark.SyncCodec.Decode(msg)
-	if not rec or rec.kind ~= "M" then return end
+	if not rec then return end
+
+	-- [v0.29] slice 2: a control-plane heartbeat routes to the swarm shell. It
+	-- passed the same IsTrustedSender (rank>=1) gate as the M data record above --
+	-- which is exactly the candidate set -- and the swarm reads rank from the
+	-- roster regardless, so a spoofed payload cannot promote anyone.
+	if rec.kind == "Q" then
+		if TankMark.Swarm then TankMark.Swarm.OnHeartbeat(sender, rec) end
+		return
+	end
+
+	if rec.kind ~= "M" then return end
 
 	if not TankMarkDB.Zones[rec.zone] then TankMarkDB.Zones[rec.zone] = {} end
 	-- [v0.23] marks stored as an array (the wire carries only the first mark).
