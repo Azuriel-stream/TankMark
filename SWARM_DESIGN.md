@@ -1,8 +1,9 @@
 # TankMark Swarm Design (target v0.29+)
 
-**Status:** Design — not yet built. This is the buildable spec produced from a design
-stress-test session. Code is currently tagged `[v0.28]`; `.toc` is `0.27`. No code in
-this document exists yet.
+**Status:** Slices 0–1 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
++ harness, PR #66). Slice 2 (control-plane tracer) **design ratified** — see §5.8. New swarm
+code is tagged `[v0.29]`; `.toc` is `0.27`. The sections below describe the full target;
+per-slice build status lives in §12.
 
 **Scope note:** This started as roadmap item **#4 (Sync codec tidy-up)** and expanded —
 deliberately — into the full **swarm** feature, because the codec's correct shape is
@@ -152,6 +153,84 @@ reopens the multi-queen race and bypasses stickiness. The queen is the single lo
   candidate → everyone re-elects. No new protocol. The swarm keeps marking via the AFK
   queen's still-running scanner in the meantime.
 
+### 5.8 Ratified mechanics — slice 2 (control-plane tracer)
+
+*Resolved 2026-06-25 in a slice-2 design stress-test. The buildable specifics behind
+§5.1–§5.7; the §10 "state machine" and codec-dispatch items are nailed here.*
+
+**Module & shape.** A new `Core/TankMark_Swarm.lua`, loaded **after `Sync.lua`** (it uses
+the transport). A **pure election function** + a thin stateful shell, mirroring
+`SyncCodec`/`DecideMark` — the election carries **no globals** and is unit-tested off-client
+in `tests/`.
+
+**Election as one rule.** §5.1 (election), §5.2 (split-brain), and §5.3 (stickiness) collapse
+into a single pure function over the *claimants* — present candidates whose latest beat
+asserted `amQueen=true` (self included if asserting):
+- **≥2 claimants** → `deterministicMax(claimants)` — split-brain: the tiebreak **overrides**
+  stickiness.
+- **1 claimant** → that claimant — **stickiness** (the single incumbent is respected, even
+  against a higher-rank *non*-claimant).
+- **0 claimants** → `deterministicMax(presentCandidates)` — fresh election (bootstrap-resolve
+  / failover).
+
+`deterministicMax` = highest roster rank, then lowest name. Stickiness needs **no
+stored-incumbent input** — it *is* the 1-claimant branch (the shell keeps `currentQueen` only
+for repaint-detection + slice-4 rendering, never as an election input). This converges out of
+split-brain deterministically: both queens read the same roster + names → same
+`deterministicMax` → **exactly one yields** (never zero → no-queen, never two → persistent
+split). Drops only *delay* convergence (beats repeat; the yield is event-driven on receive);
+stale in-flight `amQueen` beats are idempotent (the winner keeps winning). The honest cost is
+a **blackout flicker** — a third observer that loses the real queen for the full timeout
+*must* fail over, then snaps back; inherent, and the 3-miss threshold is the knob that makes
+it rare.
+
+**Candidate set — two filters, recomputed each pass:**
+- `self` iff `CanAutomate()` — self-presence reads the **gate**, not heartbeats (we never
+  hear our own beats).
+- each `X≠self` iff `now − lastHeard[X] < interval×miss` **and** `rosterRank(X) ≥ 1`.
+
+Presence (`lastHeard`) and *current* eligibility (roster rank) are **both** filters, and catch
+different failures: eligibility drops a **demote/leave instantly** (on `RAID_ROSTER_UPDATE`,
+without waiting the timeout); presence drops an **unclean DC** at the timeout.
+
+**Recompute triggers (pure + idempotent → trigger liberally):** the 5s heartbeat tick (also
+the *sole* detector of a silent drop-out — the failover backstop), plus heartbeat-receive
+(`CHAT_MSG_ADDON`) and `RAID_ROSTER_UPDATE` / `PARTY_MEMBERS_CHANGED`.
+
+**Bootstrap (§5.5 concretized).** The listen-window = the **full timeout (interval×miss ≈
+15s)**, symmetric with presence and free because slice 2 marks nothing. During it the
+candidate **beats `amQueen=false`** (a visible candidate, not a claimant), defers to **drone**
+immediately on any heard `amQueen=true`, else elects when the window closes. Its real job is
+*collecting the full present-set so the deterministic election has complete input* — that, not
+"wait then self-elect," is what kills the join race. Enter on `CanAutomate()` false→true.
+
+**Heartbeat wire.** Reuses the `TM_SYNC` prefix via `SyncCodec` typed `kind`-dispatch. The `Q`
+record carries **`amQueen` only** — rank is read from the roster (unspoofable), never sent;
+**`planVersion` is omitted until slice 4** and `Q`-decode tolerates trailing fields so slice 4
+adds it without a wire break. Send = one 5s `OnUpdate`, `CanAutomate()`-gated (candidates
+only), via the existing `QueueMessage` throttle (the 3-miss threshold absorbs any delay behind
+a mob-sync burst).
+
+**Display (the deliverable).** (1) HUD **status line** = the elected **queen's name** + your
+role, rendered in *both* the profiled and `NO PROFILE LOADED` states — the name is the
+consensus-agreement signal you eyeball across the raid; (2) a `DebugEnabled`-guarded **`SWARM`
+debug category** logging recompute inputs/output/transitions — the primary live acceptance
+instrument; (3) a **chat notice debounced ≥1 cycle** to survive the blackout-flicker.
+
+**Scope boundary (the keystone invariant).** Slice 2 touches **none** of `CanAutomate`,
+`Driver_ApplyMark`, the scanner, or `ProcessUnit` — marking stays byte-for-byte today's
+behavior. And today already *adopts and respects* an existing valid mark (`ProcessUnit` reads
+`GetRaidTargetIndex`, verifies the server-side `mark` token, then returns **without**
+overwriting), so a slice-2 **DRONE does not stomp the queen's marks**. The residual conflicts
+slice 3 removes are narrow: the same-tick race on an *unmarked* mob, and divergent decisions
+across clients (notably `getFreeTankIcon()` reading each client's *local* Ledger). The tracer
++ `SWARM` log let you **measure** how often those actually fire before committing to the
+slice-3 flip.
+
+**Degenerate cases.** Party (not raid): `HasPermissions` = `IsPartyLeader`, so the leader is
+the **only** candidate — forced queen, no tiebreak, no party-rank source needed. Solo: sole
+self-candidate. No special-casing; the 15s solo bootstrap delay is cosmetic and left as-is.
+
 ---
 
 ## 6. Data plane — derive-local
@@ -262,7 +341,7 @@ The protocol's known message set, to be single-sourced in a **typed-message code
 |---|---|---|---|
 | `M` mob record | data | TM↔TM | exists today; the coupled-at-a-distance round-trip to single-source |
 | profile record | data | TM→drones | new — the drone-visibility artifact |
-| `Q` heartbeat | control | candidate→all | `amQueen` + `planVersion` |
+| `Q` heartbeat | control | candidate→all | `amQueen` (+ `planVersion` from slice 4; slice-2 wire is `amQueen`-only — see §5.8) |
 | resign / claim | control | candidate→all | clean-transition fast-path |
 | handoff offer / ACK | control | queen↔target | two-phase, optional DB attachment |
 | pull-request | data | drone→queen | `planVersion`-mismatch refetch |
@@ -307,12 +386,16 @@ get nailed *within* their owning slice rather than up front.
 
 ## 10. Still to design (mechanical — recommendations exist, need ratifying)
 
-- **Drone-mode state machine:** role states (queen / candidate / drone / bootstrapping),
-  transitions, scanner suppression for drones, read-only HUD indicator, debounced
-  transition chat notices ("PlayerX is queen — you are a drone").
+- ~~**Drone-mode state machine**~~ → **RATIFIED in slice 2 (§5.8):** role is *derived*, not a
+  stored FSM (queen / drone / bootstrapping fall out of the `amQueen`-claim set + candidacy +
+  the listen-window); scanner suppression is **slice 3**, not here; the read-only HUD indicator
+  and the debounced (≥1 cycle) transition notice are specified.
 - **`planVersion` mechanics:** exactly what it hashes (the zone profile), and the
-  pull-request round-trip.
-- **Codec encoding detail:** the per-type wire format and the typed dispatch table.
+  pull-request round-trip. *(Still open — owned by slice 4; the slice-2 `Q` wire omits the
+  field and decode tolerates its later addition.)*
+- ~~**Codec encoding detail**~~ → **partially ratified (§5.8):** the `Q` heartbeat rides the
+  `TM_SYNC` prefix via `SyncCodec` typed `kind`-dispatch (`amQueen` only). Per-type detail for
+  the later message types still evolves with their owning slices.
 
 ---
 
@@ -351,3 +434,9 @@ as the substrate; the *display-only* tracer (slice 2) puts the novel election/he
 real raid before any behavior depends on it; the automation-gate flip (slice 3) is isolated;
 data plane (4) and handoff (5) layer on; security (6) is reviewable in isolation; the bulky
 opt-in DB attach (7) lands last.
+
+**Build status (2026-06-25):** slices **0** (remove TWA, PR #64) and **1** (codec + harness,
+PR #66) are shipped and in-game-verified. **Slice 2's design is ratified — see §5.8** (pure
+`ElectQueen`, two-filter candidate set, 15s bootstrap, claimant-count split-brain resolution,
+display-only scope). Slices 3–7 are unchanged. Next action: build slice 2 (election pure-core
+test-first in `tests/`, then wire the shell / heartbeat / HUD).
