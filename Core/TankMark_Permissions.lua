@@ -92,7 +92,10 @@ function TankMark:Driver_ApplyMark(unitOrGuid, icon)
     end
     
     -- Original function logic
-    if TankMark:CanAutomate() then
+    -- [v0.29] slice 3: the sole SetRaidTarget edge is the authoritative single-marker
+    -- enforcement point -- gated by ShouldDriveMarks (was CanAutomate), so even a stray
+    -- caller cannot make a non-queen place a mark.
+    if TankMark:ShouldDriveMarks() then
         L._SetRaidTarget(unitOrGuid, icon)
     else
         -- [DEBUG] Log when mark application is blocked

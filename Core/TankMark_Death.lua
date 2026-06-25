@@ -19,7 +19,7 @@ function TankMark:InitCombatLogParser()
 end
 
 function TankMark:HandleCombatLog(msg)
-	if not TankMark:CanAutomate() or not TankMark.DeathPattern then return end
+	if not TankMark:ShouldDriveMarks() or not TankMark.DeathPattern then return end
 	local _, _, deadMobName = L._strfind(msg, TankMark.DeathPattern)
 	if deadMobName then
 		local iconID = TankMark.Ledger.IconForName(deadMobName)
@@ -41,7 +41,7 @@ end
 -- ==========================================================
 
 function TankMark:HandleDeath(unitID)
-	if not TankMark:CanAutomate() then return end
+	if not TankMark:ShouldDriveMarks() then return end
 
 	-- Handle MOB death
 	if not L._UnitIsPlayer(unitID) then
@@ -260,9 +260,13 @@ function TankMark:ReviewSkullState(callerID)
 	end
 
 	-- 1. Basic Checks
-	if not TankMark:HasPermissions() then
+	-- [v0.29] slice 3: gated to the swarm queen (was HasPermissions). This is a
+	-- record-before-apply marking path (RegisterMarkUsage -> Driver_ApplyMark below),
+	-- so a non-queen must not even reach the Ledger write. All callers are already
+	-- ShouldDriveMarks-gated; this is the consistent defense-in-depth backstop.
+	if not TankMark:ShouldDriveMarks() then
 		if TankMark.DebugEnabled then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - no permissions", {
+			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - not active marker", {
 				caller = _caller,
 			})
 		end
@@ -395,7 +399,7 @@ end
 -- ==========================================================
 
 function TankMark:UnmarkUnit(unit)
-	if not TankMark:CanAutomate() then return end
+	if not TankMark:ShouldDriveMarks() then return end
 	local currentIcon = L._GetRaidTargetIndex(unit)
 	TankMark:Driver_ApplyMark(unit, 0)
 	if currentIcon then
@@ -413,7 +417,10 @@ end
 -- /tmark reset: it preserves the raid leader's plan (sessionAssignments, profile DB,
 -- disabledMarks, sequentialMarkCursor, recorder) -- none of which are Ledger indices.
 function TankMark:ClearMarksForPullEnd()
-	if not TankMark:HasPermissions() then return end
+	-- [v0.29] slice 3: queen-only (was HasPermissions). This fires automatically on
+	-- PLAYER_REGEN_ENABLED; un-gated, every eligible drone would race to strip the
+	-- queen's marks the instant combat ends. Only the active marker clears.
+	if not TankMark:ShouldDriveMarks() then return end
 
 	local n = 0
 	for i = 1, 8 do
@@ -453,7 +460,11 @@ function TankMark:ResetSession()
 		end
 	end
 
-	if TankMark:HasPermissions() then
+	-- [v0.29] slice 3: the local-state reset above is unconditional (harmless local
+	-- hygiene); only the PHYSICAL world-mark strip below is queen-gated (was
+	-- HasPermissions). So `/tmark reset` on a drone clears its own state without
+	-- stripping the group's (queen's) marks. A solo player is the queen post-bootstrap.
+	if TankMark:ShouldDriveMarks() then
 		for i = 1, 8 do
 			if L._UnitExists("mark" .. i) then
 				L._SetRaidTarget("mark" .. i, 0)

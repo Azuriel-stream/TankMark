@@ -81,9 +81,16 @@ function TankMark:ExecuteBatchMarking()
         return -- Silent if no candidates
     end
     
-    -- Permission/Profile check
-    if not TankMark:CanAutomate() then
-        TankMark:Print("|cffff0000Batch marking aborted: Permission/Profile check failed.|r")
+    -- [v0.29] slice 3: manual batch is gated to the swarm queen, not just eligibility
+    -- (honors "drones have no SetRaidTarget path"). A drone (eligible but not queen) is
+    -- told who the active marker is, rather than a misleading permission error.
+    if not TankMark:ShouldDriveMarks() then
+        if TankMark:CanAutomate() then
+            local q = TankMark.Swarm and TankMark.Swarm.currentQueen
+            TankMark:Print("|cffff0000Batch marking suppressed:|r " .. (q and (q .. " is the active marker.") or "another client is the active marker."))
+        else
+            TankMark:Print("|cffff0000Batch marking aborted: Permission/Profile check failed.|r")
+        end
         TankMark.batchCandidates = {}
         return
     end
@@ -228,9 +235,10 @@ function TankMark:ProcessBatchMark(candidateData)
         end
     end
     
-    -- Permission check (may have changed during batch)
-    if not TankMark:CanAutomate() then
-        TankMark:Print("|cffff0000Batch marking aborted: Permission lost.|r")
+    -- [v0.29] slice 3: re-check the queen gate mid-batch (queen status can change
+    -- during the batch window, e.g. a handover or rank change).
+    if not TankMark:ShouldDriveMarks() then
+        TankMark:Print("|cffff0000Batch marking aborted: no longer the active marker.|r")
         TankMark.batchProcessorFrame:SetScript("OnUpdate", nil)
         return
     end
