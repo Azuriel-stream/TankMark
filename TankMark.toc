@@ -20,6 +20,7 @@ Core\TankMark_Batch.lua
 Core\TankMark_Scanner.lua
 Core\TankMark_SyncCodec.lua
 Core\TankMark_Sync.lua
+Core\TankMark_Swarm.lua
 
 # Data Management
 Data\TankMark_Data.lua

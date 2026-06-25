@@ -9,6 +9,13 @@
 -- mob-record format that previously lived apart in Sync.lua (encoder in
 -- BroadcastZone, decoder in HandleSync). One contract now, so the field order /
 -- separator / validation cannot drift between the two ends.
+--
+-- [v0.29] Swarm slice 2: the codec is now the typed-dispatch table the swarm
+-- design (SWARM_DESIGN.md sec.8) calls for -- Decode branches on the leading tag.
+-- The "Q" control-plane heartbeat rides the SAME TM_SYNC prefix as the "M" data
+-- record; its wire carries amQueen only (rank is read from the unspoofable
+-- roster, never sent). Q-decode tolerates trailing fields so slice 4 can append
+-- planVersion without a wire break.
 
 if not TankMark then return end
 
@@ -22,6 +29,9 @@ local Codec = TankMark.SyncCodec
 -- The body pattern matches everything after the "M;" type tag.
 local MOB_TAG = "M"
 local MOB_BODY_PATTERN = "^(.-);(.-);(%d+);(%d+);(.-);(.-)$"
+
+-- Wire grammar for a control heartbeat: "Q;<amQueen>" where amQueen is "1"/"0".
+local HEARTBEAT_TAG = "Q"
 
 -- Encode a mob DB entry to its wire string, or nil if the entry is unusable.
 -- Mirrors the historical BroadcastZone defaults: only the FIRST mark is synced
@@ -40,17 +50,15 @@ function Codec.EncodeMob(zone, mob, data)
     return MOB_TAG .. ";" .. zone .. ";" .. mob .. ";" .. prio .. ";" .. mark .. ";" .. mType .. ";" .. mClass
 end
 
--- Decode a wire message into a typed record, or nil if malformed / unknown type.
--- Pure validation only -- it rejects bad input but never touches the DB. On
--- success returns { kind = "M", zone, mob, prio = <number>, mark = <number>,
--- type, class = <string|nil> } (class "NIL" sentinel decodes back to nil).
-function Codec.Decode(msg)
-    if not msg then return nil end
+-- [v0.29] Encode a control-plane heartbeat. amQueen is the sender's own current
+-- belief that it is the queen. Rank is deliberately NOT carried -- receivers read
+-- it from GetRaidRosterInfo (unspoofable). planVersion is omitted until slice 4.
+function Codec.EncodeHeartbeat(amQueen)
+    return HEARTBEAT_TAG .. ";" .. (amQueen and "1" or "0")
+end
 
-    local dataType = L._sub(msg, 1, 1)
-    if dataType ~= MOB_TAG then return nil end -- only the mob record exists today
-
-    local body = L._sub(msg, 3) -- strip the tag + its ';' separator
+-- Decode the "M;..." body into a typed mob record, or nil if malformed.
+local function decodeMob(body)
     local _, _, zone, mob, prio, mark, mType, mClass = L._strfind(body, MOB_BODY_PATTERN)
     if not zone or not mob then return nil end
 
@@ -68,4 +76,34 @@ function Codec.Decode(msg)
         type  = mType,
         class = (mClass ~= "NIL") and mClass or nil,
     }
+end
+
+-- [v0.29] Decode the "Q;..." body into a typed heartbeat record, or nil if the
+-- amQueen flag is missing/malformed. Reads only the FIRST field after the tag, so
+-- a future "Q;1;<planVersion>" wire (slice 4) decodes here unchanged.
+local function decodeHeartbeat(body)
+    local _, _, flag = L._strfind(body, "^([^;]*)")
+    if flag ~= "0" and flag ~= "1" then return nil end
+    return {
+        kind    = HEARTBEAT_TAG,
+        amQueen = (flag == "1"),
+    }
+end
+
+-- Decode a wire message into a typed record, or nil if malformed / unknown type.
+-- Pure validation only -- it rejects bad input but never touches the DB. Branches
+-- on the leading tag: "M" -> mob record, "Q" -> heartbeat. The tag and its ';'
+-- separator are stripped before the per-type body parser runs.
+function Codec.Decode(msg)
+    if not msg then return nil end
+
+    local dataType = L._sub(msg, 1, 1)
+    local body = L._sub(msg, 3) -- strip the tag + its ';' separator
+
+    if dataType == MOB_TAG then
+        return decodeMob(body)
+    elseif dataType == HEARTBEAT_TAG then
+        return decodeHeartbeat(body)
+    end
+    return nil -- unknown type tag
 end

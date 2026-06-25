@@ -196,7 +196,13 @@ function TankMark:CreateHUD()
     f.header = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     f.header:SetPoint("TOP", f, "TOP", 0, -5)
     f.header:SetText("TankMark HUD")
-    
+
+    -- [v0.29] slice 2 tracer: bottom-anchored swarm status line, created once
+    -- here and (re)painted by RenderSwarmLine. DISPLAY-ONLY -- never marks.
+    f.swarmStatus = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.swarmStatus:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
+    f.swarmStatus:Hide()
+
     -- Create 8 rows (Skull to Star)
     for i = 8, 1, -1 do
         local row = CreateFrame("Button", nil, f)
@@ -311,6 +317,45 @@ function TankMark:RenderHUDRow(row, markID, isProfileMark)
 end
 
 -- ==========================================================
+-- [v0.29] SWARM STATUS LINE (slice 2 tracer)
+-- ==========================================================
+
+-- Paint the one-line swarm status at the HUD bottom: who the marking queen is and
+-- our derived role. DISPLAY-ONLY -- it reads the live Swarm election state and
+-- never marks. Shown in BOTH HUD render paths (profiled and NO PROFILE LOADED) so
+-- a drone with an empty profile still sees who the queen is. Returns true when the
+-- line is visible, so UpdateHUD can reserve room for it.
+function TankMark:RenderSwarmLine()
+    local f = TankMark.hudFrame
+    if not f or not f.swarmStatus then return false end
+
+    local Swarm = TankMark.Swarm
+    -- Only trace once the swarm is actually running (SuperWoW + InitSwarm built
+    -- the beat frame). Otherwise the line stays hidden and reserves no height.
+    if not (TankMark.IsSuperWoW and Swarm and Swarm.frame) then
+        f.swarmStatus:Hide()
+        return false
+    end
+
+    local role  = Swarm.lastRole
+    local queen = Swarm.currentQueen
+    local text
+    if role == "QUEEN" then
+        text = "|cff00ff00Queen: " .. (queen or "?") .. " (you)|r"
+    elseif role == "DRONE" then
+        text = "|cffffd100Queen:|r |cffffffff" .. (queen or "?") .. "|r"
+    elseif role == "BOOTSTRAP" then
+        text = "|cffffd100Queen: electing...|r"
+    else -- NONE / nil
+        text = "|cff888888Queen: --|r"
+    end
+
+    f.swarmStatus:SetText(text)
+    f.swarmStatus:Show()
+    return true
+end
+
+-- ==========================================================
 -- 3. TOGGLE & UPDATE LOGIC
 -- ==========================================================
 function TankMark:ToggleMarkState(iconID)
@@ -366,8 +411,11 @@ function TankMark:UpdateHUD()
 		if TankMark.hudFrame.tankHeader then TankMark.hudFrame.tankHeader:Hide() end
 		if TankMark.hudFrame.ccHeader then TankMark.hudFrame.ccHeader:Hide() end
 		
+		-- [v0.29] slice 2 tracer: still show the swarm status line with no profile,
+		-- so a drone with an empty profile can see who the queen is.
+		local swarmShown = TankMark:RenderSwarmLine()
 		TankMark.hudFrame:Show()
-		TankMark.hudFrame:SetHeight(50)
+		TankMark.hudFrame:SetHeight(50 + (swarmShown and 16 or 0))
 		return
 	end
     
@@ -451,9 +499,11 @@ function TankMark:UpdateHUD()
 		end
 	end
     
-    if activeRows > 0 then
+    -- [v0.29] slice 2 tracer: bottom-anchored swarm status line (queen + role).
+    local swarmShown = TankMark:RenderSwarmLine()
+    if activeRows > 0 or swarmShown then
         TankMark.hudFrame:Show()
-        TankMark.hudFrame:SetHeight((activeRows * 20) + 30)
+        TankMark.hudFrame:SetHeight((activeRows * 20) + 30 + (swarmShown and 16 or 0))
     else
         TankMark.hudFrame:Hide()
     end
