@@ -231,6 +231,90 @@ slice-3 flip.
 the **only** candidate — forced queen, no tiebreak, no party-rank source needed. Solo: sole
 self-candidate. No special-casing; the 15s solo bootstrap delay is cosmetic and left as-is.
 
+### 5.9 Ratified mechanics — slice 3 (single-marker enforcement)
+
+*Resolved 2026-06-25 in a slice-3 design stress-test. The buildable specifics of the
+automation-gate flip — the one slice that changes marking behavior, acting on slice 2's
+now-verified queen.*
+
+**The core move: split candidacy from active-marking.** Slice 2 conflated the two —
+`Swarm.SelfIsCandidate()` literally returns `CanAutomate()`. Folding a queen-check *into*
+`CanAutomate()` would therefore poison the election: a non-queen's `CanAutomate()` would go
+false → it drops out of `SelfIsCandidate` → out of the present-set → **out of the failover
+pool**, so when the queen dies there is no one left to elect. The two concepts must separate:
+
+- **`CanAutomate()` — UNCHANGED.** Remains the *candidacy / eligibility* gate (SuperWoW +
+  active + permissions + zone profile). `SelfIsCandidate` keeps reading it, so the **candidate
+  set and failover pool are byte-for-byte preserved.** This is the safety crux.
+- **`ShouldDriveMarks()` — NEW**, in `Permissions.lua` beside `CanAutomate`:
+  `CanAutomate() and (not Swarm.IsRunning() or Swarm.selfAmQueen)`. **Fail-open**: if the
+  election subsystem isn't running, degrade to today's "eligible clients mark" rather than go
+  silent — the swarm is an enhancement over a working baseline, and the §7 server rank-gate is
+  the real safety backstop (worst case without coordination is transient mark-fighting, not
+  danger). A total marking blackout from a swarm bug is the worse regression.
+- **`Swarm.IsRunning()` — NEW** accessor (`Swarm.frame ~= nil`) so `Permissions` reads swarm
+  liveness without poking internals.
+
+**No circular dependency:** `ShouldDriveMarks` reads the *stored field* `selfAmQueen`;
+`selfAmQueen` is computed in `Recompute` from `SelfIsCandidate → CanAutomate` (the *unchanged*
+gate). Nothing reads `ShouldDriveMarks` back. The fail-open also never fires in a healthy
+client: `InitSwarm` runs whenever `IsSuperWoW`, and `CanAutomate()` *requires* SuperWoW — so
+whenever marking is possible the frame exists and `selfAmQueen` governs.
+
+**The gate migration — slice 3's actual diff.** The real audit target is *every* world-mark
+`SetRaidTarget` write, not just the `CanAutomate` call sites:
+
+- **`CanAutomate → ShouldDriveMarks` (7 sites):** scanner top gate (kept *inside* the
+  recorder bypass — recording still works), the three Death paths (`HandleCombatLog`,
+  `HandleDeath`, `UnmarkUnit`), both Batch guards (manual Shift+mouseover is gated to the
+  queen, with a swarm-aware abort message), and `Driver_ApplyMark`'s internal backstop (the
+  authoritative sole-edge enforcement point — even a stray caller can't make a drone mark).
+- **`HasPermissions → ShouldDriveMarks` (the §11 holes the audit surfaced):**
+  `ClearMarksForPullEnd` — **the critical one: it is *automatic* (PLAYER_REGEN, alive), so
+  un-gated every drone races to strip the queen's marks the instant combat ends** — and the
+  **physical-strip loop only** inside `ResetSession` (the local-state reset above it stays
+  ungated, so `/tmark reset` on a drone clears local state without stripping the group's world
+  marks).
+
+**Deliberately untouched:** `CanAutomate` body · `SelfIsCandidate` (candidacy) · `BroadcastZone`
+(data-plane sync eligibility, not a marking edge) · `ResetSession`'s local-state reset · the
+HUD `SetRaidTargetIconTexture` calls (texture draw, not world marks) · the **NUCLEAR startup
+wipe** (`TankMark.lua`) — it runs at load *before* the election (so `selfAmQueen` is always
+false then; gating it would simply break ghost-mark cleanup), a reloading drone briefly wiping
+marks is self-healing (the queen re-marks next tick); it predates the swarm and is an
+out-of-scope wart for its own later treatment.
+
+**Why this finally enforces §11.** Slice 2's scope-boundary note observed a DRONE already
+*adopts and respects* a valid mark (it doesn't stomp). Slice 3 closes the remaining writes: a
+drone now does **zero** scan work (gate at the scanner top, not just the apply — matching "a
+drone is a passive renderer, no scanner"), cannot manually mark, and cannot auto-strip at
+pull-end or via `/tmark reset`. "Drones have no path to `SetRaidTarget`" becomes literally true
+(modulo the consciously-parked NUCLEAR wipe).
+
+**Accepted behavioral consequences.**
+- A **~15s cold-start gap** (whole group logs in at once → all bootstrap → no auto-marking
+  until the election settles). Invisible in practice: the scanner only runs in a group and has
+  no hostiles to mark during pull-prep. Crucially **failover does *not* re-bootstrap** —
+  losing the queen drops `claimants` to 0 → a *fresh election* over the already-present
+  candidates → near-instant new queen, no 15s gap.
+- A drone's **8-row HUD mark grid is blank until slice 4** (it stops scanning; derive-local
+  render arrives in slice 4). The slice-2 status line ("DRONE — Queen: X") and the queen's
+  actual on-mob icons remain visible — a coherent interim state, consciously scoped.
+- A **recorder-active drone records mob data but places no marks** (the backstop at
+  `Driver_ApplyMark`); recording, a data-collection task, stays fully available to anyone.
+- A **dead-but-unreleased queen keeps marking** (no alive-check is added — a corpse can still
+  target). A queen **released to the graveyard** is a *known parked gap* (present + heartbeating
+  but can't usefully target) — same shape as the AFK-but-present queen, escape is the WoW-level
+  rank-demote → auto-reelect; not solved here.
+
+**Verification (this is *the* behavior-flip slice — in-game, 2-box minimum).** Queen marks /
+drone silent · manual Shift+mouseover on drone suppressed · recorder on drone records-not-marks
+· **pull-end: only the queen clears** · **failover: demote/remove the queen → drone promotes &
+starts marking with no 15s gap** · `/tmark reset` on a drone keeps the queen's world marks
+intact · dead-unreleased queen keeps marking. The `SWARM` debug category remains the live
+instrument. New code tags `[v0.29]`; `.toc` stays `0.27` (release bump owed). **Naming:** the
+new gate is `ShouldDriveMarks()`.
+
 ---
 
 ## 6. Data plane — derive-local
@@ -403,9 +487,16 @@ get nailed *within* their owning slice rather than up front.
 
 - Exactly **one queen** auto-marking at a time (no *silent* multi-queen). Manual/contended
   cases resolve via deterministic tiebreak.
+- **Candidacy and active-marking are distinct gates** (slice 3, §5.9): `CanAutomate()` =
+  eligibility (drives the election / failover pool, unchanged), `ShouldDriveMarks()` = the
+  queen-only marking gate. Folding the queen-check into `CanAutomate` would collapse the
+  candidate set and break failover.
 - The codec stays **pure**; all *state mutation* goes through guarded apply edges.
 - `SetRaidTarget` remains the **sole** marking edge (`Driver_ApplyMark`), server-rank-gated.
-- Drones have **no** path to `SetRaidTarget`.
+- Drones have **no** path to `SetRaidTarget` — enforced (slice 3) across *all* world-mark
+  writes: the scanner, manual batch, the death paths, **and** the automatic pull-end clear /
+  `ResetSession` strip (the last two were only rank-gated before). The load-time NUCLEAR wipe
+  is the one consciously-parked exception (runs pre-election; self-healing).
 - Receiver never mutates persistent local state (`TankMarkDB`/`TankMarkProfileDB`) from
   unsolicited network input without consent + snapshot.
 
@@ -423,7 +514,7 @@ that owns them.
 | **0** | **Remove TWA** | One profile writer; smaller codec + security surface | Pure deletion. Verify: loads clean, no TWA writes, existing profiles intact. Check `InferRoleFromClass` isn't TWA-only first. |
 | **1** | **Codec skeleton + harness** | Pure, definition-only `Core/TankMark_SyncCodec.lua` carrying the existing `M` round-trip; `tests/` specs | **Behavior-identical** refactor (the original #4). Zero protocol risk. Verify: marks/sync unchanged in-game; specs green off-client. |
 | **2** | **Control-plane tracer (display-only)** | Heartbeat (`Q`) + deterministic election + stickiness + failover, **computing & displaying** queen/drone only | **No marking behavior change.** The keystone — validates the hard consensus logic live (races, failover, AFK-demote) at zero marking risk. |
-| **3** | **Single-marker enforcement** | Eligible non-queen yields to the queen (the automation-gate flip) | The **one** slice touching `CanAutomate`/`Driver_ApplyMark` behavior — isolated & small. Acts on slice 2's verified queen. Security-adjacent. |
+| **3** | **Single-marker enforcement** (ratified §5.9) | New `ShouldDriveMarks()` gate (`CanAutomate ∧ (¬swarm ∨ selfAmQueen)`, fail-open); `CanAutomate` unchanged (candidacy/failover preserved). Migrates 7 marking sites + the audit-found pull-end-clear / `ResetSession`-strip from `HasPermissions`. | The **one** slice flipping marking behavior — isolated. Acts on slice 2's verified queen. Closes the §11 `SetRaidTarget` holes; in-game 2-box verify (queen marks / drone silent / failover / pull-end). |
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
 | **5** | **Manual handoff** | Queen-only, two-phase ACK, dropdown UI; failover polish | §5.6/§5.7. |
 | **6** | **Security hardening** | offer→accept consent + trust axis + scoped block | **Its own slice = its own `/security-review`.** |
@@ -442,6 +533,8 @@ landed in three harness-checkpointed commits — pure election core (`Core/TankM
 runtime shell (beat frame / roster build / bootstrap / `Recompute`), then the HUD status line
 + debounced chat notice. The deterministic election held live: exact 15s bootstrap windows,
 correct party-leader DRONE deference, no double-queen. **Display-only confirmed** — no marking
-path was touched. Slices **3–7 are unchanged. Next action: build slice 3** (single-marker
-enforcement — the isolated `CanAutomate`/`Driver_ApplyMark` flip, acting on slice 2's verified
-queen).
+path was touched. **Slice 3's design is now ratified (§5.9)** — the candidacy/active-marking
+split (`ShouldDriveMarks()`, fail-open), the 7-site `CanAutomate` migration + the audit-found
+`HasPermissions` holes (automatic pull-end clear, `ResetSession` strip), and the consciously
+out-of-scope NUCLEAR wipe. Slices **4–7 are unchanged. Next action: build slice 3** against
+this ratified spec, then in-game 2-box verify.
