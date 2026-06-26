@@ -1,9 +1,9 @@
 # TankMark Swarm Design (target v0.29+)
 
-**Status:** Slices 0–1 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
-+ harness, PR #66). Slice 2 (control-plane tracer) **design ratified** — see §5.8. New swarm
-code is tagged `[v0.29]`; `.toc` is `0.27`. The sections below describe the full target;
-per-slice build status lives in §12.
+**Status:** Slices 0–3 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
++ harness, PR #66; control-plane tracer, PR #69; single-marker enforcement, PR #72 — §5.8/§5.9).
+Slice 4 (profile-sync) **design ratified** — see §6.1. New swarm code is tagged `[v0.29]`;
+`.toc` is `0.27`. The sections below describe the full target; per-slice build status lives in §12.
 
 **Scope note:** This started as roadmap item **#4 (Sync codec tidy-up)** and expanded —
 deliberately — into the full **swarm** feature, because the codec's correct shape is
@@ -343,21 +343,90 @@ use for a mark→mob map (it doesn't mark/decide/run a Ledger). Consequence: **a
 passive HUD renderer** — likely runs *no scanner* and has *no path to `SetRaidTarget`*; it
 re-renders on (profile received / delta received / zone change).
 
-### 6.1 Profile sync — the actual drone-visibility enabler
+### 6.1 Profile sync — the actual drone-visibility enabler  *(slice 4 — RATIFIED 2026-06-26)*
 The profile is **TankMark-native** (built by the queen in the Profiles tab) and, today,
 **never synced** to other clients — that's the missing piece. The queen pushes it so drones
-can render. *(The TWA inbound profile-feed is **removed** — slice 0, §9 — so the profile has
+can render, filling the 8-row HUD mark grid that slice 3 intentionally left blank for
+non-queens. *(The TWA inbound profile-feed is **removed** — slice 0, §9 — so the profile has
 exactly one writer: the queen.)*
 
-- **Trigger:** on **Save Profile** (`SaveProfileCache` in
-  `UI/Config/Profiles/TankMark_Config_Profiles_Logic.lua`). Profile editing uses a
-  cache→commit pattern; `SaveProfileCache` is the *only* commit point, so mid-edit state
-  never gets pushed. *No debounce needed — Save is the debounce.* Push gated on `amQueen`;
-  bump `planVersion` here.
-- **Form:** full **zone snapshot** (≤8 entries — too small for deltas).
-- **Backstop:** a drone whose stored `planVersion` ≠ the queen's heartbeat `planVersion`
-  **pulls** a fresh copy. Covers dropped pushes *and* a freshly-promoted queen (drones
-  converge without waiting for the next Save).
+**Storage — single-slot overwrite, queen is sole writer.** A drone applies a received
+snapshot by overwriting `TankMarkProfileDB[<zone>]` directly — the same per-character slot the
+player edits — with **no separate drone cache and no backup.** Consequence: the existing HUD
+render, `sessionAssignments`, and the promotion-marking path all read this slot unchanged, so a
+promoted ex-drone marks off *exactly* the plan it was displaying (**display == enactment**).
+*Rejected — a runtime-only display cache:* it diverges from the marking plan at the moment of
+promotion (the HUD the raid trusted ≠ the marks that land) and evaporates on a temp-queen
+`/reload`. *Why no backup / no consent:* team profiles are **operational, rebuilt per run**
+(roster churns; the RL sets assignments right before the first pull; ≤8 entries), so the
+overwritten draft is disposable — unlike the curated Mob DB. This **carves the profile out of
+§7's consent rule:** the queen is an *elected, server-rank-gated authority* you've already
+delegated marking to, whereas the Mob DB has no single authority and keeps offer→accept +
+snapshot. The overwrite is scoped to the *pushed* zone — other zones' profiles are untouched.
+
+**Refresh — pull-driven; `planVersion` is a counter, not a hash.** A single **global,
+runtime-only** monotonic `planVersion` is bumped on every `SaveProfileCache` while `amQueen`
+and advertised on the `Q` heartbeat (the first new heartbeat field; slice-2 decode already
+tolerates it). Each drone records the **`(queenName, planVersion, zone)`** key it last applied.
+The queen **pushes** the current-zone snapshot on Save (the fast path — `SaveProfileCache` is
+the sole commit point of the cache→commit edit flow, so mid-edit state never leaks; *Save is
+the debounce*). A drone **pulls** — sends `PR;<zone>`, the queen *broadcasts* the snapshot —
+whenever its computed `(currentQueen, heardVersion, currentZone)` ≠ its applied key. That one
+predicate covers every case: mid-run edit, late join, failover (queen changes), dropped push
+(version advanced), zone change (zone differs), and queen `/reload` (counter resets —
+*inequality*, not `>`, so a reset still forces a refetch). *Runtime-only suffices* — the
+trigger is inequality, so persistence buys nothing. *Storm control:* a mismatch sets a
+`needPull` flag that fires one request on the next 5 s tick, and the queen's broadcast response
+clears every drone's flag, so a queen-reload that mismatches the whole raid resolves in one
+request + one response. *Global, not per-zone:* one integer rides the heartbeat; editing a
+different zone causes a redundant (harmless) refetch of the current zone.
+
+**Wire — HUD-minimal, one atomic message.** The push carries `mark + tank + role` **only**,
+encoded as a single `P;<zone>;<planVersion>;<m>,<tank>,<role>;…` message (role as a 1-char
+`T`/`C`). At ≤8 entries this is ~160 chars — always within the ~255 cap — so it is **one atomic
+message**: the drone replaces the whole zone in one apply, which makes **deletions free** (an
+absent mark is gone) and needs **no framing / completeness logic.** *Healers are deliberately
+omitted* — they are never rendered in the HUD (only `Announce Assignments` reads them), and
+including them overflows one message (~300+ chars), forcing multi-part framing. **Deferred
+follow-up:** when the reliable large-message / chunked transport is built (its **own** slice,
+at/before Mob-DB-sharing slice 7, designed against Mob DB's real consent + scale requirements —
+*not* bundled into slice 4), revisit profile sync to carry healers at full fidelity, so a
+promoted ex-drone queen's repeated re-announces include healer assignments. (Single-message
+profile is the degenerate 1-part case, not a throwaway the chunker replaces — no double-build.)
+
+**Trust + empty semantics.** A `P` is applied **only from the drone's own
+`Swarm.currentQueen`** (stronger than the rank ≥ 1 `IsTrustedSender` baseline): `P`
+auto-applies, so without this any assist could overwrite every drone's HUD and future-marking
+plan. Robust under split-brain — each drone follows *its* elected queen and the election
+converges. A `PR` is **coalesced** (one broadcast per zone per tick, however many drones ask)
+and the queen answers it **even when it has no plan.** **Empty snapshot → keep current**
+(non-empty replaces; empty is ignored): replacing a plan with nothing is wrong in the case that
+matters — a failover to an unprepared queen would blank every drone mid-run while the previous
+queen's marks are still physically on the mobs. **Known limitation:** an intentional *full-zone*
+clear (Reset / Delete-whole-zone) therefore does not propagate — rare, since a real re-plan is a
+non-empty Save, which does. *Deferred option if ever needed:* distinguish a solicited
+(`PR`-response) empty → keep from an unsolicited (pushed) empty → clear, plus a Reset/Delete push
+hook; not worth the extra concept for slice 4.
+
+**Render + apply seam.** **No new HUD render path** — the overwrite makes the existing
+`UpdateHUD` / `RenderHUDRow` show the plan natively (tanks from `sessionAssignments`; the empty
+`Ledger.NameFor` fallback never fires on a drone; normal TANK / CROWD CONTROL sectioning). The
+drone applies via a shared **`ApplyProfileToSession(zone)`** seam factored out of
+`SaveProfileCache` (rebuild `sessionAssignments` + `UpdateHUD`, *without* the Print /
+dropdown-read / `UpdateProfileList`, and *without* marking — which stays behind
+`ShouldDriveMarks`, failed by a drone). The live "which mob holds each mark right now" overlay
+is **dropped entirely** — drones see physical marks on the game screen; the HUD's only job is
+*who tanks / CCs what.*
+
+**Edges.** Drone-side profile editing stays **enabled** — a drone's local Save writes its own
+slot but, being `not amQueen`, neither bumps `planVersion` nor pushes, and the next queen push
+overwrites it; UI-gating the Profiles tab on swarm role is deferred. The **recorder runs on
+drones** unchanged (the slice-3 bypass; it records the Mob DB and never marks) — a "you're queen
+now but still recording" prompt belongs to the **slice-5 promotion event**, not here. Queen and
+solo render paths are **byte-identical** to today.
+
+**Net new protocol surface:** two message types — `P` (profile snapshot, queen→drones) and `PR`
+(pull-request, drone→queen) — plus one `Q` heartbeat field (`planVersion`).
 
 ### 6.2 Mob DB sharing — opt-in, at handoff only
 The Mob DB drives the *queen's* marking only; drones never need it for the HUD. So it is
@@ -429,11 +498,11 @@ The protocol's known message set, to be single-sourced in a **typed-message code
 | Type | Plane | Direction | Notes |
 |---|---|---|---|
 | `M` mob record | data | TM↔TM | exists today; the coupled-at-a-distance round-trip to single-source |
-| profile record | data | TM→drones | new — the drone-visibility artifact |
-| `Q` heartbeat | control | candidate→all | `amQueen` (+ `planVersion` from slice 4; slice-2 wire is `amQueen`-only — see §5.8) |
+| `P` profile snapshot | data | queen→drones | slice 4 (§6.1) — HUD-minimal (`mark+tank+role`), one atomic message; healers deferred |
+| `Q` heartbeat | control | candidate→all | `amQueen` + `planVersion` (slice 4); slice-2 wire is `amQueen`-only — see §5.8 |
 | resign / claim | control | candidate→all | clean-transition fast-path |
 | handoff offer / ACK | control | queen↔target | two-phase, optional DB attachment |
-| pull-request | data | drone→queen | `planVersion`-mismatch refetch |
+| `PR` pull-request | data | drone→queen | slice 4 (§6.1) — `(queen,planVersion,zone)`-mismatch refetch; queen broadcasts the response |
 
 **Architecture (mirror `Ledger`/`ApplyMarkIntent`):**
 - The **codec is pure** — decode → validate → **reject malformed** → return a structured
@@ -479,9 +548,11 @@ get nailed *within* their owning slice rather than up front.
   stored FSM (queen / drone / bootstrapping fall out of the `amQueen`-claim set + candidacy +
   the listen-window); scanner suppression is **slice 3**, not here; the read-only HUD indicator
   and the debounced (≥1 cycle) transition notice are specified.
-- **`planVersion` mechanics:** exactly what it hashes (the zone profile), and the
-  pull-request round-trip. *(Still open — owned by slice 4; the slice-2 `Q` wire omits the
-  field and decode tolerates its later addition.)*
+- ~~**`planVersion` mechanics**~~ → **RATIFIED in slice 4 (§6.1):** a single **global,
+  runtime-only counter** (not a hash) bumped on every `amQueen` `SaveProfileCache` and carried
+  on the `Q` heartbeat; the drone keys on `(queenName, planVersion, zone)` and pulls via `PR` on
+  mismatch (queen broadcasts). Single-slot overwrite of `TankMarkProfileDB[zone]`; empty keeps;
+  healers deferred to the chunked-transport slice.
 - ~~**Codec encoding detail**~~ → **partially ratified (§5.8):** the `Q` heartbeat rides the
   `TM_SYNC` prefix via `SyncCodec` typed `kind`-dispatch (`amQueen` only). Per-type detail for
   the later message types still evolves with their owning slices.
@@ -543,6 +614,9 @@ path was touched. **Slice 3 (single-marker enforcement) is shipped and in-game-v
 **10-gate** migration (7 `CanAutomate` + 3 `HasPermissions`: automatic pull-end clear,
 `ResetSession` strip, and the build-found `ReviewSkullState` record-before-apply path), with
 the NUCLEAR wipe consciously left alone. 2-box live: queen marks / drone silent / DRONE
-deference (queen=Frostkeg) / failover reclaim with no gap; harness 75/0. **Next action: build
-slice 4** (profile-sync — drones render the queen's plan, filling the mark grid that slice 3
-intentionally left blank).
+deference (queen=Frostkeg) / failover reclaim with no gap; harness 75/0. **Slice 4 (profile-sync)
+design is ratified (§6.1, 2026-06-26):** single-slot overwrite of `TankMarkProfileDB[zone]`
+(queen sole writer, no backup, profile carved out of §7 consent), pull-driven global runtime
+`planVersion`, HUD-minimal atomic `P` push + coalesced `PR` pull, empty-keeps; net new surface =
+`P`/`PR` message types + a `planVersion` heartbeat field. **Next action: build slice 4** in
+reload-safe checkpoints.
