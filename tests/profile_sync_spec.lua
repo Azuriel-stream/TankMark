@@ -116,4 +116,39 @@ describe("Profile sync", function()
             eq(Swarm.needPull, false, "cold-login zone deferred")
         end)
     end)
+
+    -- Push-on-promotion (slice 4): becoming queen propagates the current plan even
+    -- when it changed without a version bump (e.g. a pre-promotion drone-side edit),
+    -- so drones converge on a handoff with no pull latency.
+    describe("OnPromoted (push-on-promotion)", function()
+        local captured
+        L._GetNumRaidMembers  = function() return 0 end
+        L._GetNumPartyMembers = function() return 1 end
+        TankMark.SyncPrefix   = "TM_SYNC"
+        function TankMark:QueueMessage(prefix, text, channel)
+            captured = { prefix = prefix, text = text, channel = channel }
+        end
+
+        it("bumps the version and pushes the current zone's plan", function()
+            reset()
+            captured = nil
+            zone = "Blackrock Depths"
+            Swarm.planVersion = 4
+            TankMarkProfileDB["Blackrock Depths"] = { { mark = 8, tank = "Bob", role = "TANK" } }
+            Swarm.OnPromoted()
+            eq(Swarm.planVersion, 5, "version bumped")
+            eq(captured ~= nil, true, "a message was queued")
+            eq(captured.text, "P;Blackrock Depths;5;8,Bob,T", "pushed snapshot at bumped version")
+        end)
+
+        it("bumps but does not push when the zone is unknown (cold login)", function()
+            reset()
+            captured = nil
+            zone = ""
+            Swarm.planVersion = 4
+            Swarm.OnPromoted()
+            eq(Swarm.planVersion, 5, "version still bumped")
+            eq(captured, nil, "no push with unknown zone")
+        end)
+    end)
 end)

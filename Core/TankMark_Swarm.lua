@@ -220,7 +220,16 @@ function Swarm.Recompute(now)
     local queen = Swarm.ElectQueen(present, claimants, roster)
 
     -- Assert queen only once past bootstrap, still a candidate, and elected.
+    local wasQueen = Swarm.selfAmQueen
     Swarm.selfAmQueen = (not Swarm.bootstrapping) and selfIsCandidate and (queen == selfName)
+
+    -- [v0.29] slice 4: push-on-promotion. On the rising edge to queen, propagate the
+    -- current plan immediately (bump + push, like a Save) so drones converge on a
+    -- handoff even when the new queen's plan changed without a version bump -- e.g. a
+    -- pre-promotion drone-side edit, where neither a non-queen Save nor a version
+    -- change ever fired. OnProfile applies any push from the current queen regardless
+    -- of version, so this closes that gap with no pull latency.
+    if Swarm.selfAmQueen and not wasQueen then Swarm.OnPromoted() end
 
     local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
     if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen then
@@ -341,6 +350,17 @@ function Swarm.OnProfileSaved(zone)
     if not Swarm.selfAmQueen then return end
     Swarm.planVersion = Swarm.planVersion + 1
     Swarm.PushProfile(zone)
+end
+
+-- Called from Recompute on the rising edge to queen (a fresh election win or a
+-- handoff). Treat promotion like a Save: bump the version so the heartbeat
+-- advertises a fresh plan (a drone that misses the push still pulls on the version
+-- mismatch) and push the current zone now so drones converge immediately. Pushing
+-- the current zone is correct -- that is the plan the new queen is about to enact.
+function Swarm.OnPromoted()
+    Swarm.planVersion = Swarm.planVersion + 1
+    local zone = L._GetRealZoneText()
+    if zone and zone ~= "" then Swarm.PushProfile(zone) end
 end
 
 -- True when a drone's applied (queen,version,zone) key matches the live triple.
