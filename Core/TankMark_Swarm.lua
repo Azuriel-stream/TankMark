@@ -128,6 +128,17 @@ Swarm.lastHeard      = {}    -- [name] = GetTime() of last beat
 Swarm.amQueenHeard   = {}    -- [name] = that beat's amQueen flag
 Swarm.selfAmQueen    = false -- what WE currently advertise
 Swarm.currentQueen   = nil   -- last elected queen (transition/repaint detection)
+
+-- [v0.29] slice 4: profile-sync state. planVersion is a single global, runtime-only
+-- monotonic counter bumped on every SaveProfileCache WHILE we are the queen; it
+-- rides the Q heartbeat so drones detect a stale plan. heardVersion is the version
+-- last advertised by our current queen. appliedKey is the (queen,version,zone)
+-- triple a drone has already applied; a mismatch arms needPull, which fires one
+-- coalesced PR on the next tick (storm control -- see SWARM_DESIGN.md sec.6.1).
+Swarm.planVersion    = 0
+Swarm.heardVersion   = 0
+Swarm.appliedKey     = nil
+Swarm.needPull       = false
 Swarm.lastRole       = nil
 Swarm.bootstrapping  = false
 Swarm.bootstrapUntil = 0
@@ -271,8 +282,11 @@ function Swarm.SendBeat()
     if not Swarm.SelfIsCandidate() then return end
     if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
     local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    -- [v0.29] slice 4: advertise planVersion only while actually queen, so a stale
+    -- counter from a former reign cannot mislead drones after a handoff.
+    local advertised = Swarm.selfAmQueen and Swarm.planVersion or 0
     TankMark:QueueMessage(TankMark.SyncPrefix,
-        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen), channel)
+        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen, advertised), channel)
 end
 
 -- Receive path, dispatched from HandleSync on kind=="Q". sender is the

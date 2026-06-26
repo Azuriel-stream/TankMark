@@ -24,6 +24,9 @@ TankMark.Locals._tonumber = TankMark.Locals._tonumber or tonumber
 TankMark.Locals._tinsert  = TankMark.Locals._tinsert  or table.insert
 TankMark.Locals._pairs    = TankMark.Locals._pairs    or pairs
 TankMark.Locals._ipairs   = TankMark.Locals._ipairs   or ipairs
+-- Vanilla's string.gfind is Lua 5.1's string.gmatch; the SyncCodec uses _gfind to
+-- iterate the slice-4 profile-snapshot entries.
+TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 
 -- ---- load the system under test --------------------------------------------
 -- Both files are definition-only (no top-level execution), so they load cleanly

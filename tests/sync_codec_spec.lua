@@ -95,35 +95,133 @@ describe("SyncCodec", function()
         end)
     end)
 
-    -- [v0.29] slice 2: the "Q" control heartbeat shares the codec's typed dispatch.
+    -- [v0.29] slice 2/4: the "Q" control heartbeat shares the codec's typed
+    -- dispatch. Slice 4 made planVersion a live second field on the wire.
     describe("Q heartbeat", function()
-        it("encodes amQueen true/false to the Q wire", function()
-            eq(Codec.EncodeHeartbeat(true), "Q;1", "amQueen true")
-            eq(Codec.EncodeHeartbeat(false), "Q;0", "amQueen false")
+        it("encodes amQueen + planVersion to the Q wire", function()
+            eq(Codec.EncodeHeartbeat(true, 7), "Q;1;7", "amQueen true, v7")
+            eq(Codec.EncodeHeartbeat(false, 0), "Q;0;0", "amQueen false, v0")
         end)
 
-        it("decodes a heartbeat into a typed record", function()
-            local r = Codec.Decode("Q;1")
-            eq(r.kind, "Q", "kind")
-            eq(r.amQueen, true, "amQueen true")
-            eq(Codec.Decode("Q;0").amQueen, false, "amQueen false")
+        it("defaults planVersion to 0 when omitted", function()
+            eq(Codec.EncodeHeartbeat(true), "Q;1;0", "no version arg")
         end)
 
-        it("round-trips amQueen through Encode -> Decode", function()
-            eq(Codec.Decode(Codec.EncodeHeartbeat(true)).amQueen, true, "true")
-            eq(Codec.Decode(Codec.EncodeHeartbeat(false)).amQueen, false, "false")
-        end)
-
-        it("tolerates trailing fields (forward-compat for slice-4 planVersion)", function()
+        it("decodes a heartbeat into a typed record with planVersion", function()
             local r = Codec.Decode("Q;1;42")
             eq(r.kind, "Q", "kind")
-            eq(r.amQueen, true, "amQueen survives a trailing field")
+            eq(r.amQueen, true, "amQueen true")
+            eq(r.planVersion, 42, "planVersion")
+            eq(Codec.Decode("Q;0;3").amQueen, false, "amQueen false")
+        end)
+
+        it("round-trips amQueen + planVersion through Encode -> Decode", function()
+            local r = Codec.Decode(Codec.EncodeHeartbeat(true, 9))
+            eq(r.amQueen, true, "amQueen")
+            eq(r.planVersion, 9, "planVersion")
+            eq(Codec.Decode(Codec.EncodeHeartbeat(false, 0)).amQueen, false, "false")
+        end)
+
+        it("treats a legacy versionless 'Q;1' as planVersion 0 (slice-2 peer)", function()
+            local r = Codec.Decode("Q;1")
+            eq(r.kind, "Q", "kind")
+            eq(r.amQueen, true, "amQueen")
+            eq(r.planVersion, 0, "missing version -> 0")
         end)
 
         it("rejects a heartbeat with a missing/malformed amQueen flag", function()
             eq(Codec.Decode("Q;"), nil, "empty flag")
-            eq(Codec.Decode("Q;2"), nil, "out-of-range flag")
-            eq(Codec.Decode("Q;x"), nil, "non-numeric flag")
+            eq(Codec.Decode("Q;2;0"), nil, "out-of-range flag")
+            eq(Codec.Decode("Q;x;0"), nil, "non-numeric flag")
+        end)
+    end)
+
+    -- [v0.29] slice 4: the "P" profile snapshot (queen->drones). HUD-minimal
+    -- (mark+tank+role), one atomic message, healers deliberately omitted.
+    describe("P profile snapshot", function()
+        it("emits the canonical P wire with T/C roles", function()
+            local s = Codec.EncodeProfile("Blackrock Depths", 3, {
+                { mark = 8, tank = "Bob",  role = "TANK" },
+                { mark = 6, tank = "Sue",  role = "CC"   },
+            })
+            eq(s, "P;Blackrock Depths;3;8,Bob,T;6,Sue,C", "wire")
+        end)
+
+        it("emits a header-only string for an empty profile", function()
+            eq(Codec.EncodeProfile("Z", 5, {}), "P;Z;5", "empty")
+            eq(Codec.EncodeProfile("Z", 5, nil), "P;Z;5", "nil entries")
+        end)
+
+        it("defaults planVersion to 0 and skips a markless entry", function()
+            local s = Codec.EncodeProfile("Z", nil, { { tank = "X", role = "TANK" } })
+            eq(s, "P;Z;0", "no version, markless entry dropped")
+        end)
+
+        it("decodes a P snapshot into typed entries (C -> CC, T -> TANK)", function()
+            local r = Codec.Decode("P;Blackrock Depths;3;8,Bob,T;6,Sue,C")
+            eq(r.kind, "P", "kind")
+            eq(r.zone, "Blackrock Depths", "zone")
+            eq(r.planVersion, 3, "planVersion")
+            eq(table.getn(r.entries), 2, "entry count")
+            eq(r.entries[1].mark, 8, "e1.mark")
+            eq(r.entries[1].tank, "Bob", "e1.tank")
+            eq(r.entries[1].role, "TANK", "e1.role")
+            eq(r.entries[2].role, "CC", "e2.role")
+        end)
+
+        it("decodes an empty snapshot to a zero-length entry list", function()
+            local r = Codec.Decode("P;Z;5")
+            eq(r.kind, "P", "kind")
+            eq(r.zone, "Z", "zone")
+            eq(table.getn(r.entries), 0, "no entries")
+        end)
+
+        it("preserves an empty tank field", function()
+            local r = Codec.Decode("P;Z;1;8,,T")
+            eq(r.entries[1].tank, "", "empty tank")
+            eq(r.entries[1].mark, 8, "mark")
+        end)
+
+        it("rejects the WHOLE message on a single malformed entry", function()
+            eq(Codec.Decode("P;Z;1;8,Bob,T;9,Sue,C"), nil, "mark 9 out of range")
+            eq(Codec.Decode("P;Z;1;x,Bob,T"), nil, "non-numeric mark")
+            eq(Codec.Decode("P;Z;1;8,Bob,X"), nil, "bad role char")
+            eq(Codec.Decode("P;Z;1;8,Bob"), nil, "missing role field")
+        end)
+
+        it("rejects a P with an empty zone or non-numeric version", function()
+            eq(Codec.Decode("P;;3"), nil, "empty zone")
+            eq(Codec.Decode("P;Z;x"), nil, "bad version")
+        end)
+
+        it("round-trips a full profile through Encode -> Decode", function()
+            local entries = {
+                { mark = 1, tank = "Tankadin", role = "TANK" },
+                { mark = 7, tank = "Sheepmage", role = "CC" },
+            }
+            local r = Codec.Decode(Codec.EncodeProfile("Dire Maul", 12, entries))
+            eq(r.planVersion, 12, "version")
+            eq(r.entries[1].tank, "Tankadin", "tank")
+            eq(r.entries[2].role, "CC", "role")
+        end)
+    end)
+
+    -- [v0.29] slice 4: the "PR" pull-request (drone->queen).
+    describe("PR pull-request", function()
+        it("encodes and decodes a bare zone request", function()
+            eq(Codec.EncodePull("Blackrock Depths"), "PR;Blackrock Depths", "wire")
+            local r = Codec.Decode("PR;Blackrock Depths")
+            eq(r.kind, "PR", "kind")
+            eq(r.zone, "Blackrock Depths", "zone")
+        end)
+
+        it("does not collide with the single-char P tag", function()
+            eq(Codec.Decode("P;Z;5").kind, "P", "P stays P")
+            eq(Codec.Decode("PR;Z").kind, "PR", "PR stays PR")
+        end)
+
+        it("rejects an empty zone", function()
+            eq(Codec.Decode("PR;"), nil, "empty zone")
         end)
     end)
 end)
