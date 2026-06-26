@@ -59,6 +59,20 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
+	-- [v0.29] slice 4: profile-sync data plane. Both passed the same rank>=1
+	-- IsTrustedSender gate above. OnProfile additionally requires the sender be the
+	-- drone's OWN elected queen before it overwrites the local plan (auto-apply), so
+	-- a rank>=1 non-queen can pollute comms but never rewrite a drone's HUD. A PR is
+	-- a public refetch the queen answers (coalesced); harmless from any trusted peer.
+	if rec.kind == "P" then
+		if TankMark.Swarm then TankMark.Swarm.OnProfile(sender, rec) end
+		return
+	end
+	if rec.kind == "PR" then
+		if TankMark.Swarm then TankMark.Swarm.OnPullRequest(sender, rec) end
+		return
+	end
+
 	if rec.kind ~= "M" then return end
 
 	if not TankMarkDB.Zones[rec.zone] then TankMarkDB.Zones[rec.zone] = {} end
