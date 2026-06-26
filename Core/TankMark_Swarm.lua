@@ -306,6 +306,36 @@ function Swarm.OnRosterChange()
     Swarm.Recompute(L._GetTime())
 end
 
+-- ==========================================================
+-- PROFILE SYNC  [v0.29] slice 4 (SWARM_DESIGN.md sec.6.1)
+-- ==========================================================
+
+-- Broadcast TankMarkProfileDB[zone] as one atomic "P" snapshot. Builds the
+-- HUD-minimal entry list (mark+tank+role; healers omitted) straight from the DB.
+-- Caller-gated -- the push (OnProfileSaved) and the PR-response both verify the
+-- sender is the queen first. No group -> nothing to send.
+function Swarm.PushProfile(zone)
+    if not zone then return end
+    if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
+    local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    local entries = (TankMarkProfileDB and TankMarkProfileDB[zone]) or {}
+    local payload = TankMark.SyncCodec.EncodeProfile(zone, Swarm.planVersion, entries)
+    if payload then
+        TankMark:QueueMessage(TankMark.SyncPrefix, payload, channel)
+    end
+end
+
+-- Called from SaveProfileCache after the DB write (the sole commit point of the
+-- cache->commit edit flow, so mid-edit state never leaks -- Save IS the debounce).
+-- Only the queen propagates: bump the global planVersion so the new plan supersedes
+-- the old on the heartbeat, then push immediately (the fast path). A non-queen Save
+-- is silent -- its slot is overwritten by the next queen push.
+function Swarm.OnProfileSaved(zone)
+    if not Swarm.selfAmQueen then return end
+    Swarm.planVersion = Swarm.planVersion + 1
+    Swarm.PushProfile(zone)
+end
+
 -- The 5s tick: beat, then recompute (the recompute also sweeps stale candidates
 -- via the presence filter -- the sole detector of a silent drop-out).
 function Swarm.Tick(now)
