@@ -16,6 +16,14 @@
 -- record; its wire carries amQueen only (rank is read from the unspoofable
 -- roster, never sent). Q-decode tolerates trailing fields so slice 4 can append
 -- planVersion without a wire break.
+--
+-- [v0.29] Swarm slice 4: profile-sync (SWARM_DESIGN.md sec.6.1). Two new types --
+-- "P" (profile snapshot, queen->drones) and "PR" (pull-request, drone->queen) --
+-- plus the now-live "planVersion" field on the "Q" heartbeat. The "P" snapshot is
+-- HUD-minimal (mark+tank+role only; healers are deferred to the chunked-transport
+-- slice) and small enough to be ONE atomic message, so a drone replaces the whole
+-- zone in one apply (deletions are free; no framing). Tags are now multi-char
+-- ("PR"), so Decode splits the tag on the first ';' rather than taking one char.
 
 if not TankMark then return end
 
@@ -30,8 +38,18 @@ local Codec = TankMark.SyncCodec
 local MOB_TAG = "M"
 local MOB_BODY_PATTERN = "^(.-);(.-);(%d+);(%d+);(.-);(.-)$"
 
--- Wire grammar for a control heartbeat: "Q;<amQueen>" where amQueen is "1"/"0".
+-- Wire grammar for a control heartbeat: "Q;<amQueen>;<planVersion>" where amQueen
+-- is "1"/"0" and planVersion is the queen's profile counter (0 if none/non-queen).
 local HEARTBEAT_TAG = "Q"
+
+-- [v0.29] slice 4 wire grammar:
+--   profile  "P;<zone>;<planVersion>;<mark>,<tank>,<role>;<mark>,<tank>,<role>;..."
+--            role is a single char: "T" (TANK) / "C" (CC). Entries are optional
+--            (an empty profile is "P;<zone>;<planVersion>"). Player names carry no
+--            ',' or ';', so both stay literal delimiters.
+--   pull     "PR;<zone>"  -- a bare refetch request for one zone.
+local PROFILE_TAG = "P"
+local PULL_TAG    = "PR"
 
 -- Encode a mob DB entry to its wire string, or nil if the entry is unusable.
 -- Mirrors the historical BroadcastZone defaults: only the FIRST mark is synced
@@ -52,9 +70,36 @@ end
 
 -- [v0.29] Encode a control-plane heartbeat. amQueen is the sender's own current
 -- belief that it is the queen. Rank is deliberately NOT carried -- receivers read
--- it from GetRaidRosterInfo (unspoofable). planVersion is omitted until slice 4.
-function Codec.EncodeHeartbeat(amQueen)
-    return HEARTBEAT_TAG .. ";" .. (amQueen and "1" or "0")
+-- it from GetRaidRosterInfo (unspoofable). [slice 4] planVersion now rides the
+-- heartbeat so drones can detect a stale profile; it is 0 for a non-queen.
+function Codec.EncodeHeartbeat(amQueen, planVersion)
+    return HEARTBEAT_TAG .. ";" .. (amQueen and "1" or "0") .. ";" .. (planVersion or 0)
+end
+
+-- [v0.29] slice 4: encode a profile snapshot. entries is an array of
+-- { mark, tank, role } (role "TANK"/"CC"); healers are deliberately omitted (they
+-- are never rendered and would overflow one message -- see SWARM_DESIGN.md sec.6.1).
+-- An entry without a mark is skipped; an empty/absent entry list yields the
+-- header-only "P;<zone>;<planVersion>" which decodes to an empty snapshot.
+function Codec.EncodeProfile(zone, planVersion, entries)
+    if not zone then return nil end
+    local s = PROFILE_TAG .. ";" .. zone .. ";" .. (planVersion or 0)
+    entries = entries or {}
+    for i = 1, L._tgetn(entries) do
+        local e = entries[i]
+        if e and e.mark then
+            local role = (e.role == "CC") and "C" or "T"
+            s = s .. ";" .. e.mark .. "," .. (e.tank or "") .. "," .. role
+        end
+    end
+    return s
+end
+
+-- [v0.29] slice 4: encode a pull-request -- a bare "refetch zone X" the drone
+-- sends when its applied (queen,planVersion,zone) key no longer matches.
+function Codec.EncodePull(zone)
+    if not zone then return nil end
+    return PULL_TAG .. ";" .. zone
 end
 
 -- Decode the "M;..." body into a typed mob record, or nil if malformed.
@@ -79,31 +124,79 @@ local function decodeMob(body)
 end
 
 -- [v0.29] Decode the "Q;..." body into a typed heartbeat record, or nil if the
--- amQueen flag is missing/malformed. Reads only the FIRST field after the tag, so
--- a future "Q;1;<planVersion>" wire (slice 4) decodes here unchanged.
+-- amQueen flag is missing/malformed. [slice 4] also reads planVersion from the
+-- second field; a legacy "Q;1" (no version) or any non-numeric version decodes to
+-- planVersion 0, so a slice-2 peer is forward-compatible.
 local function decodeHeartbeat(body)
-    local _, _, flag = L._strfind(body, "^([^;]*)")
+    local _, _, flag, ver = L._strfind(body, "^([^;]*);?(%d*)")
     if flag ~= "0" and flag ~= "1" then return nil end
     return {
-        kind    = HEARTBEAT_TAG,
-        amQueen = (flag == "1"),
+        kind        = HEARTBEAT_TAG,
+        amQueen     = (flag == "1"),
+        planVersion = L._tonumber(ver) or 0,
     }
 end
 
+-- [v0.29] slice 4: decode a "P;..." body into a typed profile snapshot, or nil if
+-- malformed. body = "<zone>;<planVersion>;<entry>;<entry>;...". A single bad entry
+-- rejects the WHOLE message (return nil) so a drone keeps its current plan and
+-- refetches, rather than applying a corrupt partial. An empty entry list is valid
+-- (the empty snapshot -- the receiver decides keep-vs-clear, see sec.6.1).
+local function decodeProfile(body)
+    local _, _, zone, ver, rest = L._strfind(body, "^([^;]*);(%d+);?(.*)$")
+    if not zone or zone == "" then return nil end
+    local numVer = L._tonumber(ver)
+    if not numVer then return nil end
+
+    local entries = {}
+    if rest and rest ~= "" then
+        for chunk in L._gfind(rest, "[^;]+") do
+            local _, _, m, tank, role = L._strfind(chunk, "^(%d+),([^,]*),([TC])$")
+            local numMark = L._tonumber(m)
+            if not numMark or numMark < 0 or numMark > 8 then return nil end
+            L._tinsert(entries, {
+                mark = numMark,
+                tank = tank or "",
+                role = (role == "C") and "CC" or "TANK",
+            })
+        end
+    end
+
+    return {
+        kind        = PROFILE_TAG,
+        zone        = zone,
+        planVersion = numVer,
+        entries     = entries,
+    }
+end
+
+-- [v0.29] slice 4: decode a "PR;..." body into a typed pull-request, or nil if the
+-- zone is empty. Only the first field is read (trailing-tolerant).
+local function decodePull(body)
+    local _, _, zone = L._strfind(body, "^([^;]*)")
+    if not zone or zone == "" then return nil end
+    return { kind = PULL_TAG, zone = zone }
+end
+
 -- Decode a wire message into a typed record, or nil if malformed / unknown type.
--- Pure validation only -- it rejects bad input but never touches the DB. Branches
--- on the leading tag: "M" -> mob record, "Q" -> heartbeat. The tag and its ';'
--- separator are stripped before the per-type body parser runs.
+-- Pure validation only -- it rejects bad input but never touches the DB. The tag is
+-- everything before the first ';' (so a multi-char tag like "PR" parses correctly),
+-- and the body is everything after it. Branches: "M" -> mob, "Q" -> heartbeat,
+-- "P" -> profile snapshot, "PR" -> pull-request.
 function Codec.Decode(msg)
     if not msg then return nil end
 
-    local dataType = L._sub(msg, 1, 1)
-    local body = L._sub(msg, 3) -- strip the tag + its ';' separator
+    local _, _, tag, body = L._strfind(msg, "^([^;]*);(.*)$")
+    if not tag then return nil end -- no separator -> structurally malformed
 
-    if dataType == MOB_TAG then
+    if tag == MOB_TAG then
         return decodeMob(body)
-    elseif dataType == HEARTBEAT_TAG then
+    elseif tag == HEARTBEAT_TAG then
         return decodeHeartbeat(body)
+    elseif tag == PROFILE_TAG then
+        return decodeProfile(body)
+    elseif tag == PULL_TAG then
+        return decodePull(body)
     end
     return nil -- unknown type tag
 end

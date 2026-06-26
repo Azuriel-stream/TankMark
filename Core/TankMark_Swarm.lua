@@ -126,8 +126,20 @@ end
 -- Heard-state, runtime only (bounded by raid size, keyed by player name).
 Swarm.lastHeard      = {}    -- [name] = GetTime() of last beat
 Swarm.amQueenHeard   = {}    -- [name] = that beat's amQueen flag
+Swarm.versionHeard   = {}    -- [v0.29] slice 4: [name] = that beat's planVersion
 Swarm.selfAmQueen    = false -- what WE currently advertise
 Swarm.currentQueen   = nil   -- last elected queen (transition/repaint detection)
+
+-- [v0.29] slice 4: profile-sync state. planVersion is a single global, runtime-only
+-- monotonic counter bumped on every SaveProfileCache WHILE we are the queen; it
+-- rides the Q heartbeat so drones detect a stale plan. heardVersion is the version
+-- last advertised by our current queen. appliedKey is the (queen,version,zone)
+-- triple a drone has already applied; a mismatch arms needPull, which fires one
+-- coalesced PR on the next tick (storm control -- see SWARM_DESIGN.md sec.6.1).
+Swarm.planVersion    = 0     -- our own counter (meaningful only while queen)
+Swarm.appliedKey     = nil   -- {queen=, version=, zone=} a drone last applied
+Swarm.needPull       = false -- a drone armed a refetch (fired on the next tick)
+Swarm.pendingPush    = nil   -- queen-side coalesced PR-response set: {[zone]=true}
 Swarm.lastRole       = nil
 Swarm.bootstrapping  = false
 Swarm.bootstrapUntil = 0
@@ -208,7 +220,16 @@ function Swarm.Recompute(now)
     local queen = Swarm.ElectQueen(present, claimants, roster)
 
     -- Assert queen only once past bootstrap, still a candidate, and elected.
+    local wasQueen = Swarm.selfAmQueen
     Swarm.selfAmQueen = (not Swarm.bootstrapping) and selfIsCandidate and (queen == selfName)
+
+    -- [v0.29] slice 4: push-on-promotion. On the rising edge to queen, propagate the
+    -- current plan immediately (bump + push, like a Save) so drones converge on a
+    -- handoff even when the new queen's plan changed without a version bump -- e.g. a
+    -- pre-promotion drone-side edit, where neither a non-queen Save nor a version
+    -- change ever fired. OnProfile applies any push from the current queen regardless
+    -- of version, so this closes that gap with no pull latency.
+    if Swarm.selfAmQueen and not wasQueen then Swarm.OnPromoted() end
 
     local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
     if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen then
@@ -231,6 +252,11 @@ function Swarm.Recompute(now)
     -- [v0.29] Debounced chat notice -- evaluated EVERY recompute (not only on a
     -- transition) so the commit can fire on a later tick once the state settles.
     Swarm.UpdateNotice(now, role, queen)
+
+    -- [v0.29] slice 4: arm a profile refetch if our queen's advertised plan no
+    -- longer matches what we last applied. Arming here (on every recompute) and
+    -- firing on the tick collapses a burst of heartbeats into one PR.
+    Swarm.EvaluatePull(queen, role)
 end
 
 -- Debounced chat announcer (slice 2 tracer). A (role,queen) pair must persist for
@@ -271,8 +297,11 @@ function Swarm.SendBeat()
     if not Swarm.SelfIsCandidate() then return end
     if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
     local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    -- [v0.29] slice 4: advertise planVersion only while actually queen, so a stale
+    -- counter from a former reign cannot mislead drones after a handoff.
+    local advertised = Swarm.selfAmQueen and Swarm.planVersion or 0
     TankMark:QueueMessage(TankMark.SyncPrefix,
-        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen), channel)
+        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen, advertised), channel)
 end
 
 -- Receive path, dispatched from HandleSync on kind=="Q". sender is the
@@ -283,6 +312,7 @@ function Swarm.OnHeartbeat(sender, rec)
     local now = L._GetTime()
     Swarm.lastHeard[sender]    = now
     Swarm.amQueenHeard[sender] = rec.amQueen and true or false
+    Swarm.versionHeard[sender] = rec.planVersion or 0 -- [v0.29] slice 4
     Swarm.Recompute(now)
 end
 
@@ -292,11 +322,151 @@ function Swarm.OnRosterChange()
     Swarm.Recompute(L._GetTime())
 end
 
--- The 5s tick: beat, then recompute (the recompute also sweeps stale candidates
--- via the presence filter -- the sole detector of a silent drop-out).
+-- ==========================================================
+-- PROFILE SYNC  [v0.29] slice 4 (SWARM_DESIGN.md sec.6.1)
+-- ==========================================================
+
+-- Broadcast TankMarkProfileDB[zone] as one atomic "P" snapshot. Builds the
+-- HUD-minimal entry list (mark+tank+role; healers omitted) straight from the DB.
+-- Caller-gated -- the push (OnProfileSaved) and the PR-response both verify the
+-- sender is the queen first. No group -> nothing to send.
+function Swarm.PushProfile(zone)
+    if not zone then return end
+    if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
+    local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    local entries = (TankMarkProfileDB and TankMarkProfileDB[zone]) or {}
+    local payload = TankMark.SyncCodec.EncodeProfile(zone, Swarm.planVersion, entries)
+    if payload then
+        TankMark:QueueMessage(TankMark.SyncPrefix, payload, channel)
+    end
+end
+
+-- Called from SaveProfileCache after the DB write (the sole commit point of the
+-- cache->commit edit flow, so mid-edit state never leaks -- Save IS the debounce).
+-- Only the queen propagates: bump the global planVersion so the new plan supersedes
+-- the old on the heartbeat, then push immediately (the fast path). A non-queen Save
+-- is silent -- its slot is overwritten by the next queen push.
+function Swarm.OnProfileSaved(zone)
+    if not Swarm.selfAmQueen then return end
+    Swarm.planVersion = Swarm.planVersion + 1
+    Swarm.PushProfile(zone)
+end
+
+-- Called from Recompute on the rising edge to queen (a fresh election win or a
+-- handoff). Treat promotion like a Save: bump the version so the heartbeat
+-- advertises a fresh plan (a drone that misses the push still pulls on the version
+-- mismatch) and push the current zone now so drones converge immediately. Pushing
+-- the current zone is correct -- that is the plan the new queen is about to enact.
+function Swarm.OnPromoted()
+    Swarm.planVersion = Swarm.planVersion + 1
+    local zone = L._GetRealZoneText()
+    if zone and zone ~= "" then Swarm.PushProfile(zone) end
+end
+
+-- True when a drone's applied (queen,version,zone) key matches the live triple.
+local function keyMatches(key, queen, version, zone)
+    return key ~= nil and key.queen == queen and key.version == version and key.zone == zone
+end
+
+-- Arm a refetch when our queen's advertised plan no longer matches what we have
+-- applied. Only a DRONE pulls (a queen renders its own DB; NONE/BOOTSTRAP have no
+-- queen). The triple covers every staleness case: edit (version up), late join /
+-- failover (queen differs), drop (version up), zone change (zone differs), queen
+-- reload (counter resets -> inequality). An unknown zone (cold login, "") defers.
+function Swarm.EvaluatePull(queen, role)
+    if role ~= "DRONE" or not queen then
+        Swarm.needPull = false
+        return
+    end
+    local zone = L._GetRealZoneText()
+    if not zone or zone == "" then return end
+    local heard = Swarm.versionHeard[queen] or 0
+    if not keyMatches(Swarm.appliedKey, queen, heard, zone) then
+        Swarm.needPull = true
+    end
+end
+
+-- Receive a profile snapshot (HandleSync, kind=="P"). Auto-apply ONLY what our own
+-- elected queen sent -- stronger than the rank>=1 gate HandleSync already passed,
+-- and split-brain-safe (each drone follows its own queen; the election converges).
+-- Empty snapshot -> KEEP the current plan (a failover to an unprepared queen must
+-- not blank drones while the old queen's marks are still on the mobs) but still
+-- record the version so we stop pulling. Non-empty -> overwrite the local slot.
+function Swarm.OnProfile(sender, rec)
+    if not sender or not rec or not rec.zone then return end
+    if sender ~= Swarm.currentQueen then return end
+    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+
+    if L._tgetn(rec.entries) > 0 then
+        local slot = {}
+        for i = 1, L._tgetn(rec.entries) do
+            local e = rec.entries[i]
+            L._tinsert(slot, { mark = e.mark, tank = e.tank, role = e.role, healers = "" })
+        end
+        TankMarkProfileDB[rec.zone] = slot
+        -- Render only the zone we are standing in (the HUD shows the current zone);
+        -- other zones are stored but not painted.
+        if rec.zone == L._GetRealZoneText() and TankMark.ApplyProfileToSession then
+            TankMark:ApplyProfileToSession(rec.zone)
+        end
+    end
+
+    -- The P itself proves the queen is at this version (at least as authoritative as
+    -- a heartbeat), so align versionHeard now -- otherwise a push that lands before
+    -- the next beat leaves applied > heard and arms a spurious pull for up to 5s.
+    Swarm.versionHeard[sender] = rec.planVersion
+    Swarm.appliedKey = { queen = sender, version = rec.planVersion, zone = rec.zone }
+    Swarm.needPull   = false
+
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("SWARM", "profile applied", {
+            queen = sender, zone = rec.zone,
+            ver = rec.planVersion, n = L._tgetn(rec.entries),
+        })
+    end
+end
+
+-- Receive a pull-request (HandleSync, kind=="PR"). Only the queen answers, and it
+-- coalesces: mark the zone pending, then the next tick broadcasts it ONCE no matter
+-- how many drones asked this cycle (storm control after a queen reload/late join).
+function Swarm.OnPullRequest(sender, rec)
+    if not rec or not rec.zone then return end
+    if not Swarm.selfAmQueen then return end
+    Swarm.pendingPush = Swarm.pendingPush or {}
+    Swarm.pendingPush[rec.zone] = true
+end
+
+-- Send one PR for a zone (drone -> queen). Rides the shared prefix + throttle.
+function Swarm.SendPull(zone)
+    if not zone then return end
+    if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
+    local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    local payload = TankMark.SyncCodec.EncodePull(zone)
+    if payload then TankMark:QueueMessage(TankMark.SyncPrefix, payload, channel) end
+end
+
+-- Tick-time sync flush. Queen: answer the coalesced pull-requests (one broadcast
+-- per zone). Drone: fire one armed pull. needPull is NOT cleared here -- the P
+-- response clears it (OnProfile); if it never arrives, the next tick re-arms and
+-- retries, so a lost message self-heals at the 5s cadence.
+function Swarm.FlushSync()
+    if Swarm.selfAmQueen and Swarm.pendingPush then
+        for zone in L._pairs(Swarm.pendingPush) do
+            Swarm.PushProfile(zone)
+        end
+        Swarm.pendingPush = nil
+    end
+    if Swarm.needPull and not Swarm.selfAmQueen and Swarm.currentQueen then
+        local zone = L._GetRealZoneText()
+        if zone and zone ~= "" then Swarm.SendPull(zone) end
+    end
+end
+
+-- The 5s tick: beat, recompute, then flush profile sync (pulls/PR-responses).
 function Swarm.Tick(now)
     Swarm.SendBeat()
     Swarm.Recompute(now)
+    Swarm.FlushSync()
 end
 
 -- Deferred init (called from the entry point, SuperWoW-gated). Builds the beat

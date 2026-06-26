@@ -29,6 +29,29 @@ function TankMark:LoadProfileToCache()
 	end
 end
 
+-- [v0.29] slice 4: rebuild live session state from a zone's SAVED profile and
+-- repaint the HUD. This is the shared seam (SWARM_DESIGN.md sec.6.1) used by BOTH
+-- the queen's SaveProfileCache and the drone's profile-receive path
+-- (Swarm.OnProfile). It rebuilds sessionAssignments + UpdateHUD ONLY -- it never
+-- Prints, reads the zone dropdown, refreshes the editor list, or marks. Marking
+-- stays behind ShouldDriveMarks (failed by a drone), so this is safe on a drone:
+-- it renders the plan but drives no SetRaidTarget.
+function TankMark:ApplyProfileToSession(zone)
+	-- [v0.26] Do NOT pre-mark icons as used. sessionAssignments drive the HUD;
+	-- usedIcons reflects live mob marks only and is populated when marks land.
+	TankMark.sessionAssignments = {}
+	if zone and TankMarkProfileDB[zone] then
+		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
+			if entry.tank and entry.tank ~= "" then
+				TankMark.sessionAssignments[entry.mark] = entry.tank
+			end
+		end
+	end
+	if TankMark.UpdateHUD then
+		TankMark:UpdateHUD()
+	end
+end
+
 function TankMark:SaveProfileCache()
 	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	TankMarkProfileDB[zone] = {}
@@ -41,24 +64,16 @@ function TankMark:SaveProfileCache()
 		})
 	end
 
-	-- Update session if saving for the current zone
+	-- Update session if saving for the current zone (behavior unchanged -- now via
+	-- the shared ApplyProfileToSession seam).
 	if zone == L._GetRealZoneText() then
-		-- [v0.26] Do NOT pre-mark icons as used.
-		-- Session assignments drive the HUD; usedIcons should reflect live mob marks only.
-		TankMark.sessionAssignments = {}
-
-		for _, entry in L._ipairs(TankMarkProfileDB[zone]) do
-			if entry.tank and entry.tank ~= "" then
-				TankMark.sessionAssignments[entry.mark] = entry.tank
-			end
-		end
-
-		-- Leave TankMark.usedIcons untouched here.
-		-- It will be populated when marks are actually applied to mobs.
-		if TankMark.UpdateHUD then
-			TankMark:UpdateHUD()
-		end
+		TankMark:ApplyProfileToSession(zone)
 	end
+
+	-- [v0.29] slice 4: if we are the marking queen, bump the global planVersion and
+	-- push this zone's snapshot so drones render the plan. A drone's local Save
+	-- writes its own slot but neither bumps nor pushes (the next queen push wins).
+	if TankMark.Swarm then TankMark.Swarm.OnProfileSaved(zone) end
 
 	TankMark:Print("|cff00ff00Saved:|r Profile for '" .. zone .. "'")
 	TankMark:UpdateProfileList()
