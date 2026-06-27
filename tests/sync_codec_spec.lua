@@ -13,9 +13,16 @@ describe("SyncCodec", function()
             eq(s, "M;Blackrock Depths;Lord Roccor;3;8;KILL;WARRIOR", "wire")
         end)
 
-        it("syncs only the FIRST mark of the marks array", function()
+        -- [v0.29] slice 6: the mark field now carries the FULL array as a dot-list
+        -- (sequential marks transfer losslessly), not just marks[1].
+        it("syncs the FULL marks array as a dot-list", function()
             local s = Codec.EncodeMob("Z", "M", { prio = 1, marks = { 5, 6, 7 } })
-            eq(s, "M;Z;M;1;5;KILL;NIL", "first-mark only")
+            eq(s, "M;Z;M;1;5.6.7;KILL;NIL", "full array")
+        end)
+
+        it("encodes a single-mark mob byte-identical to the legacy wire", function()
+            local s = Codec.EncodeMob("Z", "M", { prio = 1, marks = { 5 } })
+            eq(s, "M;Z;M;1;5;KILL;NIL", "single mark = legacy form")
         end)
 
         it("defaults mark=8, type=KILL, class=NIL when absent", function()
@@ -52,6 +59,28 @@ describe("SyncCodec", function()
         it("decodes the NIL class sentinel back to nil", function()
             local r = Codec.Decode("M;Z;M;3;8;KILL;NIL")
             eq(r.class, nil, "class nil")
+        end)
+
+        -- [v0.29] slice 6: the widened mark field is a '.'-joined list.
+        it("decodes a multi-mark dot-list into a marks array", function()
+            local r = Codec.Decode("M;Z;M;1;5.6.7;KILL;NIL")
+            eq(table.getn(r.marks), 3, "marks count")
+            eq(r.marks[1], 5, "marks[1]")
+            eq(r.marks[2], 6, "marks[2]")
+            eq(r.marks[3], 7, "marks[3]")
+            eq(r.mark, 5, "mark stays = marks[1]")
+        end)
+
+        it("decodes a legacy single-mark wire into a one-element marks array", function()
+            local r = Codec.Decode("M;Z;M;3;8;KILL;NIL")
+            eq(table.getn(r.marks), 1, "one element")
+            eq(r.marks[1], 8, "marks[1]")
+            eq(r.mark, 8, "mark")
+        end)
+
+        it("rejects the whole record if any mark element is out of range", function()
+            eq(Codec.Decode("M;Z;M;1;5.9.7;KILL;NIL"), nil, "9 out of range")
+            eq(Codec.Decode("M;Z;M;1;5.x.7;KILL;NIL"), nil, "non-numeric element")
         end)
 
         it("rejects an unknown type tag", function()
@@ -92,6 +121,15 @@ describe("SyncCodec", function()
             local r = Codec.Decode(s)
             eq(r.class, nil, "class stays nil")
             eq(r.mark, 6, "mark")
+        end)
+
+        -- [v0.29] slice 6: a sequential-mark mob survives Encode -> Decode intact.
+        it("round-trips the full marks array losslessly", function()
+            local r = Codec.Decode(Codec.EncodeMob("Dire Maul", "Pusillin",
+                { prio = 4, marks = { 8, 1, 2, 3 }, type = "KILL" }))
+            eq(table.getn(r.marks), 4, "count")
+            eq(r.marks[1], 8, "m1")
+            eq(r.marks[4], 3, "m4")
         end)
     end)
 
@@ -256,6 +294,88 @@ describe("SyncCodec", function()
             eq(Codec.Decode("H;Bob").kind, "H", "H stays H")
             eq(Codec.Decode("M;Z;M;3;8;KILL;NIL").kind, "M", "M unaffected")
             eq(Codec.Decode("Q;1;0").kind, "Q", "Q unaffected")
+        end)
+    end)
+
+    -- [v0.29] slice 6: "SB"/"SE" frame a broadcast-once Mob DB share (sec.7.2).
+    -- SB opens with the M-record count (validated at SE -> all-or-nothing apply);
+    -- both key the frame on poster+zone. Pure codec only at this checkpoint.
+    describe("SB/SE share frame", function()
+        it("encodes and decodes a share-begin with poster, zone, count", function()
+            eq(Codec.EncodeShareBegin("Borgrim", "Blackwing Lair", 11),
+                "SB;Borgrim;Blackwing Lair;11", "SB wire")
+            local r = Codec.Decode("SB;Borgrim;Blackwing Lair;11")
+            eq(r.kind, "SB", "kind")
+            eq(r.poster, "Borgrim", "poster")
+            eq(r.zone, "Blackwing Lair", "zone")
+            eq(r.count, 11, "count")
+        end)
+
+        it("encodes and decodes a share-end with poster and zone", function()
+            eq(Codec.EncodeShareEnd("Borgrim", "Blackwing Lair"),
+                "SE;Borgrim;Blackwing Lair", "SE wire")
+            local r = Codec.Decode("SE;Borgrim;Blackwing Lair")
+            eq(r.kind, "SE", "kind")
+            eq(r.poster, "Borgrim", "poster")
+            eq(r.zone, "Blackwing Lair", "zone")
+        end)
+
+        it("returns the count as a number, not a string", function()
+            eq(type(Codec.Decode("SB;P;Z;3").count), "number", "count type")
+        end)
+
+        it("returns nil from encoders when poster or zone is missing", function()
+            eq(Codec.EncodeShareBegin(nil, "Z", 1), nil, "SB no poster")
+            eq(Codec.EncodeShareBegin("P", nil, 1), nil, "SB no zone")
+            eq(Codec.EncodeShareEnd("P", nil), nil, "SE no zone")
+        end)
+
+        it("rejects malformed SB/SE on decode", function()
+            eq(Codec.Decode("SB;P;Z"), nil, "SB missing count")
+            eq(Codec.Decode("SB;P;Z;x"), nil, "SB non-numeric count")
+            eq(Codec.Decode("SB;;Z;1"), nil, "SB empty poster")
+            eq(Codec.Decode("SE;P;"), nil, "SE empty zone")
+            eq(Codec.Decode("SE;;Z"), nil, "SE empty poster")
+        end)
+
+        it("does not collide with other tags", function()
+            eq(Codec.Decode("SB;P;Z;1").kind, "SB", "SB stays SB")
+            eq(Codec.Decode("SE;P;Z").kind, "SE", "SE stays SE")
+            eq(Codec.Decode("M;Z;M;3;8;KILL;NIL").kind, "M", "M unaffected")
+        end)
+    end)
+
+    -- [v0.29] slice 6: the clickable chat-link data grammar
+    -- "tankmark:<poster>:<zone>" (a |H..|h hyperlink body, not an addon message).
+    describe("share link", function()
+        it("encodes and decodes the link data", function()
+            eq(Codec.EncodeShareLink("Borgrim", "Blackwing Lair"),
+                "tankmark:Borgrim:Blackwing Lair", "link data")
+            local r = Codec.DecodeShareLink("tankmark:Borgrim:Blackwing Lair")
+            eq(r.poster, "Borgrim", "poster")
+            eq(r.zone, "Blackwing Lair", "zone")
+        end)
+
+        it("round-trips poster and zone", function()
+            local r = Codec.DecodeShareLink(Codec.EncodeShareLink("Frostkeg", "Zul'Gurub"))
+            eq(r.poster, "Frostkeg", "poster")
+            eq(r.zone, "Zul'Gurub", "zone")
+        end)
+
+        it("treats everything after the 2nd colon as the zone", function()
+            local r = Codec.DecodeShareLink("tankmark:P:Weird:Zone")
+            eq(r.zone, "Weird:Zone", "greedy zone")
+        end)
+
+        it("ignores a non-tankmark link (other addons / item links pass through)", function()
+            eq(Codec.DecodeShareLink("item:12345:0:0:0"), nil, "item link")
+            eq(Codec.DecodeShareLink("quest:42:30"), nil, "pfquest link")
+            eq(Codec.DecodeShareLink(nil), nil, "nil")
+        end)
+
+        it("returns nil from EncodeShareLink when poster or zone is missing", function()
+            eq(Codec.EncodeShareLink(nil, "Z"), nil, "no poster")
+            eq(Codec.EncodeShareLink("P", nil), nil, "no zone")
         end)
     end)
 end)
