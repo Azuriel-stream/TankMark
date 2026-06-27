@@ -30,6 +30,13 @@ Swarm.HEARTBEAT_INTERVAL = 5
 Swarm.MISS_THRESHOLD     = 3
 Swarm.PRESENCE_WINDOW    = Swarm.HEARTBEAT_INTERVAL * Swarm.MISS_THRESHOLD -- 15s
 
+-- [v0.29] slice 5a.3 handoff TTLs (SWARM_DESIGN.md sec.5.10). Ordered
+-- CLAIM(20) > PRESENCE(15) > OFFER(10): the target's claim must outlive the queen's
+-- presence window so a queen-DC mid-handoff resolves as the target inheriting the
+-- crown, not a fresh DeterministicMax fallback to some bystander.
+Swarm.HANDOFF_CLAIM_TTL  = 20  -- target: pendingClaim lifetime
+Swarm.HANDOFF_OFFER_TTL  = 10  -- queen:  pendingHandoffTarget lifetime
+
 -- ==========================================================
 -- PURE ELECTION CORE
 -- ==========================================================
@@ -144,14 +151,19 @@ Swarm.versionHeard   = {}    -- [v0.29] slice 4: [name] = that beat's planVersio
 Swarm.selfAmQueen    = false -- what WE currently advertise
 Swarm.currentQueen   = nil   -- last elected queen (transition/repaint detection)
 
--- [v0.29] slice 5a.2: handoff claim-override state (SWARM_DESIGN.md sec.5.10).
--- DORMANT in 5a.2 -- no path sets these until 5a.3 wires the "H" offer. pendingClaim
--- is a handoff TARGET briefly advertising amQueen=1 to enter the claimant set;
--- relinquish is the outgoing QUEEN suppressing its own claim for the single cycle
--- that breaks stickiness. While both are false, AdvertisedClaim == selfAmQueen, so
--- the election is behavior-identical.
-Swarm.pendingClaim   = false
-Swarm.relinquish     = false
+-- [v0.29] slice 5a.2/5a.3: handoff claim-override state (SWARM_DESIGN.md sec.5.10).
+-- pendingClaim is a handoff TARGET briefly advertising amQueen=1 to enter the
+-- claimant set (until it wins, or pendingClaimUntil elapses); relinquish is the
+-- outgoing QUEEN suppressing its own claim for the single Recompute pass that breaks
+-- stickiness (a strict one-shot, cleared each pass). While both are false,
+-- AdvertisedClaim == selfAmQueen, so an idle swarm's election is unchanged. [5a.3]
+-- the queen also tracks who it offered to (pendingHandoffTarget) under
+-- handoffOfferUntil, so a lost offer self-clears WITHOUT ever relinquishing.
+Swarm.pendingClaim         = false
+Swarm.pendingClaimUntil    = 0
+Swarm.relinquish           = false
+Swarm.pendingHandoffTarget = nil
+Swarm.handoffOfferUntil    = 0
 
 -- [v0.29] slice 4: profile-sync state. planVersion is a single global, runtime-only
 -- monotonic counter bumped on every SaveProfileCache WHILE we are the queen; it
@@ -230,9 +242,30 @@ function Swarm.Recompute(now)
     Swarm.wasCandidate = selfIsCandidate
 
     local roster = Swarm.BuildRoster()
+
+    -- [v0.29] slice 5a.3: handoff lifecycle (SWARM_DESIGN.md sec.5.10). Expire stale
+    -- offers/claims first; then -- if WE are the queen and now HEAR our handoff target
+    -- claiming -- relinquish: drop our own claim for THIS election so the lone remaining
+    -- claimant (the target) wins via stickiness, even at a lower rank. Anchor rule: we
+    -- never relinquish until we have heard the target claim, so a lost/ignored offer
+    -- just leaves us marking. forceBeat fires one off-cycle heartbeat at the end of the
+    -- pass so the swap completes in ~1s instead of waiting for the 5s tick.
+    local forceBeat = false
+    Swarm.ExpireHandoffState(now)
+    if Swarm.selfAmQueen and Swarm.pendingHandoffTarget
+        and Swarm.amQueenHeard[Swarm.pendingHandoffTarget] then
+        Swarm.relinquish = true
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("SWARM", "handoff relinquish", { target = Swarm.pendingHandoffTarget })
+        end
+        Swarm.pendingHandoffTarget = nil
+        Swarm.handoffOfferUntil = 0
+        forceBeat = true
+    end
+
     -- [v0.29] slice 5a.2: feed the ADVERTISED CLAIM (not raw selfAmQueen) into the
-    -- election, so a dormant pendingClaim/relinquish would move the crown through the
-    -- claimant set. == selfAmQueen until 5a.3 activates a handoff, so behavior-identical.
+    -- election, so pendingClaim/relinquish move the crown through the claimant set.
+    -- == selfAmQueen whenever no handoff is in flight, so behavior-identical.
     local claim = Swarm.AdvertisedClaim(Swarm.selfAmQueen, Swarm.pendingClaim, Swarm.relinquish)
     local present, claimants = Swarm.ComputePresence(
         selfName, selfIsCandidate, claim,
@@ -250,13 +283,25 @@ function Swarm.Recompute(now)
     local wasQueen = Swarm.selfAmQueen
     Swarm.selfAmQueen = (not Swarm.bootstrapping) and selfIsCandidate and (queen == selfName)
 
+    -- [v0.29] slice 5a.3: relinquish is a strict ONE-SHOT -- consumed by the
+    -- ComputePresence above for exactly the one election that breaks stickiness, then
+    -- cleared here so it can never stick (e.g. if the target vanished before the swap
+    -- completed and we got re-elected, a stuck relinquish would advertise amQueen=0
+    -- while marking -- a self-inflicted split brain). The next beat advertises truth.
+    Swarm.relinquish = false
+
     -- [v0.29] slice 4: push-on-promotion. On the rising edge to queen, propagate the
     -- current plan immediately (bump + push, like a Save) so drones converge on a
     -- handoff even when the new queen's plan changed without a version bump -- e.g. a
     -- pre-promotion drone-side edit, where neither a non-queen Save nor a version
     -- change ever fired. OnProfile applies any push from the current queen regardless
-    -- of version, so this closes that gap with no pull latency.
-    if Swarm.selfAmQueen and not wasQueen then Swarm.OnPromoted() end
+    -- of version, so this closes that gap with no pull latency. [slice 5a.3] the rising
+    -- edge also clears a fulfilled pendingClaim -- we won the crown, the claim is spent.
+    if Swarm.selfAmQueen and not wasQueen then
+        Swarm.pendingClaim = false
+        Swarm.pendingClaimUntil = 0
+        Swarm.OnPromoted()
+    end
 
     local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
     if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen then
@@ -284,6 +329,11 @@ function Swarm.Recompute(now)
     -- longer matches what we last applied. Arming here (on every recompute) and
     -- firing on the tick collapses a burst of heartbeats into one PR.
     Swarm.EvaluatePull(queen, role)
+
+    -- [v0.29] slice 5a.3: an accept (target) or relinquish (queen) forces an off-cycle
+    -- beat so the crown swap propagates in ~1s rather than at the next 5s tick. Sent
+    -- last, after selfAmQueen reflects this pass, so the amQueen bit on the wire is current.
+    if forceBeat then Swarm.SendBeat() end
 end
 
 -- Debounced chat announcer (slice 2 tracer). A (role,queen) pair must persist for
@@ -327,7 +377,7 @@ function Swarm.SendBeat()
     -- [v0.29] slice 5a.2: the heartbeat's amQueen bit is the ADVERTISED CLAIM (a
     -- handoff target's pendingClaim, or self minus a relinquish), not the raw
     -- election output -- this is how a crown-pass nudges the claimant set without
-    -- anyone writing selfAmQueen. == selfAmQueen while dormant. [slice 4] planVersion
+    -- anyone writing selfAmQueen. == selfAmQueen when no handoff is in flight. [slice 4] planVersion
     -- stays gated on the REAL election output (selfAmQueen): only an actual queen has
     -- an authoritative plan, so a merely-claiming target advertises version 0.
     local claim = Swarm.AdvertisedClaim(Swarm.selfAmQueen, Swarm.pendingClaim, Swarm.relinquish)
@@ -352,6 +402,108 @@ end
 -- filter, not the 15s presence timeout.
 function Swarm.OnRosterChange()
     Swarm.Recompute(L._GetTime())
+end
+
+-- ==========================================================
+-- HANDOFF  [v0.29] slice 5a.3 (SWARM_DESIGN.md sec.5.10)
+-- The crown moves ONLY through the election: an offer nudges the claimant set
+-- (target's pendingClaim, then queen's relinquish), never an imperative selfAmQueen
+-- write -- so the single-queen invariant slice 3 established holds at every instant.
+-- ==========================================================
+
+-- Expire stale handoff bookkeeping (called at the top of every Recompute). Two
+-- independent TTLs, ordered CLAIM(20) > PRESENCE(15) > OFFER(10) so a queen-DC
+-- mid-handoff resolves as the target INHERITING (its claim outlives the queen's
+-- presence window), not a fresh DeterministicMax to some bystander.
+function Swarm.ExpireHandoffState(now)
+    -- target side: a claim that never won within its window stops advertising.
+    if Swarm.pendingClaim and now >= Swarm.pendingClaimUntil then
+        Swarm.pendingClaim = false
+        Swarm.pendingClaimUntil = 0
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("SWARM", "handoff claim expired", {})
+        end
+    end
+    -- queen side: offered but never heard the target claim -> drop it, keep marking.
+    if Swarm.pendingHandoffTarget and now >= Swarm.handoffOfferUntil then
+        local t = Swarm.pendingHandoffTarget
+        Swarm.pendingHandoffTarget = nil
+        Swarm.handoffOfferUntil = 0
+        TankMark:Print("Handoff to |cffffd100" .. t .. "|r not confirmed -- you remain Queen.")
+    end
+end
+
+-- Receive a directed handoff offer (HandleSync, kind=="H"). Four gates, then
+-- AUTO-ACCEPT (models passing raid lead -- no recipient dialog). Gate 1
+-- (IsTrustedSender, rank>=1) already passed in HandleSync; here:
+--   2. sender == our current elected queen -- a trusted non-queen cannot forge a
+--      crown-pass (mirrors OnProfile's queen-only apply);
+--   3. the offer names US;
+--   4. we are eligible to mark right now AND not mid-bootstrap -- accepting while
+--      ineligible would mint a queen that cannot mark; accepting inside the listen
+--      window would advertise amQueen=1 during bootstrap (a forbidden claim).
+-- Accept = enter the claimant set via pendingClaim + force a beat so the queen hears
+-- us within ~1s. We do NOT write selfAmQueen -- the election promotes us once the
+-- queen relinquishes, so there is never a moment with two marking queens.
+function Swarm.OnHandoffOffer(sender, rec)
+    if not sender or not rec or not rec.target then return end
+    if sender ~= Swarm.currentQueen then return end
+    if rec.target ~= Swarm.SelfName() then return end
+    if not Swarm.SelfIsCandidate() or Swarm.bootstrapping then return end
+
+    local now = L._GetTime()
+    Swarm.pendingClaim = true
+    Swarm.pendingClaimUntil = now + Swarm.HANDOFF_CLAIM_TTL
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("SWARM", "handoff accepted", { from = sender })
+    end
+    TankMark:Print("|cffffd100" .. sender .. "|r is passing you the marking Queen role...")
+    Swarm.SendBeat() -- forced beat: advertise amQueen=1 (the confirm)
+end
+
+-- Initiate a handoff (queen-side, from /tmark handoff <name>). Validates queen-only,
+-- a non-self target, and that the target is a LIVE candidate (present + rank>=1 in our
+-- own presence view), then broadcasts the "H" offer and arms the offer TTL. The crown
+-- does NOT move here -- it moves when the target claims and we relinquish (Recompute).
+function Swarm.InitiateHandoff(targetName)
+    if not Swarm.selfAmQueen then
+        TankMark:Print("|cffff0000Handoff:|r only the marking Queen can pass the crown.")
+        return
+    end
+    if not targetName or targetName == "" then
+        TankMark:Print("Usage: /tmark handoff <player>")
+        return
+    end
+    local selfName = Swarm.SelfName()
+    if targetName == selfName then
+        TankMark:Print("|cffff0000Handoff:|r you are already the Queen.")
+        return
+    end
+
+    local now = L._GetTime()
+    local roster = Swarm.BuildRoster()
+    local present = Swarm.ComputePresence(selfName, Swarm.SelfIsCandidate(),
+        Swarm.selfAmQueen, Swarm.lastHeard, Swarm.amQueenHeard, roster, now,
+        Swarm.PRESENCE_WINDOW)
+    local eligible = false
+    for i = 1, L._tgetn(present) do
+        if present[i] == targetName then eligible = true end
+    end
+    if not eligible then
+        TankMark:Print("|cffff0000Handoff:|r '" .. targetName
+            .. "' is not an eligible candidate (a present Assist/Leader running TankMark).")
+        return
+    end
+
+    Swarm.pendingHandoffTarget = targetName
+    Swarm.handoffOfferUntil = now + Swarm.HANDOFF_OFFER_TTL
+    local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    local payload = TankMark.SyncCodec.EncodeHandoff(targetName)
+    if payload then TankMark:QueueMessage(TankMark.SyncPrefix, payload, channel) end
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("SWARM", "handoff offered", { target = targetName })
+    end
+    TankMark:Print("Handoff offered to |cffffd100" .. targetName .. "|r -- waiting for confirmation...")
 end
 
 -- ==========================================================
