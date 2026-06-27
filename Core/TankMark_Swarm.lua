@@ -319,6 +319,9 @@ function Swarm.Recompute(now)
         -- [v0.29] slice 2 tracer: the HUD status line follows the election live.
         -- Repaint only an already-built HUD so we never force early creation.
         if TankMark.hudFrame and TankMark.UpdateHUD then TankMark:UpdateHUD() end
+        -- [v0.29] slice 5b.1: a role flip read-only-gates (or releases) the Team
+        -- Profiles tab when it's open. Guarded so it never forces UI creation.
+        if TankMark.RefreshProfileGateIfVisible then TankMark:RefreshProfileGateIfVisible() end
     end
 
     -- [v0.29] Debounced chat notice -- evaluated EVERY recompute (not only on a
@@ -592,6 +595,13 @@ function Swarm.OnProfile(sender, rec)
         -- other zones are stored but not painted.
         if rec.zone == L._GetRealZoneText() and TankMark.ApplyProfileToSession then
             TankMark:ApplyProfileToSession(rec.zone)
+        end
+        -- [v0.29] slice 5b.1: the HUD repaints above, but the open Profiles tab
+        -- renders from profileCache (not the live DB) -- refresh it too when a drone
+        -- is viewing this zone. Not limited to the current zone: the tab can view any
+        -- zone via the dropdown. Guarded so it never forces UI creation.
+        if TankMark.RefreshProfileTabForZone then
+            TankMark:RefreshProfileTabForZone(rec.zone)
         end
     end
 
