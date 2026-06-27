@@ -106,6 +106,20 @@ function Swarm.ComputePresence(selfName, selfIsCandidate, selfAmQueen,
     return present, claimants
 end
 
+-- [v0.29] slice 5a.2: the ADVERTISED CLAIM -- the amQueen bit a client puts on the
+-- wire and counts as its OWN claim in ComputePresence -- split from selfAmQueen (the
+-- election output / marking gate, which is unchanged and still drives ShouldDriveMarks).
+-- A handoff TARGET enters the claimant set via pendingClaim WITHOUT anyone writing
+-- selfAmQueen; the outgoing QUEEN drops its own claim for the one cycle that breaks
+-- stickiness via relinquish. So the crown moves only through the deterministic
+-- election (the claimant-count rule), never by imperative assignment -- the
+-- single-queen invariant slice 3 established holds at every instant (sec.5.10).
+-- DORMANT until 5a.3: with both flags false this returns selfAmQueen unchanged, so
+-- every existing election result is reproduced exactly. Pure; always a boolean.
+function Swarm.AdvertisedClaim(selfAmQueen, pendingClaim, relinquish)
+    return ((selfAmQueen or pendingClaim) and not relinquish) or false
+end
+
 -- Derive the display role label from the election outcome (SWARM_DESIGN.md
 -- sec.5.8 / sec.10: role is DERIVED, not a stored FSM). During the bootstrap
 -- listen-window the role is BOOTSTRAP regardless of any tentative winner. Pure.
@@ -129,6 +143,15 @@ Swarm.amQueenHeard   = {}    -- [name] = that beat's amQueen flag
 Swarm.versionHeard   = {}    -- [v0.29] slice 4: [name] = that beat's planVersion
 Swarm.selfAmQueen    = false -- what WE currently advertise
 Swarm.currentQueen   = nil   -- last elected queen (transition/repaint detection)
+
+-- [v0.29] slice 5a.2: handoff claim-override state (SWARM_DESIGN.md sec.5.10).
+-- DORMANT in 5a.2 -- no path sets these until 5a.3 wires the "H" offer. pendingClaim
+-- is a handoff TARGET briefly advertising amQueen=1 to enter the claimant set;
+-- relinquish is the outgoing QUEEN suppressing its own claim for the single cycle
+-- that breaks stickiness. While both are false, AdvertisedClaim == selfAmQueen, so
+-- the election is behavior-identical.
+Swarm.pendingClaim   = false
+Swarm.relinquish     = false
 
 -- [v0.29] slice 4: profile-sync state. planVersion is a single global, runtime-only
 -- monotonic counter bumped on every SaveProfileCache WHILE we are the queen; it
@@ -207,8 +230,12 @@ function Swarm.Recompute(now)
     Swarm.wasCandidate = selfIsCandidate
 
     local roster = Swarm.BuildRoster()
+    -- [v0.29] slice 5a.2: feed the ADVERTISED CLAIM (not raw selfAmQueen) into the
+    -- election, so a dormant pendingClaim/relinquish would move the crown through the
+    -- claimant set. == selfAmQueen until 5a.3 activates a handoff, so behavior-identical.
+    local claim = Swarm.AdvertisedClaim(Swarm.selfAmQueen, Swarm.pendingClaim, Swarm.relinquish)
     local present, claimants = Swarm.ComputePresence(
-        selfName, selfIsCandidate, Swarm.selfAmQueen,
+        selfName, selfIsCandidate, claim,
         Swarm.lastHeard, Swarm.amQueenHeard, roster, now, Swarm.PRESENCE_WINDOW)
 
     -- Bootstrap EXIT: defer to any heard incumbent (during bootstrap we do not
@@ -297,11 +324,16 @@ function Swarm.SendBeat()
     if not Swarm.SelfIsCandidate() then return end
     if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
     local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
-    -- [v0.29] slice 4: advertise planVersion only while actually queen, so a stale
-    -- counter from a former reign cannot mislead drones after a handoff.
-    local advertised = Swarm.selfAmQueen and Swarm.planVersion or 0
+    -- [v0.29] slice 5a.2: the heartbeat's amQueen bit is the ADVERTISED CLAIM (a
+    -- handoff target's pendingClaim, or self minus a relinquish), not the raw
+    -- election output -- this is how a crown-pass nudges the claimant set without
+    -- anyone writing selfAmQueen. == selfAmQueen while dormant. [slice 4] planVersion
+    -- stays gated on the REAL election output (selfAmQueen): only an actual queen has
+    -- an authoritative plan, so a merely-claiming target advertises version 0.
+    local claim = Swarm.AdvertisedClaim(Swarm.selfAmQueen, Swarm.pendingClaim, Swarm.relinquish)
+    local advertisedVersion = Swarm.selfAmQueen and Swarm.planVersion or 0
     TankMark:QueueMessage(TankMark.SyncPrefix,
-        TankMark.SyncCodec.EncodeHeartbeat(Swarm.selfAmQueen, advertised), channel)
+        TankMark.SyncCodec.EncodeHeartbeat(claim, advertisedVersion), channel)
 end
 
 -- Receive path, dispatched from HandleSync on kind=="Q". sender is the

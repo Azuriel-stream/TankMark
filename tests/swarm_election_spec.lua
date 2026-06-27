@@ -136,4 +136,79 @@ describe("Swarm election", function()
             eq(Swarm.PRESENCE_WINDOW, 15, "window")
         end)
     end)
+
+    -- [v0.29] slice 5a.2: AdvertisedClaim splits the wire/claim bit from the election
+    -- output (selfAmQueen). These pin the truth table; the handoff block below proves
+    -- it moves the crown through the existing claimant-count rule.
+    describe("AdvertisedClaim (claim-override split)", function()
+        local AC = Swarm.AdvertisedClaim
+        it("a real queen advertises a claim", function()
+            eq(AC(true, false, false), true, "selfAmQueen")
+        end)
+        it("a handoff target claims via pendingClaim alone (no selfAmQueen write)", function()
+            eq(AC(false, true, false), true, "pendingClaim")
+        end)
+        it("a relinquishing queen drops its own claim", function()
+            eq(AC(true, false, true), false, "relinquish overrides queen")
+        end)
+        it("an idle non-queen non-target advertises nothing", function()
+            eq(AC(false, false, false), false, "idle")
+        end)
+        it("is behavior-identical to selfAmQueen while dormant (both flags false)", function()
+            eq(AC(true, false, false), true, "queen == selfAmQueen")
+            eq(AC(false, false, false), false, "drone == selfAmQueen")
+        end)
+        it("always returns a strict boolean", function()
+            eq(AC(true, false, false), true, "true not truthy obj")
+            eq(AC(false, false, false), false, "false not nil")
+        end)
+    end)
+
+    -- [v0.29] slice 5a.2: the §5.10 happy-path crown-pass, proven purely. Queen
+    -- Alice(rank2) hands to Bob(rank1). The crown moves ONLY by changing the claimant
+    -- set (pendingClaim/relinquish fed through AdvertisedClaim), never by writing
+    -- selfAmQueen -- so the deterministic election stays the sole marking authority and
+    -- the single-queen invariant holds at each step. Dormant at runtime; activated in 5a.3.
+    describe("handoff via claim-set (sec.5.10, dormant override cases)", function()
+        local roster = { Alice = 2, Bob = 1, Cara = 1 }
+        local AC = Swarm.AdvertisedClaim
+
+        it("step 2 (drone view): target claims -> 2 claimants -> higher-rank queen keeps the crown, zero gap", function()
+            -- Cara hears Alice still queen (amQueen=1) and Bob now pendingClaim (amQueen=1).
+            local p, c = Swarm.ComputePresence("Cara", true, false,
+                { Alice = 99, Bob = 99 },
+                { Alice = AC(true, false, false), Bob = AC(false, true, false) },
+                roster, 100, 15)
+            eq(count(c), 2, "two claimants")
+            eq(Swarm.ElectQueen(p, c, roster), "Alice", "queen retained (rank tiebreak)")
+        end)
+
+        it("step 3 (drone view): queen relinquishes -> 1 claimant -> crown moves to the lower-rank target", function()
+            -- Cara now hears Alice amQueen=0 (relinquish) and Bob amQueen=1.
+            local p, c = Swarm.ComputePresence("Cara", true, false,
+                { Alice = 99, Bob = 99 },
+                { Alice = AC(true, false, true), Bob = AC(false, true, false) },
+                roster, 100, 15)
+            eq(count(c), 1, "lone claimant")
+            eq(Swarm.ElectQueen(p, c, roster), "Bob", "crown moved to target via stickiness")
+        end)
+
+        it("the relinquishing queen excludes ITSELF from its own claimant set", function()
+            -- Alice's own client: selfAmQueen=true but relinquish=true -> claim=false.
+            local claim = AC(true, false, true)
+            local p, c = Swarm.ComputePresence("Alice", true, claim,
+                { Bob = 99 }, { Bob = true }, roster, 100, 15)
+            eq(has(c, "Alice"), false, "self not claiming")
+            eq(Swarm.ElectQueen(p, c, roster), "Bob", "yields to target")
+        end)
+
+        it("the target's own client claims via pendingClaim and wins once the queen yields", function()
+            -- Bob's own client: not yet queen, pendingClaim=true; Alice already amQueen=0.
+            local claim = AC(false, true, false)
+            local p, c = Swarm.ComputePresence("Bob", true, claim,
+                { Alice = 99 }, { Alice = false }, roster, 100, 15)
+            eq(has(c, "Bob"), true, "self claims via pendingClaim")
+            eq(Swarm.ElectQueen(p, c, roster), "Bob", "target elected")
+        end)
+    end)
 end)
