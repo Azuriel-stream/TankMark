@@ -36,6 +36,7 @@ local SUT = {
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",
     "Core/TankMark_SyncCodec.lua",
+    "Core/TankMark_Trust.lua",
     "Core/TankMark_Swarm.lua",
 }
 for _, path in ipairs(SUT) do

@@ -14,6 +14,7 @@ local SPECS = {
     "tests/decide_mark_spec.lua",
     "tests/governor_spec.lua",
     "tests/sync_codec_spec.lua",
+    "tests/trust_spec.lua",
     "tests/swarm_election_spec.lua",
     "tests/profile_sync_spec.lua",
 }

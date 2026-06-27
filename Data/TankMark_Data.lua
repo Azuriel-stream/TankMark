@@ -31,7 +31,10 @@ function TankMark:InitializeDB()
     -- 1. Mob Database
     if not TankMarkDB then TankMarkDB = {} end
     if not TankMarkDB.Zones then TankMarkDB.Zones = {} end
-    
+    -- [v0.29] slice 6: per-player Mob DB sharing trust axis (account-wide;
+    -- name -> "blocked"/"trusted", absent = neutral). See Core/TankMark_Trust.lua.
+    if not TankMarkDB.Trust then TankMarkDB.Trust = {} end
+
     -- 2. Profile Database
     if not TankMarkProfileDB then TankMarkProfileDB = {} end
     

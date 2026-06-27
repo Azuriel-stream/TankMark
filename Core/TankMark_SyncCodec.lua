@@ -31,6 +31,16 @@
 -- the named target acts (the name-filter lives in Sync.lua, slice 5a.3). The wire
 -- is one field, the target name. This checkpoint is the pure codec only -- no
 -- election or runtime behavior rides on it yet.
+--
+-- [v0.29] Swarm slice 6.1: Mob DB sharing (SWARM_DESIGN.md sec.7). Three additions,
+-- pure codec only (no runtime behavior yet -- the link hook, pull-request, send and
+-- framed apply are slices 6.3/6.4): (1) the "M" mark field is widened to a '.'-joined
+-- LIST so sequential marks transfer losslessly -- a single mark is the legacy-
+-- identical one-element case; (2) "SB"/"SE" frame the broadcast-once share of one
+-- zone (begin carries the record count, validated at end -> all-or-nothing apply);
+-- (3) the clickable chat-link data grammar "tankmark:<poster>:<zone>" (a |H..|h
+-- hyperlink body, not an addon message) is encoded/decoded here so it stays
+-- single-sourced and harness-testable.
 
 if not TankMark then return end
 
@@ -39,11 +49,14 @@ local L = TankMark.Locals
 TankMark.SyncCodec = {}
 local Codec = TankMark.SyncCodec
 
--- Wire grammar for a mob record: "M;<zone>;<mob>;<prio>;<mark>;<type>;<class>"
+-- Wire grammar for a mob record: "M;<zone>;<mob>;<prio>;<marks>;<type>;<class>"
 -- ';' is not a Lua pattern magic char, so it is a literal delimiter on both ends.
--- The body pattern matches everything after the "M;" type tag.
+-- The body pattern matches everything after the "M;" type tag. [v0.29] slice 6:
+-- the <marks> field is a '.'-joined list ("8.1.2") so sequential marks transfer
+-- losslessly; a single-mark mob is the one-element case "8" (legacy-identical), so
+-- the mark field pattern is now [%d%.]+ rather than %d+.
 local MOB_TAG = "M"
-local MOB_BODY_PATTERN = "^(.-);(.-);(%d+);(%d+);(.-);(.-)$"
+local MOB_BODY_PATTERN = "^(.-);(.-);(%d+);([%d%.]+);(.-);(.-)$"
 
 -- Wire grammar for a control heartbeat: "Q;<amQueen>;<planVersion>" where amQueen
 -- is "1"/"0" and planVersion is the queen's profile counter (0 if none/non-queen).
@@ -63,21 +76,51 @@ local PULL_TAG    = "PR"
 --            Broadcast; the target name carries no ';' so it is the whole body.
 local HANDOFF_TAG = "H"
 
+-- [v0.29] slice 6 wire grammar (SWARM_DESIGN.md sec.7.2) -- the broadcast-once
+-- share of one zone's Mob DB, framed so the receiver applies it all-or-nothing:
+--   share-begin "SB;<poster>;<zone>;<count>"  -- opens the frame; <count> is the
+--               number of "M" records to follow (validated at SE).
+--   share-end   "SE;<poster>;<zone>"          -- closes the frame.
+-- Both key the frame on poster+zone; a receiver buffers a frame only while it
+-- holds a matching pending-click (the click/apply machinery is slice 6.3/6.4).
+local SHAREBEGIN_TAG = "SB"
+local SHAREEND_TAG   = "SE"
+
+-- [v0.29] slice 6: the clickable chat-LINK data grammar -- NOT an addon message,
+-- but a |H...|h hyperlink body: "tankmark:<poster>:<zone>". ':' is the hyperlink
+-- delimiter (no player/zone name contains one). Single-sourced here so every wire
+-- grammar stays harness-testable; the colour/display wrapping + the SetItemRef
+-- hook are the UI's job (slice 6.3/6.4).
+local LINK_TAG = "tankmark"
+
 -- Encode a mob DB entry to its wire string, or nil if the entry is unusable.
--- Mirrors the historical BroadcastZone defaults: only the FIRST mark is synced
--- (sequential marks are a local-only feature), type defaults to "KILL", and a
--- missing class is sent as the sentinel "NIL". zone/mob/prio are required --
--- a prio-less entry returns nil rather than producing a malformed string.
+-- type defaults to "KILL", a missing class is sent as the sentinel "NIL", and
+-- zone/mob/prio are required -- a prio-less entry returns nil rather than
+-- producing a malformed string. [v0.29] slice 6: the mark field now carries the
+-- FULL marks array as a '.'-joined list, so sequential marks transfer losslessly.
+-- A single-mark mob encodes to exactly the legacy "8" (byte-identical wire); the
+-- whole list is <= 8 single digits, far under the 254B cap. (decodeMob parses both
+-- forms; HandleSync still reads marks[1] until the framed apply lands in 6.4.)
 function Codec.EncodeMob(zone, mob, data)
     if not zone or not mob or not data then return nil end
     local prio = data.prio
     if not prio then return nil end
 
-    local mark = (data.marks and data.marks[1]) or 8
+    local marks = data.marks
+    local markStr
+    if marks and L._tgetn(marks) > 0 then
+        markStr = "" .. marks[1]
+        for i = 2, L._tgetn(marks) do
+            markStr = markStr .. "." .. marks[i]
+        end
+    else
+        markStr = "8"
+    end
+
     local mType = data.type or "KILL"
     local mClass = data.class or "NIL"
 
-    return MOB_TAG .. ";" .. zone .. ";" .. mob .. ";" .. prio .. ";" .. mark .. ";" .. mType .. ";" .. mClass
+    return MOB_TAG .. ";" .. zone .. ";" .. mob .. ";" .. prio .. ";" .. markStr .. ";" .. mType .. ";" .. mClass
 end
 
 -- [v0.29] Encode a control-plane heartbeat. amQueen is the sender's own current
@@ -123,22 +166,65 @@ function Codec.EncodeHandoff(target)
     return HANDOFF_TAG .. ";" .. target
 end
 
+-- [v0.29] slice 6: share-frame markers. EncodeShareBegin opens a zone share with
+-- the record count; EncodeShareEnd closes it. The "M" records carried between them
+-- reuse Codec.EncodeMob (one mob per message, already under the 254B cap).
+function Codec.EncodeShareBegin(poster, zone, count)
+    if not poster or not zone then return nil end
+    return SHAREBEGIN_TAG .. ";" .. poster .. ";" .. zone .. ";" .. (count or 0)
+end
+
+function Codec.EncodeShareEnd(poster, zone)
+    if not poster or not zone then return nil end
+    return SHAREEND_TAG .. ";" .. poster .. ";" .. zone
+end
+
+-- [v0.29] slice 6: encode the clickable share link's data field
+-- ("tankmark:<poster>:<zone>"). The caller wraps it as |c..|H<this>|h[text]|h|r.
+function Codec.EncodeShareLink(poster, zone)
+    if not poster or not zone then return nil end
+    return LINK_TAG .. ":" .. poster .. ":" .. zone
+end
+
+-- [v0.29] slice 6: decode a clicked link's data (the SetItemRef `link` arg) back
+-- to { poster, zone }, or nil if it isn't ours / is malformed. The zone is
+-- everything after the 2nd ':' (greedy), so a stray ':' can't truncate it.
+function Codec.DecodeShareLink(linkData)
+    if not linkData then return nil end
+    local _, _, poster, zone = L._strfind(linkData, "^tankmark:([^:]*):(.*)$")
+    if not poster or poster == "" then return nil end
+    if not zone or zone == "" then return nil end
+    return { poster = poster, zone = zone }
+end
+
 -- Decode the "M;..." body into a typed mob record, or nil if malformed.
 local function decodeMob(body)
-    local _, _, zone, mob, prio, mark, mType, mClass = L._strfind(body, MOB_BODY_PATTERN)
+    local _, _, zone, mob, prio, markStr, mType, mClass = L._strfind(body, MOB_BODY_PATTERN)
     if not zone or not mob then return nil end
 
     local numPrio = L._tonumber(prio)
-    local numMark = L._tonumber(mark)
-    if not numPrio or not numMark then return nil end -- non-numeric prio/mark
-    if numMark < 0 or numMark > 8 then return nil end -- mark out of icon range
+    if not numPrio then return nil end -- non-numeric prio
+
+    -- [v0.29] slice 6: markStr is a '.'-joined list (a legacy single mark "8" is
+    -- the one-element case). Parse every element; any non-numeric or out-of-icon-
+    -- range value rejects the WHOLE record (the field validation HandleSync used to
+    -- do inline). mark stays = marks[1] for callers that read a single icon.
+    local marks = {}
+    for m in L._gfind(markStr, "[^%.]+") do
+        local numMark = L._tonumber(m)
+        if not numMark then return nil end                 -- non-numeric mark
+        if numMark < 0 or numMark > 8 then return nil end  -- icon out of range
+        L._tinsert(marks, numMark)
+    end
+    if L._tgetn(marks) == 0 then return nil end            -- empty mark field
 
     return {
         kind  = MOB_TAG,
         zone  = zone,
         mob   = mob,
         prio  = numPrio,
-        mark  = numMark,
+        marks = marks,
+        mark  = marks[1],
         type  = mType,
         class = (mClass ~= "NIL") and mClass or nil,
     }
@@ -207,11 +293,32 @@ local function decodeHandoff(body)
     return { kind = HANDOFF_TAG, target = target }
 end
 
+-- [v0.29] slice 6: decode an "SB;..." body into a typed share-begin, or nil if
+-- malformed. body = "<poster>;<zone>;<count>" (count is the M-record total).
+local function decodeShareBegin(body)
+    local _, _, poster, zone, count = L._strfind(body, "^([^;]*);([^;]*);(%d+)$")
+    if not poster or poster == "" then return nil end
+    if not zone or zone == "" then return nil end
+    local numCount = L._tonumber(count)
+    if not numCount then return nil end
+    return { kind = SHAREBEGIN_TAG, poster = poster, zone = zone, count = numCount }
+end
+
+-- [v0.29] slice 6: decode an "SE;..." body into a typed share-end, or nil if
+-- malformed. body = "<poster>;<zone>".
+local function decodeShareEnd(body)
+    local _, _, poster, zone = L._strfind(body, "^([^;]*);([^;]*)$")
+    if not poster or poster == "" then return nil end
+    if not zone or zone == "" then return nil end
+    return { kind = SHAREEND_TAG, poster = poster, zone = zone }
+end
+
 -- Decode a wire message into a typed record, or nil if malformed / unknown type.
 -- Pure validation only -- it rejects bad input but never touches the DB. The tag is
 -- everything before the first ';' (so a multi-char tag like "PR" parses correctly),
 -- and the body is everything after it. Branches: "M" -> mob, "Q" -> heartbeat,
--- "P" -> profile snapshot, "PR" -> pull-request, "H" -> handoff offer.
+-- "P" -> profile snapshot, "PR" -> pull-request, "H" -> handoff offer,
+-- "SB"/"SE" -> share-frame begin/end (slice 6).
 function Codec.Decode(msg)
     if not msg then return nil end
 
@@ -228,6 +335,10 @@ function Codec.Decode(msg)
         return decodePull(body)
     elseif tag == HANDOFF_TAG then
         return decodeHandoff(body)
+    elseif tag == SHAREBEGIN_TAG then
+        return decodeShareBegin(body)
+    elseif tag == SHAREEND_TAG then
+        return decodeShareEnd(body)
     end
     return nil -- unknown type tag
 end
