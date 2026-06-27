@@ -86,6 +86,13 @@ local HANDOFF_TAG = "H"
 local SHAREBEGIN_TAG = "SB"
 local SHAREEND_TAG   = "SE"
 
+-- [v0.29] slice 6.3 wire grammar:
+--   share-request "SR;<poster>;<zone>"  -- the directed pull a link-click fires
+--                 (clicker -> poster). Broadcast (1.12 has no addon-WHISPER); only
+--                 the named <poster> serves it. The requester is the unspoofable
+--                 CHAT_MSG_ADDON sender, gated poster-side in Sync.lua.
+local SHAREREQ_TAG = "SR"
+
 -- [v0.29] slice 6: the clickable chat-LINK data grammar -- NOT an addon message,
 -- but a |H...|h hyperlink body: "tankmark:<poster>:<zone>". ':' is the hyperlink
 -- delimiter (no player/zone name contains one). Single-sourced here so every wire
@@ -177,6 +184,12 @@ end
 function Codec.EncodeShareEnd(poster, zone)
     if not poster or not zone then return nil end
     return SHAREEND_TAG .. ";" .. poster .. ";" .. zone
+end
+
+-- [v0.29] slice 6.3: encode a directed share-request (clicker -> poster).
+function Codec.EncodeShareRequest(poster, zone)
+    if not poster or not zone then return nil end
+    return SHAREREQ_TAG .. ";" .. poster .. ";" .. zone
 end
 
 -- [v0.29] slice 6: encode the clickable share link's data field
@@ -313,6 +326,14 @@ local function decodeShareEnd(body)
     return { kind = SHAREEND_TAG, poster = poster, zone = zone }
 end
 
+-- [v0.29] slice 6.3: decode an "SR;..." body into a typed share-request.
+local function decodeShareRequest(body)
+    local _, _, poster, zone = L._strfind(body, "^([^;]*);([^;]*)$")
+    if not poster or poster == "" then return nil end
+    if not zone or zone == "" then return nil end
+    return { kind = SHAREREQ_TAG, poster = poster, zone = zone }
+end
+
 -- Decode a wire message into a typed record, or nil if malformed / unknown type.
 -- Pure validation only -- it rejects bad input but never touches the DB. The tag is
 -- everything before the first ';' (so a multi-char tag like "PR" parses correctly),
@@ -339,6 +360,8 @@ function Codec.Decode(msg)
         return decodeShareBegin(body)
     elseif tag == SHAREEND_TAG then
         return decodeShareEnd(body)
+    elseif tag == SHAREREQ_TAG then
+        return decodeShareRequest(body)
     end
     return nil -- unknown type tag
 end

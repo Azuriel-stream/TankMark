@@ -345,6 +345,31 @@ describe("SyncCodec", function()
         end)
     end)
 
+    -- [v0.29] slice 6.3: "SR" share-request (clicker -> poster, directed).
+    describe("SR share-request", function()
+        it("encodes and decodes poster + zone", function()
+            eq(Codec.EncodeShareRequest("Borgrim", "Blackwing Lair"),
+                "SR;Borgrim;Blackwing Lair", "wire")
+            local r = Codec.Decode("SR;Borgrim;Blackwing Lair")
+            eq(r.kind, "SR", "kind")
+            eq(r.poster, "Borgrim", "poster")
+            eq(r.zone, "Blackwing Lair", "zone")
+        end)
+
+        it("rejects missing args and malformed SR", function()
+            eq(Codec.EncodeShareRequest(nil, "Z"), nil, "no poster")
+            eq(Codec.EncodeShareRequest("P", nil), nil, "no zone")
+            eq(Codec.Decode("SR;;Z"), nil, "empty poster")
+            eq(Codec.Decode("SR;P;"), nil, "empty zone")
+        end)
+
+        it("does not collide with SB/SE", function()
+            eq(Codec.Decode("SR;P;Z").kind, "SR", "SR stays SR")
+            eq(Codec.Decode("SB;P;Z;1").kind, "SB", "SB stays SB")
+            eq(Codec.Decode("SE;P;Z").kind, "SE", "SE stays SE")
+        end)
+    end)
+
     -- [v0.29] slice 6: the clickable chat-link data grammar
     -- "tankmark:<poster>:<zone>" (a |H..|h hyperlink body, not an addon message).
     describe("share link", function()

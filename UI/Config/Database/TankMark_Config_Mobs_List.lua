@@ -69,7 +69,7 @@ end
 -- Render zone row (in zone browser mode)
 local function RenderZoneRow(row, data)
     row.text:SetText("|cffffd200" .. data.label .. "|r")
-    
+
     -- Delete button (rightmost)
     row.del:Show()
     row.del:SetText("|cffff0000Delete|r")
@@ -78,6 +78,15 @@ local function RenderZoneRow(row, data)
     row.del:SetScript("OnClick", function()
         TankMark:RequestDeleteZone(data.label)
     end)
+
+    -- [v0.29] slice 6.3: Share button (left of Delete) -> post a Mob DB link for
+    -- this zone. Anchored to row.del at creation, so it tracks Delete's width.
+    if row.share then
+        row.share:Show()
+        row.share:SetScript("OnClick", function()
+            TankMark:PostShareLink(data.label)
+        end)
+    end
 end
 
 -- Render normal mob row
@@ -211,6 +220,7 @@ function TankMark:UpdateMobList()
 				row.icon:Hide()
 				row.del:Hide()
 				row.edit:Hide()
+				if row.share then row.share:Hide() end  -- [v0.29] slice 6.3
 				row.text:SetTextColor(1, 1, 1)
 				row:SetScript("OnClick", nil)
 				

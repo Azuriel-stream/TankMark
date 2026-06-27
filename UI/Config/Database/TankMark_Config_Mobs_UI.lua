@@ -181,7 +181,13 @@ local function CreateMobList(parent)
 		
 		row.del = CreateSmallButton(row, 20, "X")
 		row.del:SetPoint("RIGHT", -2, 0)
-		
+
+		-- [v0.29] slice 6.3: Share button, shown only in Manage Zones (zone) mode
+		-- (RenderZoneRow); anchored left of Delete, posts a Mob DB share link.
+		row.share = CreateSmallButton(row, 54, "Share")
+		row.share:SetPoint("RIGHT", row.del, "LEFT", -4, 0)
+		row.share:Hide()
+
 		row:Hide()
 		TankMark.mobRows[i] = row
 	end
