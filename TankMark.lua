@@ -581,7 +581,9 @@ function TankMark:SlashHandler(msg)
         if TankMark.ShowOptions then TankMark:ShowOptions() end
         
     elseif cmd == "sync" or cmd == "share" then
-        if TankMark.BroadcastZone then TankMark:BroadcastZone() end
+        -- [v0.29] slice 6.4b: post a clickable Mob DB share link for the current
+        -- zone (advertise -> pull -> consent), replacing the old unsolicited push.
+        if TankMark.PostShareLink then TankMark:PostShareLink() end
 
     elseif cmd == "handoff" then
         -- [v0.29] slice 5a.3: pass the marking Queen role to a named candidate (sec.5.10).
@@ -600,7 +602,7 @@ function TankMark:SlashHandler(msg)
         TankMark:Print(" |cffffffff/tmark assign [mark] [player]|r - Manual assignment")
         TankMark:Print(" |cffffffff/tmark config|r - Open configuration panel")
         TankMark:Print(" |cffffffff/tmark announce|r - Broadcast assignments to chat")
-        TankMark:Print(" |cffffffff/tmark sync|r - Share mob database with raid")
+        TankMark:Print(" |cffffffff/tmark sync|r - Post a Mob DB share link for this zone")
         TankMark:Print(" |cffffffff/tmark handoff [player]|r - Pass the marking Queen role")
         TankMark:Print(" |cffffffff/tmark zone|r - Show current zone and driver info")
     end

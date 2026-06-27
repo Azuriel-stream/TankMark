@@ -80,8 +80,9 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
-	-- [v0.29] CONTROL PLANE + legacy "M" data: keep the rank>=1 gate (election
-	-- integrity for Q/P/PR/H; the legacy push for M until the 6.4 cutover).
+	-- [v0.29] CONTROL PLANE: rank>=1 gate (election integrity for Q/P/PR/H). As of
+	-- the slice 6.4b cutover there is NO legacy M apply -- an "M" only ever applies
+	-- inside a consent-gated share frame (handled above); a naked M is dropped.
 	if not TankMark:IsTrustedSender(sender) then return end
 
 	-- [v0.29] slice 2: a control-plane heartbeat routes to the swarm shell. It
@@ -116,16 +117,9 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
-	if rec.kind ~= "M" then return end
-
-	if not TankMarkDB.Zones[rec.zone] then TankMarkDB.Zones[rec.zone] = {} end
-	-- [v0.23] marks stored as an array (the wire carries only the first mark).
-	TankMarkDB.Zones[rec.zone][rec.mob] = {
-		["prio"] = rec.prio,
-		["marks"] = { rec.mark },
-		["type"] = rec.type,
-		["class"] = rec.class,
-	}
+	-- [v0.29] slice 6.4b: any other kind -- including a naked, unsolicited "M" --
+	-- is dropped. Mob DB now arrives ONLY via the consent-gated share frame above
+	-- (the legacy silent-overwrite push is gone).
 end
 
 -- ==========================================================
@@ -155,32 +149,10 @@ function TankMark:QueueMessage(prefix, text, channel)
 	throttleFrame:Show()
 end
 
-function TankMark:BroadcastZone()
-	if not TankMark:CanAutomate() then
-		-- [PHASE 2] Standardized error format
-		TankMark:Print("|cffff0000Error:|r You must be Raid Leader/Assist to sync.")
-		return
-	end
-
-	local zone = L._GetRealZoneText()
-	local count = 0
-	local channel = "PARTY"
-	if L._GetNumRaidMembers() > 0 then channel = "RAID" end
-
-	-- A. Broadcast Mobs (Prefix: M). The wire format is single-sourced in the
-	-- codec; EncodeMob syncs only the first mark (sequential marks stay local).
-	if TankMarkDB.Zones[zone] then
-		for mob, data in L._pairs(TankMarkDB.Zones[zone]) do
-			local payload = TankMark.SyncCodec.EncodeMob(zone, mob, data)
-			if payload then
-				TankMark:QueueMessage(SYNC_PREFIX, payload, channel)
-				count = count + 1
-			end
-		end
-	end
-
-	TankMark:Print("Sync: Queued " .. count .. " items (Mobs) for zone: " .. zone)
-end
+-- [v0.29] slice 6.4b: BroadcastZone (the old unsolicited "push my whole zone to
+-- everyone, silently auto-applied" sync) is REMOVED. Sharing is now advertise ->
+-- pull -> consent: TankMark:PostShareLink(zone) posts a clickable link and the
+-- poster pipeline broadcasts a framed reply only to clickers (see below).
 
 -- ==========================================================
 -- [v0.29] SLICE 6.3: MOB DB SHARING -- POSTER PIPELINE
