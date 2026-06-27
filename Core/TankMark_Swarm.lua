@@ -176,6 +176,7 @@ Swarm.appliedKey     = nil   -- {queen=, version=, zone=} a drone last applied
 Swarm.needPull       = false -- a drone armed a refetch (fired on the next tick)
 Swarm.pendingPush    = nil   -- queen-side coalesced PR-response set: {[zone]=true}
 Swarm.lastRole       = nil
+Swarm.lastHandoffAvail = false -- [v0.29] slice 5b.3: last queen-has-candidate state (HUD chevron repaint gate)
 Swarm.bootstrapping  = false
 Swarm.bootstrapUntil = 0
 Swarm.wasCandidate   = false
@@ -310,7 +311,18 @@ function Swarm.Recompute(now)
     end
 
     local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
-    if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen then
+    -- [v0.29] slice 5b.3: the HUD handoff chevron/button depends on the candidate
+    -- SET, which changes WITHOUT a role/queen transition (a rejoined+promoted player
+    -- starts heartbeating while we stay queen). Recompute already has `present`, so
+    -- derive the queen's handoff-availability and repaint when IT flips too -- else
+    -- the chevron never lights up and the queen can only hand off via slash.
+    local others = 0
+    for i = 1, L._tgetn(present) do
+        if present[i] ~= selfName then others = others + 1 end
+    end
+    local handoffAvail = (role == "QUEEN") and (others > 0)
+    if role ~= Swarm.lastRole or queen ~= Swarm.currentQueen
+            or handoffAvail ~= Swarm.lastHandoffAvail then
         if TankMark.DebugEnabled then
             TankMark:DebugLog("SWARM", "election -> " .. role, {
                 queen     = queen or "none",
@@ -320,8 +332,9 @@ function Swarm.Recompute(now)
                 amQueen   = Swarm.selfAmQueen and "Y" or "N",
             })
         end
-        Swarm.lastRole     = role
-        Swarm.currentQueen = queen
+        Swarm.lastRole         = role
+        Swarm.currentQueen     = queen
+        Swarm.lastHandoffAvail = handoffAvail
         -- [v0.29] slice 2 tracer: the HUD status line follows the election live.
         -- Repaint only an already-built HUD so we never force early creation.
         if TankMark.hudFrame and TankMark.UpdateHUD then TankMark:UpdateHUD() end
@@ -556,20 +569,27 @@ function Swarm.OnPromoted()
     if zone and zone ~= "" then Swarm.PushProfile(zone) end
 end
 
--- [v0.29] slice 5b.2: true when self is the ONLY present candidate -- nobody else
--- could take over marking. Drives the recorder-on-promotion prompt's sole-candidate
--- notice ("keep recording = no one marks"). Mirrors InitiateHandoff's presence read.
-function Swarm.SelfIsSoleCandidate()
+-- [v0.29] slice 5b.3: the present candidates OTHER than self -- the eligible
+-- handoff targets (present Assist/Leader running TankMark). Single source for the
+-- handoff menu + the QUEEN line's chevron/click gate (5b.3) and the recorder
+-- prompt's sole-candidate notice (5b.2). Mirrors InitiateHandoff's presence read.
+function Swarm.HandoffCandidates()
     local selfName = Swarm.SelfName()
     local now      = L._GetTime()
     local roster   = Swarm.BuildRoster()
     local present  = Swarm.ComputePresence(selfName, Swarm.SelfIsCandidate(),
         Swarm.selfAmQueen, Swarm.lastHeard, Swarm.amQueenHeard, roster, now,
         Swarm.PRESENCE_WINDOW)
+    local out = {}
     for i = 1, L._tgetn(present) do
-        if present[i] ~= selfName then return false end
+        if present[i] ~= selfName then L._tinsert(out, present[i]) end
     end
-    return true
+    return out
+end
+
+-- [v0.29] slice 5b.2: true when nobody else could take over marking.
+function Swarm.SelfIsSoleCandidate()
+    return L._tgetn(Swarm.HandoffCandidates()) == 0
 end
 
 -- True when a drone's applied (queen,version,zone) key matches the live triple.
