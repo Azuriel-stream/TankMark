@@ -1,10 +1,10 @@
 # TankMark Swarm Design (target v0.29+)
 
-**Status:** Slices 0–4 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
+**Status:** Slices 0–4 + **5a built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
 + harness, PR #66; control-plane tracer, PR #69; single-marker enforcement, PR #72 — §5.8/§5.9;
-profile-sync, PR #75 — §6.1). Slice 5 (manual handoff) **design ratified** — see §5.10. New swarm
-code is tagged `[v0.29]`; `.toc` is `0.29`. The sections below describe the full target; per-slice
-build status lives in §12.
+profile-sync, PR #75 — §6.1; manual-handoff **protocol** 5a, PRs #78/#79/#80 — §5.10). Slice **5b**
+(promotion UX) is the next build; the §5.10 design is ratified. New swarm code is tagged `[v0.29]`;
+`.toc` is `0.29`. The sections below describe the full target; per-slice build status lives in §12.
 
 **Scope note:** This started as roadmap item **#4 (Sync codec tidy-up)** and expanded —
 deliberately — into the full **swarm** feature, because the codec's correct shape is
@@ -695,7 +695,7 @@ that owns them.
 | **2** | **Control-plane tracer (display-only)** | Heartbeat (`Q`) + deterministic election + stickiness + failover, **computing & displaying** queen/drone only | **No marking behavior change.** The keystone — validates the hard consensus logic live (races, failover, AFK-demote) at zero marking risk. |
 | **3** | **Single-marker enforcement** (ratified §5.9) | New `ShouldDriveMarks()` gate (`CanAutomate ∧ (¬swarm ∨ selfAmQueen)`, fail-open); `CanAutomate` unchanged (candidacy/failover preserved). Migrates 7 marking sites + the audit-found pull-end-clear / `ResetSession`-strip from `HasPermissions`. | The **one** slice flipping marking behavior — isolated. Acts on slice 2's verified queen. Closes the §11 `SetRaidTarget` holes; in-game 2-box verify (queen marks / drone silent / failover / pull-end). |
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
-| **5** | **Manual handoff** (ratified §5.10) | **5a** protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX: dropdown trigger, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a is the only new wire surface → built dormant-decoupling-first, 2-box verify + own `/security-review`. 5b is local-only (no security-review). |
+| **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX (next): dropdown trigger, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
 | **6** | **Security hardening** | offer→accept consent + trust axis + scoped block | **Its own slice = its own `/security-review`.** |
 | **7** | **Mob-DB-at-handoff** | Opt-in DB attachment, accept/reject + snapshot | §6.2. |
 
@@ -722,9 +722,18 @@ is shipped and 2-box in-game-verified (PR #75; DEV_GUIDE reconcile PR #76; `/sec
 clean):** single-slot overwrite of `TankMarkProfileDB[zone]` (queen sole writer, no backup, profile
 carved out of §7 consent), pull-driven global runtime `planVersion`, HUD-minimal atomic `P` push +
 coalesced `PR` pull, empty-keeps, plus `OnPromoted` push-on-promotion; `.toc` bumped 0.27 → 0.29.
-**Slice 5 (manual handoff) design is ratified (§5.10, 2026-06-27):** the claim-override model (the
-election stays the sole marking authority — handoff only nudges the claimant set), one new wire type
-(`H` directed offer; confirm/relinquish ride the heartbeat), four receiver gates + auto-accept, the
-10s/20s TTLs straddling the 15s presence window, split into **5a** (protocol, 3 checkpoints, own
-`/security-review`) + **5b** (promotion UX). **Next action: build slice 5a.1** (codec `H` + harness)
-in reload-safe checkpoints.
+**Slice 5a (manual-handoff protocol) is shipped and 2-box in-game-verified (PRs #78/#79/#80,
+2026-06-27; `/security-review` clean):** the claim-override model (the election stays the sole
+marking authority — handoff only nudges the claimant set, never an imperative `selfAmQueen` write),
+the one new wire type (`H` directed offer; confirm/relinquish ride the heartbeat), four receiver
+gates + auto-accept, and the 10s/20s TTLs straddling the 15s presence window. Built in three
+reload-safe checkpoints exactly as planned: **5a.1** codec `H` + harness (#78, pure), **5a.2** the
+claim-override decoupling introduced **dormant** (#79 — `AdvertisedClaim` split, behavior-identical
+with `pendingClaim`/`relinquish` false, the override cases proven in the harness first), **5a.3**
+live wiring (#80 — `Sync.lua` routes `H` → `OnHandoffOffer`, queen-side offer state + TTLs + forced
+beats in `Recompute`, `/tmark handoff <name>`). 2-box live: crown moves / lower-rank target sticks /
+ineligible-target rejected; the queen-DC inheritance path is pinned by pure specs; harness 116/0; the
+focused `/security-review` of the wire diff found no actionable findings (4 gates sound, no forge /
+escalation / state-corruption path — bounded by the queen-gated accept + the server-rank
+`SetRaidTarget` backstop). **Next action: build slice 5b** (promotion UX — §5.6 dropdown trigger,
+recorder-on-promotion `StaticPopup`, Profiles-tab drone gate; local-only, no `/security-review`).
