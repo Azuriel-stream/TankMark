@@ -3,7 +3,8 @@
 **Status:** Slices 0–4 + **5a built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
 + harness, PR #66; control-plane tracer, PR #69; single-marker enforcement, PR #72 — §5.8/§5.9;
 profile-sync, PR #75 — §6.1; manual-handoff **protocol** 5a, PRs #78/#79/#80 — §5.10). Slice **5b**
-(promotion UX) is the next build; the §5.10 design is ratified. New swarm code is tagged `[v0.29]`;
+(promotion UX) is the next build; its design is ratified in **§5.11** (build split 5b.1 drone gate →
+5b.2 recorder popup → 5b.3 handoff trigger UI). New swarm code is tagged `[v0.29]`;
 `.toc` is `0.29`. The sections below describe the full target; per-slice build status lives in §12.
 
 **Scope note:** This started as roadmap item **#4 (Sync codec tidy-up)** and expanded —
@@ -418,6 +419,99 @@ swarm-awareness · pull-end death-path GROUP fallback.
 queen marks, old queen goes silent · handoff to a *lower-rank* target sticks · target offline/lost
 offer → queen retains and prints "not confirmed" · queen-DC mid-handoff → target inherits. New code
 tags `[v0.29]`. **Naming:** the slash command is `/tmark handoff <name>`; the offer type is `H`.
+
+### 5.11 Ratified mechanics — slice 5b (promotion UX)
+
+*Resolved 2026-06-27 in a slice-5b design stress-test (grill-me). The buildable specifics behind
+the §5.6 "dropdown → confirmation" line and the two promotion-UX items §5.10 split off. Local-only —
+no wire surface, no marking path → **no `/security-review`**. New code tags `[v0.29]`.*
+
+**Scope guard — three local-UI pieces, zero control-plane change.** Every decision below is pure
+presentation over edges that already exist (`/tmark handoff` → `InitiateHandoff`, the `OnPromoted`
+rising edge, the `Swarm.lastRole` derivation). Nothing here touches the election, the heartbeat, or
+`SetRaidTarget`. **Build split (ascending complexity, each reload-safe + 2-box-verifiable):**
+5b.1 drone gate → 5b.2 recorder popup → 5b.3 handoff trigger UI.
+
+**Piece 1 — handoff trigger UI (5b.3).** A **TankMark-owned dropdown on the HUD swarm status line**,
+NOT a Vanilla unit-popup hook. *(Considered the unit-popup — right-click a raid member → "Pass
+marking lead", the native idiom; rejected — net-new hook infra (none exists), fiddly across 1.12
+raid/party/unit-frame contexts, and it surfaces on every player so it needs per-row eligibility
+checks. The dropdown reuses the existing `UIDropDownMenu_AddButton` pattern — a 4th menu beside
+`InitIconMenu`/`InitClassMenu`/`InitSequentialClassMenu` — and self-filters, because `ComputePresence`
+already returns exactly the eligible set.)*
+- **Click target:** a transparent `Button` overlaying the `swarmStatus` **FontString** (FontStrings
+  aren't clickable in 1.12; the mark rows already use the Button+FontString idiom). The **whole line**
+  is the target, not the name substring — the name is a variable-width substring inside
+  `"Queen: Foo (you)"`, so a name-sized button would need per-render text measurement.
+- **Active only when** `Swarm.lastRole == "QUEEN"` **and** `ComputePresence`−self is non-empty (no
+  empty/dead-end dropdown; a drone clicking the *other* player's name on the line is nonsense).
+- **Flow:** `InitHandoffMenu` (candidates from `ComputePresence`) → `StaticPopup` confirm "Pass
+  marking lead to X?" → `InitiateHandoff(X)`.
+- **Safe by construction:** the dropdown is only a launcher — `InitiateHandoff` re-validates
+  `selfAmQueen` AND re-runs `ComputePresence` at click time, so a stale pick (you got demoted / the
+  target left while the menu was open) just prints a rejection, never corrupts state.
+  `CloseDropDownMenus()` on the role-transition seam so it doesn't linger.
+- **Discoverability:** hover tooltip ("Click to pass the Queen role") + a subtle `▾` chevron appended
+  only when the line is clickable. Hidden/documented-only was rejected — it makes the piece invisible.
+- **In-combat is fine** — Vanilla 1.12 predates the 2.0 secure-frame/combat-lockdown system, and
+  handing off *because you're about to die/DC* is a real in-combat use; the confirm guards misclicks.
+
+**Piece 2 — recorder-on-promotion popup (5b.2).** A safety interlock, not cosmetic. `ProcessUnit`
+**records-and-returns** when `IsRecorderActive` (`if IsRecorderActive then RecordUnit(); return end`),
+and recording bypasses the queen gate — so a drone running the Flight Recorder who gets **promoted**
+(handoff or failover) becomes the sole marker but **silently never marks** ("dead queen").
+- **Trigger:** `StaticPopup` on the `Swarm.OnPromoted` rising edge **when `IsRecorderActive`**,
+  promotion-trigger only.
+- **Choices:** `[Stop Recording]` (default/Enter — marking is the queen's job) / `[Keep Recording]`.
+  Dismiss/Escape leaves the recorder as-is (conventional StaticPopup semantics) **but** prints a loud
+  red persistent warning — *"You are the Queen but still recording — marks are NOT being applied."*
+  *(Rejected: silent auto-stop — promotion can be involuntary via failover, so surface it; and
+  Stop-on-any-dismiss — inverting Escape on an involuntarily-appearing popup confuses more than it
+  protects, and the warning already closes the gap.)*
+- **Sole-candidate notice:** when `ComputePresence`−self is empty, the dialog adds *"you are the only
+  eligible marker; keep recording = no one marks."*
+
+**Crown-decline is explicitly OUT of slice 5b** — deferred to its own reviewed control-plane slice.
+The intuition "if I'm recording I should be able to refuse the crown" is reasonable, but it is **not**
+a local UX change:
+- A **naive** decline (force `selfAmQueen = false` locally) is a raid-killer: you stay a present
+  candidate, the next deterministic election re-picks you (0 claimants → fresh election → highest
+  rank = you), every client defers to you, nobody marks — a **self-perpetuating raid-wide dead
+  queen**, strictly worse than the single-client case and not self-healing.
+- A **correct** decline requires **candidacy suppression** (a flag feeding `SelfIsCandidate()` so you
+  stop heartbeating and others time you out and re-elect) — which changes election behavior, needs a
+  re-eligibility state machine (when do you become a candidate again?), and collides with handoff
+  (decline after a handoff bounces the crown back to the relinquished queen). That's control-plane
+  work → its own slice with `/security-review`, **not** bundled into local-only 5b.
+- For the **sole-candidate** case decline ≡ "Keep recording" (no one else to pass to → no marking),
+  so the sole-candidate notice above covers the strongest motivating case with zero new mechanism.
+  "Pass to someone *else*" already has tools: `/tmark handoff <name>` (the piece-1 dropdown) or a WoW
+  rank-demote → auto-reelect.
+
+**Piece 3 — Profiles-tab drone gate (5b.1).** Read-only the Team Profiles tab for a drone (the queen
+is the profile's sole writer — slice 4 — so a drone's edits are overwritten on the next push).
+- **Condition:** `Swarm.IsRunning() and Swarm.lastRole == "DRONE"` (read `lastRole` — there is **no**
+  `Role()` accessor). Both terms required: a solo player never runs `Recompute`, so `lastRole` stays
+  `nil` and the gate can't engage; AND-ing `IsRunning()` also stops a stale `lastRole` from gating a
+  now-solo editor after the swarm tears down.
+- **`ApplyProfileEditGate()`** disables **writes** — the Save button, the per-row edit controls, and
+  the browser-mode per-zone delete buttons — and shows a read-only banner. **Views stay live** — the
+  zone dropdown (browse any zone's synced plan), the scroll/list, and the Manage-Profiles mode toggle.
+  *(Rejected: disabling the mode toggle + force-switching to the simple view — it strands a drone who
+  was already in browser mode at demotion. Gating writes in whichever mode is shown is less stateful;
+  greyed delete buttons are informative, not clutter.)*
+- **Live re-gating** via three call sites: the Profiles tab's `OnShow`, the tail of
+  `UpdateProfileList()` (pooled rows get the right state every render), and the `Recompute`
+  role-transition seam guarded by `t2:IsVisible()` (mirrors the existing
+  `Recompute → UpdateHUD/RenderSwarmLine` Core→UI call). A mid-keystroke demotion clears focus under
+  the user — accepted; that edit was already doomed.
+
+**Compose check:** 5b.1–5b.3 chain into one 2-box flow — a queen hands off via the piece-1 dropdown
+to a drone who's recording → the target is promoted → `OnPromoted` fires the piece-2 popup on *their*
+screen → meanwhile both clients' Profiles tabs re-gate on the role flip.
+
+**Close-out:** `[v0.29]` tags · DEV_GUIDE + this §5.6/§5.10/§5.11 reconcile · **no `.toc` bump**
+(stays 0.29) · **no `/security-review`** (no wire, no marking path).
 
 ---
 
