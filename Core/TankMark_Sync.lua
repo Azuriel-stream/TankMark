@@ -62,6 +62,24 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
+	-- [v0.29] slice 6.4a: SHARE-FRAME receive (also share plane -- consent-only,
+	-- no rank gate). SB opens a buffer iff we hold a matching pending-click for
+	-- (sender, zone); a framed M (we are buffering from this sender) appends; SE
+	-- validates the count then applies under the trust gate. A NAKED M (no active
+	-- buffer) is the legacy push, still handled rank-gated below until 6.4b.
+	if rec.kind == "SB" then
+		TankMark:OnShareBegin(sender, rec)
+		return
+	end
+	if rec.kind == "SE" then
+		TankMark:OnShareEnd(sender, rec)
+		return
+	end
+	if rec.kind == "M" and TankMark:IsBufferingShare(sender) then
+		TankMark:OnShareRecord(sender, rec)
+		return
+	end
+
 	-- [v0.29] CONTROL PLANE + legacy "M" data: keep the rank>=1 gate (election
 	-- integrity for Q/P/PR/H; the legacy push for M until the 6.4 cutover).
 	if not TankMark:IsTrustedSender(sender) then return end
@@ -296,4 +314,124 @@ function TankMark:OnShareRequest(sender, rec)
 
 	shareCoalesce[rec.zone] = now + COALESCE_WINDOW
 	shareFrame:Show()
+end
+
+-- ==========================================================
+-- [v0.29] SLICE 6.4a: MOB DB SHARING -- RECEIVER PIPELINE
+-- ==========================================================
+-- The clicker/receiver half (SWARM_DESIGN.md sec.7.2): a link-click pulls, the
+-- framed reply is buffered solicited-only and applied under the trust gate.
+-- SECURITY: trust + the buffer are keyed on the UNSPOOFABLE CHAT_MSG_ADDON sender
+-- (sec.7.5), never the link's or SB's claimed poster name. A frame is buffered
+-- ONLY while we hold a matching pending-click for (sender, zone). The SetItemRef
+-- click hook and the import-confirm dialog live in UI/TankMark_HUD.lua (Core has
+-- no UI); this file is the logic + the single DB-apply edge (snapshot + replace).
+
+local PENDING_CLICK_TTL = 15   -- seconds a click stays valid awaiting a frame
+local pendingClicks = {}       -- (poster..":"..zone) -> GetTime() expiry
+local incoming = {}            -- sender -> { zone, count, received, records, expiry }
+
+-- Return the live buffer for <sender>, lazily expiring a stale one (an SB whose
+-- SE never arrived) so it can't shadow the legacy naked-M path indefinitely.
+local function liveBuffer(sender)
+	local buf = incoming[sender]
+	if not buf then return nil end
+	if L._GetTime() > buf.expiry then
+		incoming[sender] = nil
+		return nil
+	end
+	return buf
+end
+
+-- A link was clicked (from the SetItemRef hook). Fire the directed pull and arm a
+-- pending-click so the named poster's framed reply will be accepted.
+function TankMark:OnShareLinkClick(poster, zone)
+	if not poster or not zone or zone == "" then return end
+	if TankMark.Trust.IsBlocked(poster) then
+		TankMark:Print("|cffff0000Share:|r ignored a link from blocked player " .. poster .. ".")
+		return
+	end
+	if poster == L._UnitName("player") then
+		TankMark:Print("That is your own " .. zone .. " Mob DB share link.")
+		return
+	end
+	local channel = GroupChannel()
+	if not channel then
+		TankMark:Print("|cffff0000Share:|r join " .. poster .. "'s party/raid to import.")
+		return
+	end
+	pendingClicks[poster .. ":" .. zone] = L._GetTime() + PENDING_CLICK_TTL
+	local req = TankMark.SyncCodec.EncodeShareRequest(poster, zone)
+	if req then TankMark:QueueMessage(SYNC_PREFIX, req, channel) end
+	TankMark:Print("Requested " .. poster .. "'s " .. zone .. " Mob DB...")
+end
+
+-- True while a share frame from <sender> is being buffered (used by HandleSync to
+-- route a framed M to the buffer vs the legacy naked-M path).
+function TankMark:IsBufferingShare(sender)
+	return liveBuffer(sender) ~= nil
+end
+
+-- SB: open a buffer, but ONLY if this client holds a valid pending-click for
+-- (sender, zone) -- solicited-only, so an unrequested or forged frame is dropped.
+function TankMark:OnShareBegin(sender, rec)
+	if TankMark.Trust.IsBlocked(sender) then return end
+	local key = sender .. ":" .. rec.zone
+	local exp = pendingClicks[key]
+	if not exp or L._GetTime() > exp then
+		pendingClicks[key] = nil   -- expired/absent -> not solicited, ignore frame
+		return
+	end
+	pendingClicks[key] = nil       -- consume the click; the frame is now in flight
+	incoming[sender] = {
+		zone = rec.zone, count = rec.count, received = 0, records = {},
+		expiry = L._GetTime() + PENDING_CLICK_TTL,
+	}
+end
+
+-- M while buffering: append (keyed by mob, the final DB shape). Bound the buffer
+-- so a malicious over-send can't grow memory past the count SB promised.
+function TankMark:OnShareRecord(sender, rec)
+	local buf = liveBuffer(sender)
+	if not buf then return end
+	if buf.received >= buf.count then  -- more records than promised -> abort frame
+		incoming[sender] = nil
+		return
+	end
+	if rec.zone ~= buf.zone then return end
+	buf.received = buf.received + 1
+	buf.records[rec.mob] = {
+		prio = rec.prio, marks = rec.marks, type = rec.type, class = rec.class,
+	}
+end
+
+-- SE: finalize. Consume the buffer; require an exact count match (all-or-nothing);
+-- then the trust gate decides auto-import (Trusted) vs confirm UI (Neutral).
+function TankMark:OnShareEnd(sender, rec)
+	local buf = liveBuffer(sender)
+	if not buf then return end
+	incoming[sender] = nil
+	if not rec.zone or rec.zone ~= buf.zone then return end
+	if buf.received ~= buf.count then
+		TankMark:Print("|cffff0000Import:|r " .. sender .. "'s " .. buf.zone ..
+			" share was incomplete (" .. buf.received .. "/" .. buf.count .. "); kept your DB.")
+		return
+	end
+	if TankMark.Trust.IsBlocked(sender) then return end
+	if TankMark.Trust.IsTrusted(sender) then
+		TankMark:ApplyShare(sender, buf)
+	elseif TankMark.ShowShareConfirm then
+		TankMark:ShowShareConfirm(sender, buf)  -- Neutral -> UI confirm (HUD.lua)
+	end
+end
+
+-- The single DB-apply edge: snapshot, then FULL-ZONE replace (deletions
+-- propagate). Called by the Trusted auto-path and by the confirm UI on Import.
+function TankMark:ApplyShare(sender, buf)
+	if not buf or not buf.zone then return end
+	if TankMark.CreateSnapshot then TankMark:CreateSnapshot() end
+	TankMarkDB.Zones[buf.zone] = buf.records
+	TankMark:Print("Imported " .. sender .. "'s " .. buf.zone .. " Mob DB (" ..
+		buf.count .. " mobs). A snapshot was saved.")
+	if TankMark.UpdateMobList then TankMark:UpdateMobList() end
 end

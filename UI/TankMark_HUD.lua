@@ -696,3 +696,100 @@ function TankMark:SaveHUDPosition()
     TankMarkCharConfig.HUD.xOffset = xOffset
     TankMarkCharConfig.HUD.yOffset = yOffset
 end
+
+-- ==========================================================
+-- [v0.29] SLICE 6.4a: MOB DB SHARING -- RECEIVER UI
+-- ==========================================================
+-- The SetItemRef click hook (fires the pull) and the import-confirm dialog. The
+-- receive LOGIC + the DB-apply edge live in Core/TankMark_Sync.lua; this is the
+-- UI half (Core has no UI). 1.12 StaticPopup supports only TWO buttons, but the
+-- consent needs three (Import / Always trust / Cancel), so the confirm is a small
+-- custom frame -- which also sidesteps Turtle's Escape-skips-OnCancel quirk.
+
+-- Build (once) and return the import-confirm frame.
+local function GetShareConfirmFrame()
+    if TankMark.shareConfirmFrame then return TankMark.shareConfirmFrame end
+
+    local f = CreateFrame("Frame", "TankMarkShareConfirm", UIParent)
+    f:SetWidth(380); f:SetHeight(150)
+    f:SetPoint("CENTER", 0, 120)
+    f:SetFrameStrata("DIALOG")
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    f:EnableMouse(true)
+    f:Hide()
+
+    local msg = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    msg:SetPoint("TOP", 0, -22)
+    msg:SetWidth(344); msg:SetJustifyH("CENTER")
+    f.msg = msg
+
+    local importBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    importBtn:SetWidth(90); importBtn:SetHeight(22)
+    importBtn:SetPoint("BOTTOMLEFT", 18, 16)
+    importBtn:SetText("Import")
+    importBtn:SetScript("OnClick", function()
+        local p = TankMark.pendingShareConfirm
+        f:Hide(); TankMark.pendingShareConfirm = nil
+        if p then TankMark:ApplyShare(p.sender, p.buf) end
+    end)
+
+    local trustBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    trustBtn:SetWidth(112); trustBtn:SetHeight(22)
+    trustBtn:SetPoint("BOTTOM", 0, 16)
+    trustBtn:SetText("Always trust")
+    trustBtn:SetScript("OnClick", function()
+        local p = TankMark.pendingShareConfirm
+        f:Hide(); TankMark.pendingShareConfirm = nil
+        if p then
+            TankMark.Trust.Set(p.sender, TankMark.Trust.TRUSTED)
+            if TankMark.RefreshTrustList then TankMark:RefreshTrustList() end
+            TankMark:ApplyShare(p.sender, p.buf)
+        end
+    end)
+
+    local cancelBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    cancelBtn:SetWidth(90); cancelBtn:SetHeight(22)
+    cancelBtn:SetPoint("BOTTOMRIGHT", -18, 16)
+    cancelBtn:SetText("Cancel")
+    cancelBtn:SetScript("OnClick", function()
+        f:Hide(); TankMark.pendingShareConfirm = nil
+    end)
+
+    TankMark.shareConfirmFrame = f
+    return f
+end
+
+-- Neutral-sender confirm: show the overwrite warning with concrete counts.
+function TankMark:ShowShareConfirm(sender, buf)
+    if not sender or not buf then return end
+    local mine = 0
+    if TankMarkDB.Zones[buf.zone] then
+        for _ in L._pairs(TankMarkDB.Zones[buf.zone]) do mine = mine + 1 end
+    end
+    TankMark.pendingShareConfirm = { sender = sender, buf = buf }
+    local f = GetShareConfirmFrame()
+    f.msg:SetText("Import |cffffd200" .. sender .. "|r's " .. buf.zone ..
+        " Mob DB?\n\n|cffffaa00" .. buf.count .. "|r mobs will REPLACE your |cffffaa00" ..
+        mine .. "|r.\nA snapshot will be saved.")
+    f:Show()
+end
+
+-- [v0.29] slice 6.4a: intercept clicks on our "tankmark:" share links. Defensive
+-- -- only OUR links are handled; everything else (and any unparsable link) falls
+-- straight through to the original SetItemRef, so normal chat links never break.
+local origSetItemRef = SetItemRef
+function SetItemRef(link, text, button)
+    if link then
+        local parsed = TankMark.SyncCodec.DecodeShareLink(link)
+        if parsed then
+            TankMark:OnShareLinkClick(parsed.poster, parsed.zone)
+            return
+        end
+    end
+    return origSetItemRef(link, text, button)
+end
