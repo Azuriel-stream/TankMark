@@ -142,6 +142,13 @@ TankMark.VERSION = (L._GetAddOnMetadata and L._GetAddOnMetadata("TankMark", "Ver
 -- ==========================================================
 
 TankMark.currentZone = nil
+-- [v0.29] Solo guard: true while in no group, used to fire ResetSession exactly
+-- once on leaving. Was previously encoded by stuffing "SOLO_RESET" into currentZone,
+-- but that fake zone was never cleared on REJOIN and GetCachedZone() only self-heals
+-- nil/"" -- so every TankMarkProfileDB[zone] lookup missed, breaking the HUD ("NO
+-- PROFILE LOADED") AND CanAutomate (dropping the player from the queen election).
+-- A dedicated flag keeps currentZone always a real zone.
+TankMark.soloState = false
 
 function TankMark:GetCachedZone()
     -- [v0.29] Treat "" like nil. On a cold login GetRealZoneText() can return ""
@@ -358,14 +365,19 @@ TankMark:SetScript("OnEvent", function()
         
         if numRaid == 0 and numParty == 0 then
             -- Check if we are already in a "Solo" state to prevent multi-firing
-            if TankMark.currentZone ~= "SOLO_RESET" then 
+            if not TankMark.soloState then
                 TankMark:ResetSession()
-                TankMark.currentZone = "SOLO_RESET" -- Temporary flag
+                TankMark.soloState = true
                 if TankMark.hudFrame then TankMark.hudFrame:Hide() end
             end
-            return 
+            return
         end
-        
+
+        -- [v0.29] Back in a group: clear the solo guard. currentZone was never
+        -- corrupted, so GetCachedZone() / UpdateHUD / CanAutomate all resolve the
+        -- real zone immediately -- a rejoining ex-queen stays an eligible candidate.
+        TankMark.soloState = false
+
         -- Update HUD colors when roster changes (still in group)
         if TankMark.UpdateHUD then
             TankMark:UpdateHUD()
