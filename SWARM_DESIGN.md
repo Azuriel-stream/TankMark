@@ -1,9 +1,10 @@
 # TankMark Swarm Design (target v0.29+)
 
-**Status:** Slices 0–3 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
-+ harness, PR #66; control-plane tracer, PR #69; single-marker enforcement, PR #72 — §5.8/§5.9).
-Slice 4 (profile-sync) **design ratified** — see §6.1. New swarm code is tagged `[v0.29]`;
-`.toc` is `0.27`. The sections below describe the full target; per-slice build status lives in §12.
+**Status:** Slices 0–4 **built** and in-game-verified (remove-TWA, PR #64; pure `SyncCodec`
++ harness, PR #66; control-plane tracer, PR #69; single-marker enforcement, PR #72 — §5.8/§5.9;
+profile-sync, PR #75 — §6.1). Slice 5 (manual handoff) **design ratified** — see §5.10. New swarm
+code is tagged `[v0.29]`; `.toc` is `0.29`. The sections below describe the full target; per-slice
+build status lives in §12.
 
 **Scope note:** This started as roadmap item **#4 (Sync codec tidy-up)** and expanded —
 deliberately — into the full **swarm** feature, because the codec's correct shape is
@@ -320,6 +321,104 @@ intact · dead-unreleased queen keeps marking. The `SWARM` debug category remain
 instrument. New code tags `[v0.29]`; `.toc` stays `0.27` (release bump owed). **Naming:** the
 new gate is `ShouldDriveMarks()`.
 
+### 5.10 Ratified mechanics — slice 5 (manual handoff)
+
+*Resolved 2026-06-27 in a slice-5 design stress-test. The buildable specifics behind §5.6 — the
+queen-only voluntary crown-pass — plus the two deferred promotion-UX items from slice 4.*
+
+**The core move: handoff never bypasses the election.** A handoff must make a *specific* target
+win, possibly one of **lower** rank than the queen. If the target simply starts asserting
+`amQueen`, the two-claimant rule (`ElectQueen` → `DeterministicMax`) hands it straight back to the
+higher-rank queen and the handoff is undone. So the crown is moved by manipulating the *claimant
+set*, never by imperatively writing `selfAmQueen` — the deterministic election stays the **sole
+authority on who marks**, exactly as slice 3 left it, and the single-queen invariant holds at
+every instant on every client. This requires splitting one variable into two concepts:
+
+- **election output / marking gate** = `selfAmQueen` (unchanged — drives `ShouldDriveMarks`).
+- **advertised claim** = `(selfAmQueen or pendingClaim) and not relinquish`. This is what
+  `SendBeat` encodes *and* what `ComputePresence` counts as a self-claim. `ComputePresence` stays
+  pure — it already takes the claim bit as a parameter, so we feed it the effective value; no
+  signature change, minimal harness churn.
+
+*(Considered the **imperative** model — the handshake sets `selfAmQueen` directly: target sets it
+true on accept, queen sets it false on ACK. Rejected: it makes the handshake a second authority on
+who marks, fighting `Recompute`; a lost ACK leaves both marking until the timeout reconciles — the
+exact double-queen slice 3 spent a slice killing.)*
+
+**The wire — one new message (`H`).** §5.4's `resign`/`claim` fast-path was never built; `H` is
+the protocol's first explicit control-edge message.
+
+- **`H;<targetName>`** — the directed offer, queen→target. **Broadcast** on the existing
+  `RAID`/`PARTY` transport via `QueueMessage` (no WHISPER — addon-whisper is flaky on 1.12 and
+  nothing else uses it); every client receives it, only `targetName == SelfName()` acts. Bonus:
+  the offer is observable for HUD/debug, on-brand with the slice-2 display-everywhere tracer.
+- **Confirm** rides the target's existing `Q` heartbeat (`amQueen=1`); **relinquish** rides the
+  queen's (`amQueen=0`). No ACK message — the heartbeat *is* the confirm, mirroring §5.6's own
+  wording ("queen drops `amQueen` **on seeing it**") and slice 4's discipline (the `P` push needed
+  no ACK). Both accept and relinquish **force an immediate beat** instead of waiting for the 5s
+  tick → ~1s handoff. Net new wire surface: one message type.
+
+**Happy-path walk.** (1) Queen `/tmark handoff Bob` → validates (queen-only, Bob in the live
+candidate set, not self) → sends `H;Bob`, sets `pendingHandoffTarget=Bob`. (2) Bob's client: four
+gates pass → sets `pendingClaim`, forces a beat (`amQueen=1`). Now **2 claimants** →
+`DeterministicMax` still picks the higher-rank queen → **queen keeps marking, zero gap**. (3) Queen
+hears Bob's claim → sets `relinquish`, forces a beat (`amQueen=0`). Now **1 claimant (Bob)** → every
+client independently elects Bob → his `selfAmQueen` goes true *through the election*, he marks;
+queen's goes false, he stops. `OnPromoted` fires on Bob → the zone profile re-pushes for free
+(slice 4), so no DB rides the offer.
+
+**Receiver gates + auto-accept.** `H` is honored iff **(1)** `IsTrustedSender` (existing rank≥1
+gate in `HandleSync`), **(2)** `sender == currentQueen` (mirrors `OnProfile`; a rank≥1 non-queen
+can't forge a crown-pass), **(3)** `target == SelfName()`, **(4)** `SelfIsCandidate()` **and not
+`bootstrapping`** (re-checked at accept-time — accepting while ineligible would mint a queen that
+can't mark; accepting mid-bootstrap would advertise `amQueen=1` inside the listen-window, violating
+the don't-claim-during-bootstrap invariant). All pass → **auto-accept**, no target-side dialog
+(models "passing raid lead" — the recipient isn't prompted). Decline degrades to "don't accept" →
+the offer lapses.
+
+**New `Swarm.lua` transient state, each with a TTL:**
+
+| State | Side | Lifecycle |
+|---|---|---|
+| `pendingClaim` (+ `pendingClaimUntil`) | target | set on accept; cleared on **success** (`selfAmQueen` rising edge) or **TTL ≈ 20s** |
+| `pendingHandoffTarget` (+ `handoffOfferUntil`) | queen | set on send; cleared on hearing the claim, or **TTL ≈ 10s** → print *"handoff to X not confirmed — you remain queen"* |
+| `relinquish` | queen | one-shot; suppresses self from its own claimant set for the cycle that breaks stickiness; cleared on the `selfAmQueen` falling edge |
+
+**Failure / timeout.** Anchor rule: **the queen never relinquishes until it has *heard* the target
+claim.** Consequences: offer lost / target ineligible → queen never relinquishes → keeps marking,
+no gap, no dead crown (the §5.6 fail-safe, automatic); queen DCs mid-handoff after the target
+accepted → the target's standing claim *inherits* at the 15s presence timeout. The TTL ordering
+**20s (target) > 15s (presence) > 10s (queen offer)** is load-bearing: the target's claim must
+outlive the queen's presence window so a queen-DC resolves as *inheritance*, not a fallback
+`DeterministicMax(present)` to some other player. **Documented v1 degradation:** a lost relinquish
+beat → an up-to-5s marking gap (the queen flips its own election locally while others hold its
+stale `amQueen=1`), self-healed by the next beat; mitigated by the forced immediate beat.
+
+**Build split — 5a protocol / 5b UX** (the security/correctness boundary, isolated like slice 3):
+
+- **5a — handoff protocol** (the only new wire surface, marking-adjacent), 3 reload-safe
+  checkpoints: **5a.1** codec `H` encode/decode + `Decode` dispatch + harness specs (pure, no
+  behavior); **5a.2** the claim-override election decoupling **dormant** — with `pendingClaim`/
+  `relinquish` always false it is behavior-identical, and the harness proves it reproduces every
+  existing result plus the new override cases *before* any message can activate it; **5a.3** live
+  wiring — `Sync.lua` routes `H`, `OnHandoffOffer`, queen-side offer state + the two TTLs + forced
+  beats, `/tmark handoff <name>`. **2-box verify → focused `/security-review` on the wire diff.**
+- **5b — promotion UX** (no wire, no marking → no `/security-review`): the §5.6 dropdown +
+  confirm trigger UI (pure presentation over the same `H` send); the **recorder-on-promotion**
+  `StaticPopup` on the `OnPromoted` rising edge when `IsRecorderActive` (Stop / Keep recording,
+  promotion-trigger only); the **Profiles-tab drone gate** — grey the editing controls + a
+  read-only notice when `role == DRONE`, keep the list viewable, re-evaluated on the `Recompute`
+  role-transition seam when the panel is visible.
+
+**Out of scope (locked order unchanged):** mob-DB-at-handoff (slice 7, needs chunked transport) ·
+per-player trust/consent (slice 6) · released-to-graveyard queen failover · NUCLEAR-wipe
+swarm-awareness · pull-end death-path GROUP fallback.
+
+**Verification.** 5a is in-game 2-box minimum: queen `/tmark handoff <drone>` → crown moves, new
+queen marks, old queen goes silent · handoff to a *lower-rank* target sticks · target offline/lost
+offer → queen retains and prints "not confirmed" · queen-DC mid-handoff → target inherits. New code
+tags `[v0.29]`. **Naming:** the slash command is `/tmark handoff <name>`; the offer type is `H`.
+
 ---
 
 ## 6. Data plane — derive-local
@@ -500,8 +599,8 @@ The protocol's known message set, to be single-sourced in a **typed-message code
 | `M` mob record | data | TM↔TM | exists today; the coupled-at-a-distance round-trip to single-source |
 | `P` profile snapshot | data | queen→drones | slice 4 (§6.1) — HUD-minimal (`mark+tank+role`), one atomic message; healers deferred |
 | `Q` heartbeat | control | candidate→all | `amQueen` + `planVersion` (slice 4); slice-2 wire is `amQueen`-only — see §5.8 |
-| resign / claim | control | candidate→all | clean-transition fast-path |
-| handoff offer / ACK | control | queen↔target | two-phase, optional DB attachment |
+| resign / claim | control | candidate→all | clean-transition fast-path — **not a dedicated message**: slice 5 (§5.10) realizes the queen-side resign as a forced `amQueen=0` heartbeat |
+| `H` handoff offer | control | queen→target | slice 5 (§5.10) — directed crown-pass, broadcast + name-filter; confirm/relinquish ride the `Q` heartbeat; **no ACK, no DB** (mob DB deferred to slice 7) |
 | `PR` pull-request | data | drone→queen | slice 4 (§6.1) — `(queen,planVersion,zone)`-mismatch refetch; queen broadcasts the response |
 
 **Architecture (mirror `Ledger`/`ApplyMarkIntent`):**
@@ -567,6 +666,10 @@ get nailed *within* their owning slice rather than up front.
   eligibility (drives the election / failover pool, unchanged), `ShouldDriveMarks()` = the
   queen-only marking gate. Folding the queen-check into `CanAutomate` would collapse the
   candidate set and break failover.
+- **Handoff never bypasses the election** (slice 5, §5.10): the crown moves by manipulating the
+  *claimant set* (`pendingClaim`/`relinquish`), never by imperatively writing `selfAmQueen`, so the
+  single-queen invariant holds at every instant. The queen relinquishes only *after* hearing the
+  target claim → no marking gap, no dead-end crown.
 - The codec stays **pure**; all *state mutation* goes through guarded apply edges.
 - `SetRaidTarget` remains the **sole** marking edge (`Driver_ApplyMark`), server-rank-gated.
 - Drones have **no** path to `SetRaidTarget` — enforced (slice 3) across *all* world-mark
@@ -592,7 +695,7 @@ that owns them.
 | **2** | **Control-plane tracer (display-only)** | Heartbeat (`Q`) + deterministic election + stickiness + failover, **computing & displaying** queen/drone only | **No marking behavior change.** The keystone — validates the hard consensus logic live (races, failover, AFK-demote) at zero marking risk. |
 | **3** | **Single-marker enforcement** (ratified §5.9) | New `ShouldDriveMarks()` gate (`CanAutomate ∧ (¬swarm ∨ selfAmQueen)`, fail-open); `CanAutomate` unchanged (candidacy/failover preserved). Migrates 7 marking sites + the audit-found pull-end-clear / `ResetSession`-strip from `HasPermissions`. | The **one** slice flipping marking behavior — isolated. Acts on slice 2's verified queen. Closes the §11 `SetRaidTarget` holes; in-game 2-box verify (queen marks / drone silent / failover / pull-end). |
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
-| **5** | **Manual handoff** | Queen-only, two-phase ACK, dropdown UI; failover polish | §5.6/§5.7. |
+| **5** | **Manual handoff** (ratified §5.10) | **5a** protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX: dropdown trigger, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a is the only new wire surface → built dormant-decoupling-first, 2-box verify + own `/security-review`. 5b is local-only (no security-review). |
 | **6** | **Security hardening** | offer→accept consent + trust axis + scoped block | **Its own slice = its own `/security-review`.** |
 | **7** | **Mob-DB-at-handoff** | Opt-in DB attachment, accept/reject + snapshot | §6.2. |
 
@@ -615,8 +718,13 @@ path was touched. **Slice 3 (single-marker enforcement) is shipped and in-game-v
 `ResetSession` strip, and the build-found `ReviewSkullState` record-before-apply path), with
 the NUCLEAR wipe consciously left alone. 2-box live: queen marks / drone silent / DRONE
 deference (queen=Frostkeg) / failover reclaim with no gap; harness 75/0. **Slice 4 (profile-sync)
-design is ratified (§6.1, 2026-06-26):** single-slot overwrite of `TankMarkProfileDB[zone]`
-(queen sole writer, no backup, profile carved out of §7 consent), pull-driven global runtime
-`planVersion`, HUD-minimal atomic `P` push + coalesced `PR` pull, empty-keeps; net new surface =
-`P`/`PR` message types + a `planVersion` heartbeat field. **Next action: build slice 4** in
-reload-safe checkpoints.
+is shipped and 2-box in-game-verified (PR #75; DEV_GUIDE reconcile PR #76; `/security-review`
+clean):** single-slot overwrite of `TankMarkProfileDB[zone]` (queen sole writer, no backup, profile
+carved out of §7 consent), pull-driven global runtime `planVersion`, HUD-minimal atomic `P` push +
+coalesced `PR` pull, empty-keeps, plus `OnPromoted` push-on-promotion; `.toc` bumped 0.27 → 0.29.
+**Slice 5 (manual handoff) design is ratified (§5.10, 2026-06-27):** the claim-override model (the
+election stays the sole marking authority — handoff only nudges the claimant set), one new wire type
+(`H` directed offer; confirm/relinquish ride the heartbeat), four receiver gates + auto-accept, the
+10s/20s TTLs straddling the 15s presence window, split into **5a** (protocol, 3 checkpoints, own
+`/security-review`) + **5b** (promotion UX). **Next action: build slice 5a.1** (codec `H` + harness)
+in reload-safe checkpoints.
