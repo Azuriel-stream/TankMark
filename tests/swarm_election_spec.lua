@@ -210,5 +210,28 @@ describe("Swarm election", function()
             eq(has(c, "Bob"), true, "self claims via pendingClaim")
             eq(Swarm.ElectQueen(p, c, roster), "Bob", "target elected")
         end)
+
+        -- [v0.29] slice 5a.3 step-6 (queen-DC mid-handoff -> inheritance). The TTL
+        -- ordering CLAIM(20s) > PRESENCE(15s) means the target's standing claim outlives
+        -- the queen's presence window, so a queen DC resolves as the target INHERITING
+        -- the crown, NOT a fresh DeterministicMax to a returning higher rank / bystander.
+        -- Hard to stage 2-box (must hard-kill a client mid-swap), so pinned purely here.
+        it("queen-DC mid-handoff: stale queen dropped, target's standing claim inherits (drone view)", function()
+            -- Cara hears Alice's last pre-DC beat at 84 -> 100-84=16 >= 15 -> stale, dropped
+            -- despite outranking Bob. Bob keeps claiming (amQueen=1, heard fresh at 99).
+            local p, c = Swarm.ComputePresence("Cara", true, false,
+                { Alice = 84, Bob = 99 }, { Alice = true, Bob = true }, roster, 100, 15)
+            eq(has(p, "Alice"), false, "stale queen dropped")
+            eq(count(c), 1, "lone standing claimant (the target)")
+            eq(Swarm.ElectQueen(p, c, roster), "Bob", "target inherits, not a fallback election")
+        end)
+
+        it("queen-DC mid-handoff: the target's own client self-elects on its standing claim", function()
+            local claim = AC(false, true, false)
+            local p, c = Swarm.ComputePresence("Bob", true, claim,
+                { Alice = 84 }, { Alice = true }, roster, 100, 15)
+            eq(has(p, "Alice"), false, "stale queen dropped")
+            eq(Swarm.ElectQueen(p, c, roster), "Bob", "target self-elected via inheritance")
+        end)
     end)
 end)
