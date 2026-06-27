@@ -42,7 +42,7 @@ function TankMark:InitGlobalMenu()
 	info = { text = "Announce Assignments", notCheckable = 1, func = function() TankMark:AnnounceAssignments() end }
 	UIDropDownMenu_AddButton(info)
 	
-	info = { text = "Sync Zone Data", notCheckable = 1, func = function() TankMark:BroadcastZone() end }
+	info = { text = "Share Zone Mob DB", notCheckable = 1, func = function() TankMark:PostShareLink() end }
 	UIDropDownMenu_AddButton(info)
 	
 	info = { text = "Open Configuration", notCheckable = 1, func = function() TankMark:ShowOptions() end }
