@@ -203,6 +203,46 @@ function TankMark:CreateHUD()
     f.swarmStatus:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
     f.swarmStatus:Hide()
 
+    -- [v0.29] slice 5b.3: transparent click overlay on the swarm status line. Shown
+    -- by RenderSwarmLine ONLY for a QUEEN with >=1 eligible candidate; clicking opens
+    -- the handoff candidate menu. Hidden otherwise so it neither intercepts HUD drag
+    -- nor offers a dead click to drones. Spans the text PLUS the arrow cue to its
+    -- right, so a click on the arrow counts too.
+    local hb = CreateFrame("Button", nil, f)
+    hb:SetPoint("TOPLEFT",     f.swarmStatus, "TOPLEFT",     0, 0)
+    hb:SetPoint("BOTTOMRIGHT", f.swarmStatus, "BOTTOMRIGHT", 16, 0)
+    hb:EnableMouse(true)
+    hb:RegisterForClicks("LeftButtonUp")
+    hb:SetScript("OnClick", function()
+        UIDropDownMenu_Initialize(TankMark.swarmHandoffDrop, function()
+            TankMark:InitHandoffMenu()
+        end, "MENU")
+        ToggleDropDownMenu(1, nil, TankMark.swarmHandoffDrop, "cursor", 0, 0)
+    end)
+    hb:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:AddLine("Pass the Queen role")
+        GameTooltip:AddLine("Click to hand marking off to another player.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    hb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    hb:Hide()
+    f.swarmHandoffBtn = hb
+
+    -- [v0.29] slice 5b.3: the "clickable" cue. 1.12 has NO Unicode (chevron glyphs
+    -- render blank) and FontStrings do NOT parse |T inline textures (they print
+    -- literally) -- so the cue must be a real Texture region. This path is the down
+    -- arrow that FauxScrollFrameTemplate already renders in the addon's own list
+    -- scrollbars, so it is guaranteed present on the client.
+    local arrow = f:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")
+    arrow:SetWidth(14); arrow:SetHeight(14)
+    arrow:SetPoint("LEFT", f.swarmStatus, "RIGHT", 1, 0)
+    arrow:Hide()
+    f.swarmHandoffArrow = arrow
+
+    TankMark.swarmHandoffDrop = CreateFrame("Frame", "TMSwarmHandoffMenu", f, "UIDropDownMenuTemplate")
+
     -- Create 8 rows (Skull to Star)
     for i = 8, 1, -1 do
         local row = CreateFrame("Button", nil, f)
@@ -334,14 +374,24 @@ function TankMark:RenderSwarmLine()
     -- the beat frame). Otherwise the line stays hidden and reserves no height.
     if not (TankMark.IsSuperWoW and Swarm and Swarm.frame) then
         f.swarmStatus:Hide()
+        if f.swarmHandoffBtn   then f.swarmHandoffBtn:Hide()   end
+        if f.swarmHandoffArrow then f.swarmHandoffArrow:Hide() end
         return false
     end
 
     local role  = Swarm.lastRole
     local queen = Swarm.currentQueen
     local text
+    -- [v0.29] slice 5b.3: the line is a handoff trigger only for a QUEEN who has at
+    -- least one eligible candidate to pass to; the down-arrow cue (a separate Texture,
+    -- toggled below) advertises it. The button's click re-validates via
+    -- InitiateHandoff, so a slightly stale gate is harmless.
+    local clickable = false
     if role == "QUEEN" then
         text = "|cff00ff00Queen: " .. (queen or "?") .. " (you)|r"
+        if Swarm.HandoffCandidates and L._tgetn(Swarm.HandoffCandidates()) > 0 then
+            clickable = true
+        end
     elseif role == "DRONE" then
         text = "|cffffd100Queen:|r |cffffffff" .. (queen or "?") .. "|r"
     elseif role == "BOOTSTRAP" then
@@ -352,6 +402,21 @@ function TankMark:RenderSwarmLine()
 
     f.swarmStatus:SetText(text)
     f.swarmStatus:Show()
+
+    if f.swarmHandoffBtn then
+        if clickable then
+            f.swarmHandoffBtn:Show()
+            if f.swarmHandoffArrow then f.swarmHandoffArrow:Show() end
+        else
+            f.swarmHandoffBtn:Hide()
+            if f.swarmHandoffArrow then f.swarmHandoffArrow:Hide() end
+            -- Close our own menu if it lingers after a demotion (don't stomp others).
+            local open = UIDROPDOWNMENU_OPEN_MENU
+            if open and (open == TankMark.swarmHandoffDrop or open == "TMSwarmHandoffMenu") then
+                CloseDropDownMenus()
+            end
+        end
+    end
     return true
 end
 
@@ -404,6 +469,58 @@ function TankMark:PromptRecorderOnPromotion(soleCandidate)
     StaticPopupDialogs["TANKMARK_RECORDER_ON_PROMOTE"].text = text
     StaticPopup_Show("TANKMARK_RECORDER_ON_PROMOTE")
 end
+
+-- ==========================================================
+-- [v0.29] slice 5b.3: HANDOFF TRIGGER (queen clicks the status line)
+-- ==========================================================
+-- The dropdown is just a launcher: it lists the live candidates and routes the
+-- pick through InitiateHandoff, which re-validates queen-only + eligibility + non-
+-- self at click time -- so a stale list or a mid-menu demotion just prints a
+-- rejection, never corrupts state (the slash command stays authoritative).
+
+function TankMark:InitHandoffMenu()
+    local Swarm = TankMark.Swarm
+    if not (Swarm and Swarm.HandoffCandidates) then return end
+    local candidates = Swarm.HandoffCandidates()
+    local n = L._tgetn(candidates)
+    if n == 0 then
+        local info = {}
+        info.text     = "(no eligible players)"
+        info.disabled = 1
+        UIDropDownMenu_AddButton(info)
+        return
+    end
+    for i = 1, n do
+        local name = candidates[i]
+        local info = {}
+        info.text = name
+        info.func = function() TankMark:ConfirmHandoff(name) end
+        UIDropDownMenu_AddButton(info)
+    end
+end
+
+function TankMark:ConfirmHandoff(name)
+    if not name then return end
+    TankMark.pendingHandoffTargetUI = name
+    StaticPopupDialogs["TANKMARK_HANDOFF_CONFIRM"].text =
+        "Pass the marking Queen role to |cffffd100" .. name .. "|r?"
+    StaticPopup_Show("TANKMARK_HANDOFF_CONFIRM")
+end
+
+StaticPopupDialogs["TANKMARK_HANDOFF_CONFIRM"] = {
+    text = "",  -- set per-show in ConfirmHandoff
+    button1 = "Pass Role",
+    button2 = "Cancel",
+    OnAccept = function()
+        local name = TankMark.pendingHandoffTargetUI
+        if name and TankMark.Swarm and TankMark.Swarm.InitiateHandoff then
+            TankMark.Swarm.InitiateHandoff(name)  -- re-validates; prints on reject
+        end
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
 
 -- ==========================================================
 -- 3. TOGGLE & UPDATE LOGIC
