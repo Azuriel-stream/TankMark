@@ -162,6 +162,7 @@ local function CreateRowPool(parent)
 			end, "MENU")
 			ToggleDropDownMenu(1, nil, idrop, "cursor", 0, 0)
 		end)
+		row.iconBtn = ibtn  -- [v0.29] slice 5b.1: handle for the drone gate
 
 		-- Tank Edit Box
 		local teb = TankMark:CreateEditBox(row, "", 110)
@@ -362,6 +363,18 @@ function TankMark:CreateProfileTab(parent)
 
 	-- Bottom bar: Add Mark / Use Template / Copy From / Reset
 	CreateBottomBar(t2)
+
+	-- [v0.29] slice 5b.1: read-only banner, shown only while this client is a drone.
+	local banner = t2:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	banner:SetPoint("BOTTOM", t2, "BOTTOM", 0, 45)
+	banner:SetText("|cffff8000Read-only \226\128\148 the Queen manages the team profile.|r")
+	banner:Hide()
+	TankMark.profileReadOnlyBanner = banner
+
+	-- [v0.29] slice 5b.1: stash the tab frame and re-apply the gate on every show
+	-- (the role-transition seam refreshes it live; this catches the open itself).
+	TankMark.profileTabFrame = t2
+	t2:SetScript("OnShow", function() TankMark:ApplyProfileEditGate() end)
 
 	return t2
 end

@@ -146,6 +146,7 @@ function TankMark:UpdateProfileList()
 			TankMark.profileAddBtn:Disable()
 		end
 
+		TankMark:ApplyProfileEditGate()
 		return
 	end
 
@@ -233,6 +234,102 @@ function TankMark:UpdateProfileList()
 		else
 			TankMark.profileAddBtn:Enable()
 		end
+	end
+
+	TankMark:ApplyProfileEditGate()
+end
+
+-- ==========================================================
+-- [v0.29] slice 5b.1: PROFILES-TAB DRONE GATE
+-- ==========================================================
+
+-- Buttons/CheckButtons expose Enable/Disable; EditBoxes do not (no :Disable in
+-- 1.12), so a read-only EditBox is one that can't be focused: autofocus is already
+-- off (CreateEditBox), so dropping mouse-enable is the only focus path left.
+local function setBtnEnabled(btn, enabled)
+	if not btn then return end
+	if enabled then btn:Enable() else btn:Disable() end
+end
+
+local function setEditEnabled(eb, enabled)
+	if not eb then return end
+	eb:EnableMouse(enabled)
+	if not enabled then eb:ClearFocus() end
+end
+
+-- Read-only the Team Profiles tab for a DRONE. The Queen is the profile's sole
+-- writer (slice 4), so a drone's edits are overwritten on the next push. Disable
+-- every WRITE control; keep VIEWS live (zone dropdown, Manage-Profiles toggle,
+-- scroll/list). Solo never gates: with no beat frame IsRunning() is false AND
+-- lastRole stays nil -- both terms are required so a torn-down swarm can't strand
+-- a now-solo editor on a stale role. Called at the tail of UpdateProfileList (both
+-- modes), from the tab OnShow, and from the Recompute role-transition seam.
+function TankMark:ApplyProfileEditGate()
+	local Swarm    = TankMark.Swarm
+	local gated    = Swarm and Swarm.IsRunning() and Swarm.lastRole == "DRONE"
+	local writable = not gated
+
+	-- Bottom-bar writes
+	setBtnEnabled(TankMark.profileSaveBtn,     writable)
+	setBtnEnabled(TankMark.profileTemplateBtn, writable)
+	setBtnEnabled(TankMark.profileCopyBtn,     writable)
+	setBtnEnabled(TankMark.profileResetBtn,    writable)
+	-- Add Mark: only ever force-DISABLE here. The enable side is owned by
+	-- UpdateProfileList's cap/mode logic (8-mark cap, browser mode), which runs
+	-- just before this on the render path.
+	if gated and TankMark.profileAddBtn then TankMark.profileAddBtn:Disable() end
+
+	-- Per-row writes (all 8 pool rows; toggling hidden rows is harmless)
+	if TankMark.profileRows then
+		for i = 1, 8 do
+			local row = TankMark.profileRows[i]
+			if row then
+				setBtnEnabled(row.iconBtn, writable)
+				setBtnEnabled(row.tankBtn, writable)
+				setBtnEnabled(row.healBtn, writable)
+				setBtnEnabled(row.ccCheck, writable)
+				setBtnEnabled(row.del,     writable)  -- normal delete AND browser zone-delete
+				setEditEnabled(row.tankEdit, writable)
+				setEditEnabled(row.healEdit, writable)
+				if row.iconTex then row.iconTex:SetAlpha(writable and 1 or 0.4) end
+			end
+		end
+	end
+
+	if TankMark.profileReadOnlyBanner then
+		if gated then TankMark.profileReadOnlyBanner:Show()
+		else           TankMark.profileReadOnlyBanner:Hide() end
+	end
+end
+
+-- Re-evaluate the gate when the election flips a role while the Profiles tab is
+-- open (called from Swarm.Recompute's transition seam). A full re-render keeps the
+-- Add Mark cap correct across a drone->queen release, not just the gate. Guarded on
+-- visibility so a background role flip costs nothing.
+function TankMark:RefreshProfileGateIfVisible()
+	local t2 = TankMark.profileTabFrame
+	if t2 and t2:IsVisible() then
+		TankMark:UpdateProfileList()
+	end
+end
+
+-- [v0.29] slice 5b.1: a queen's profile edit arrives on a drone as a P push
+-- (Swarm.OnProfile), which overwrites the DB slot and repaints the HUD via
+-- ApplyProfileToSession -- but the open Profiles tab renders from profileCache,
+-- not the live DB, so it would stay stale. When the tab is open and showing the
+-- pushed zone, reload the cache and re-render. Browser mode reads zone counts
+-- straight from the DB, so it only needs the re-render. Safe under the gate: only
+-- a drone hits OnProfile, and a gated drone has no pending edits to clobber.
+function TankMark:RefreshProfileTabForZone(zone)
+	local t2 = TankMark.profileTabFrame
+	if not (t2 and t2:IsVisible()) then return end
+	if TankMark.isProfileZoneListMode then
+		TankMark:UpdateProfileList()
+		return
+	end
+	if UIDropDownMenu_GetText(TankMark.profileZoneDropdown) == zone then
+		TankMark:LoadProfileToCache()
+		TankMark:UpdateProfileList()
 	end
 end
 
