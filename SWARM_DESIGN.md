@@ -621,9 +621,11 @@ solo render paths are **byte-identical** to today.
 **Net new protocol surface:** two message types — `P` (profile snapshot, queen→drones) and `PR`
 (pull-request, drone→queen) — plus one `Q` heartbeat field (`planVersion`).
 
-### 6.2 Mob DB sharing — opt-in, at handoff only
+### 6.2 Mob DB sharing — opt-in (link/pull §7.2, or attached to a handoff)
 The Mob DB drives the *queen's* marking only; drones never need it for the HUD. So it is
-**not** auto-pushed. It is an **optional attachment to a handoff**:
+**not** auto-pushed. Two opt-in, consent-gated paths (both per §7): the **link/pull broadcast
+share** (slice 6, §7.2 — advertise any zone to the group, pulled on click) and the **optional
+attachment to a handoff** below (slice 7, reusing slice 6's transport/consent/snapshot):
 
 - **Default OFF**, scoped to the **current zone** (the motivating case is "hand off *because*
   the new queen has the better DB" — don't clobber it).
@@ -639,9 +641,14 @@ Full snapshots throughout. Profile is too small to bother; Mob DB pushes too rar
 
 ---
 
-## 7. Security model
+## 7. Security model — Mob DB sharing (consent + trust)
 
-The untrusted-cross-client surface (`/security-review`-worthy). **Run a security pass when built.**
+The untrusted cross-client surface. **Gets its own `/security-review` (slice 6).**
+
+*Resolved 2026-06-27 in a slice-6 design stress-test (grill-me). The buildable specifics below —
+confirmed against the 1.12 FrameXML `SetItemRef` and pfQuest/WeakAuras source. Headline change
+from the original conceptual §7: the unsolicited push is **replaced** by an advertise-then-pull
+(chat-link) model, so "consent" is the **click**, not a popup on an incoming broadcast.*
 
 ### 7.1 Threat model and the bounding backstop
 - Sender identity is **server-set** (the `CHAT_MSG_ADDON` sender arg) — unspoofable.
@@ -656,31 +663,87 @@ The untrusted-cross-client surface (`/security-review`-worthy). **Run a security
 - **Key principle:** you cannot stop a malicious client from *sending*; you can only control
   what your client *does with it*. **Guards live on the receiver.**
 
-### 7.2 offer → accept (consent), not push → auto-apply
-All incoming **mob-DB writes** (broadcast *and* handoff) are **offers**, applied only on the
-user's click. *(Originally leaned "broadcast stays authoritative, silent overwrite is fine";
-reversed once the benevolent-sender assumption was dropped.)*
+### 7.2 The model: advertise → pull → consent (replaces unsolicited push)
+The legacy `/tmark sync` push (rank-gated, silent auto-overwrite of every receiver's Mob DB) is
+**removed**. In its place, a WeakAura/pfQuest-style flow:
 
-- Prompt: "PlayerX offers their ⟨Zone⟩ Mob DB — Accept / Reject / Always-trust PlayerX".
-- **One pending offer per sender** (rate-limit) so it can't become popup-DoS.
-- Snapshot before any accepted apply (§6.2).
+- **Advertise.** The owner posts a clickable chat link to PARTY/RAID for a chosen zone —
+  `|cAARRGGBB|Htankmark:<poster>:<zone>|h[TankMark: <Zone> Mob DB]|h|r`. Triggers: one
+  `PostShareLink(zone)` serves all — `/tmark sync` + the HUD menu (current zone) **and** a new
+  **Share** button in Manage Zones (any zone; the owner need not be standing in it — the DB is
+  just `TankMarkDB.Zones[zone]`). No-op with a notice if solo.
+- **Pull.** Clicking the link (hooked global `SetItemRef`, pfQuest pattern — match a `tankmark:`
+  type, pass-through for every other link; a non-TankMark user clicking gets a harmless empty
+  tooltip) fires a **directed pull-request** to the named poster and sets a local
+  **pending-click** `(poster, zone, ~15s TTL)`.
+- **Respond — broadcast-once, coalesced.** The poster collects requests over ~3–5s under a
+  per-zone **re-broadcast cooldown** (~10s) and sends **one** framed broadcast regardless of how
+  many clicked: `SB(poster,zone,count)` → N × `M` records → `SE`. *(Turtle has **no** addon-
+  `WHISPER` — verified in-game: "Unknown addon chat type" — so targeted delivery is impossible.
+  Broadcast-once is both the only option and the better DoS shape: O(1) sends per click-storm.)*
+- **Apply — consent + snapshot.** A client buffers the frame **only if it holds a matching
+  pending-click**; everyone else drops it. Applied **all-or-nothing** (the `SB` count is validated
+  at `SE`; a mismatch rejects the whole frame and keeps the current DB — same philosophy as
+  `decodeProfile`). On a complete frame: snapshot (`TankMarkDB_Snapshot`) then **full-zone replace**
+  of `TankMarkDB.Zones[zone]` (deletions propagate). A **naked `M` outside a frame is dropped** —
+  which retires the legacy silent-overwrite even from an un-upgraded client.
+
+**Clicking is the consent-to-receive**, so the only popup is the **post-receipt overwrite confirm**
+(named loss): *"Replace your N-mob ⟨Zone⟩ DB with PlayerX's M-mob DB? A snapshot will be saved.
+[Import] [Cancel] [Always trust PlayerX]"* — fired on receipt (concrete counts), not on click, so an
+unanswered click just TTLs out quietly. (`StaticPopupDialogs` caps at **3 buttons**, so Block is not
+a popup action — see §7.3.)
+
+**The share plane is consent-only (no rank gate).** `SB`/`M`/`SE` and the pull-request **drop** the
+rank≥1 `IsTrustedSender` gate — anyone in the group/raid may share, since click + trust axis + confirm
++ snapshot is a *stronger* gate than rank ever was (§7.1: "assist in a pug is a low bar"), and a frame
+from a non-requested sender is dropped before parse anyway. The **control plane keeps rank≥1**
+(`Q`/`P`/`PR`/`H` — election integrity). *(Rejected: keeping rank as an extra gate on sharing — it
+would exclude a knowledgeable unranked sharer for no security gain.)*
 
 ### 7.3 Per-player trust axis (one structure, not two lists)
-Block and "always-trust" are the two ends of **one** per-player setting:
+Block and "always-trust" are the two ends of **one** per-player setting, stored
+`TankMarkDB.Trust[name] = "trusted" | "blocked"` (absent = Neutral), **account-wide**, keyed by name:
 
-- **Blocked** → dropped at the filter, never processed.
-- **Neutral** (default) → offer→accept prompt.
-- **Trusted** → auto-accept, no prompt.
+- **Blocked** → click is inert (no pull-request), framed responses dropped, pull-requests ignored.
+- **Neutral** (default) → click → pull → **post-receipt overwrite confirm** (§7.2).
+- **Trusted** → click → pull → **auto-import on receipt** (snapshot first, one-line notice, no popup).
 
-Precedence **Blocked > Trusted > Neutral**. Stored **account-wide**, keyed by **player name**.
+Precedence **Blocked > Trusted > Neutral** (a name can't be in both). The **Always-trust** popup button
+writes Trusted; **Block is set in the Options-tab management UI** (the 3-button popup has no room, and
+you'll also want to block a known troll *preemptively*). UI: one backing table rendered as allow/block
+sections + add-by-name, in the near-empty Options tab.
 
-### 7.4 Scoped block (data-plane only)
-A block suppresses the sender's **mutating/data-plane** messages and offers — but **keeps
-observing their election heartbeat.** *(Considered total block; rejected as default because
-election is a **consensus protocol** — locally censoring a candidate's heartbeat can
-fracture the shared candidate set and, for an *eligible* blocker, cause a split-brain second
-queen. The marks are server-truth and visible regardless, and a rank-less actor can't mark
-anyway, so there's no safety need to censor the control plane.)*
+### 7.4 Scoped block (Mob-DB plane only)
+A block suppresses **only the Mob DB sharing surface** — inert link click, dropped `SB`/`M`/`SE`
+frames, ignored pull-requests, and (slice 7) an auto-declined handoff-DB attachment. It leaves
+**untouched**: the `Q` heartbeat/election, the `H` handoff, and `P`/`PR` profile sync (queen-
+authoritative, already gated by `sender == currentQueen`, carved out of consent in §6.1). Block
+**overrides queen-authority for the handoff-DB attachment only** (slice 7) — the role still transfers
+(control plane), only the DB is declined — keeping the rule simple: *Block = never touch my Mob DB from
+this person, queen or not.* *(Considered total block; rejected as default because election is a
+**consensus protocol** — locally censoring a candidate's heartbeat can fracture the shared candidate
+set and, for an *eligible* blocker, cause a split-brain second queen. Marks are server-truth and
+visible regardless, and a rank-less actor can't mark anyway, so there's no safety need to censor the
+control plane.)*
+
+### 7.5 Trust keys on the unspoofable sender
+The trust lookup **and** the confirm-popup's name key on the **`CHAT_MSG_ADDON` sender (server-set,
+unspoofable)**, never the link's claimed `<poster>` (the link name is only for *routing* the request).
+So a forged link can at worst make the *real* named player share their *real* DB (harmless); it can
+never make a poisoned DB appear to come from a trusted name.
+
+### 7.6 Build checkpoints (reload-safe; cadence per §12)
+- **6.1 — codec + trust model** (pure, harness): widen `M` to the full `marks` array (sequential marks
+  transfer losslessly — fits under the 254B cap); add `SB`/`SE` + the `tankmark:` link encode/decode;
+  add `TankMarkDB.Trust` + the precedence helper. Behavior-identical (old push still works).
+- **6.2 — trust management UI** in the Options tab (one backing table; allow/block sections;
+  add-by-name; the Always-trust write path). Inert until sharing exists.
+- **6.3 — poster pipeline**: `PostShareLink(zone)` + the three triggers + pull-request handling +
+  coalesce/cooldown + the framed broadcast. Legacy push still alongside — no regression window.
+- **6.4 — receiver pipeline + cutover**: `SetItemRef` hook → pending-click → frame buffer → confirm
+  popup → replace+snapshot, trust-gated (Blocked/Trusted/Neutral); **then** drop the legacy naked-`M`
+  auto-apply. 2-box verify + the dedicated **`/security-review`**.
 
 ---
 
@@ -690,12 +753,14 @@ The protocol's known message set, to be single-sourced in a **typed-message code
 
 | Type | Plane | Direction | Notes |
 |---|---|---|---|
-| `M` mob record | data | TM↔TM | exists today; the coupled-at-a-distance round-trip to single-source |
+| `M` mob record | data | TM↔TM | the share-frame body (§7.2); **widened in slice 6** to carry the full `marks` array (sequential marks transfer losslessly). A *naked* `M` outside a frame is dropped |
 | `P` profile snapshot | data | queen→drones | slice 4 (§6.1) — HUD-minimal (`mark+tank+role`), one atomic message; healers deferred |
 | `Q` heartbeat | control | candidate→all | `amQueen` + `planVersion` (slice 4); slice-2 wire is `amQueen`-only — see §5.8 |
 | resign / claim | control | candidate→all | clean-transition fast-path — **not a dedicated message**: slice 5 (§5.10) realizes the queen-side resign as a forced `amQueen=0` heartbeat |
 | `H` handoff offer | control | queen→target | slice 5 (§5.10) — directed crown-pass, broadcast + name-filter; confirm/relinquish ride the `Q` heartbeat; **no ACK, no DB** (mob DB deferred to slice 7) |
 | `PR` pull-request | data | drone→queen | slice 4 (§6.1) — `(queen,planVersion,zone)`-mismatch refetch; queen broadcasts the response |
+| `SB`/`SE` share frame | data | owner→group | slice 6 (§7.2) — wraps a broadcast-once share of one zone's Mob DB: `SB(poster,zone,count)` → N×`M` → `SE`; applied all-or-nothing, only by a client holding a matching pending-click |
+| share-request | data | clicker→owner | slice 6 (§7.2) — the directed pull a link-click fires; coalesced by the owner under a re-broadcast cooldown |
 
 **Architecture (mirror `Ledger`/`ApplyMarkIntent`):**
 - The **codec is pure** — decode → validate → **reject malformed** → return a structured
@@ -789,9 +854,9 @@ that owns them.
 | **2** | **Control-plane tracer (display-only)** | Heartbeat (`Q`) + deterministic election + stickiness + failover, **computing & displaying** queen/drone only | **No marking behavior change.** The keystone — validates the hard consensus logic live (races, failover, AFK-demote) at zero marking risk. |
 | **3** | **Single-marker enforcement** (ratified §5.9) | New `ShouldDriveMarks()` gate (`CanAutomate ∧ (¬swarm ∨ selfAmQueen)`, fail-open); `CanAutomate` unchanged (candidacy/failover preserved). Migrates 7 marking sites + the audit-found pull-end-clear / `ResetSession`-strip from `HasPermissions`. | The **one** slice flipping marking behavior — isolated. Acts on slice 2's verified queen. Closes the §11 `SetRaidTarget` holes; in-game 2-box verify (queen marks / drone silent / failover / pull-end). |
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
-| **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX (next): dropdown trigger, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
-| **6** | **Security hardening** | offer→accept consent + trust axis + scoped block | **Its own slice = its own `/security-review`.** |
-| **7** | **Mob-DB-at-handoff** | Opt-in DB attachment, accept/reject + snapshot | §6.2. |
+| **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX **SHIPPED** (PRs #82–#87): handoff-trigger UI, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
+| **6** | **Mob DB sharing (security)** | Advertise→pull→consent chat-link share (**replaces** the push) + trust axis + scoped block + widened `M` (marks array). Checkpoints: 6.1 codec+trust-model → 6.2 trust UI → 6.3 poster → 6.4 receiver+cutover | §7 (ratified 2026-06-27). The untrusted-parse slice → **its own `/security-review`** at 6.4. Consent-only share plane; rank kept on control plane. |
+| **7** | **Mob-DB-at-handoff** | Opt-in DB attachment to a handoff (checkbox + accept/reject), **reusing slice-6 transport/consent/snapshot**; broadcast + name-filter (no whisper); Block overrides queen for the DB attachment | §6.2 / §7.4. |
 
 **Ordering rationale:** the codec (slice 1) is low-risk and foundational, so it comes first
 as the substrate; the *display-only* tracer (slice 2) puts the novel election/heartbeat in a
@@ -829,5 +894,9 @@ beats in `Recompute`, `/tmark handoff <name>`). 2-box live: crown moves / lower-
 ineligible-target rejected; the queen-DC inheritance path is pinned by pure specs; harness 116/0; the
 focused `/security-review` of the wire diff found no actionable findings (4 gates sound, no forge /
 escalation / state-corruption path — bounded by the queen-gated accept + the server-rank
-`SetRaidTarget` backstop). **Next action: build slice 5b** (promotion UX — §5.6 dropdown trigger,
-recorder-on-promotion `StaticPopup`, Profiles-tab drone gate; local-only, no `/security-review`).
+`SetRaidTarget` backstop). **Slice 5b (promotion UX) shipped & closed** (PRs #82–#87; local-only,
+no `/security-review`). **Slice 6 design ratified 2026-06-27** (§7, grill-me): unsolicited push
+**replaced** by an advertise→pull chat-link share + per-player trust axis + scoped block; widened `M`.
+**Next action: build checkpoint 6.1** (codec — widen `M`, add `SB`/`SE` + `tankmark:` link helpers,
+add `TankMarkDB.Trust`; pure/harness). Slice 6 is the untrusted-parse slice → its own
+`/security-review` at 6.4.
