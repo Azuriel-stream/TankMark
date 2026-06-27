@@ -224,4 +224,38 @@ describe("SyncCodec", function()
             eq(Codec.Decode("PR;"), nil, "empty zone")
         end)
     end)
+
+    -- [v0.29] slice 5a.1: the "H" handoff offer (queen->target). A directed
+    -- crown-pass, broadcast; one field, the target name. Pure codec only -- no
+    -- election/runtime behavior rides on it at this checkpoint (SWARM_DESIGN.md
+    -- sec.5.10). These specs pin the wire so 5a.2/5a.3 build on a frozen format.
+    describe("H handoff offer", function()
+        it("encodes and decodes a directed offer", function()
+            eq(Codec.EncodeHandoff("Bob"), "H;Bob", "wire")
+            local r = Codec.Decode("H;Bob")
+            eq(r.kind, "H", "kind")
+            eq(r.target, "Bob", "target")
+        end)
+
+        it("round-trips the target through Encode -> Decode", function()
+            local r = Codec.Decode(Codec.EncodeHandoff("Frostkeg"))
+            eq(r.kind, "H", "kind")
+            eq(r.target, "Frostkeg", "target")
+        end)
+
+        it("returns nil from EncodeHandoff when target is missing", function()
+            eq(Codec.EncodeHandoff(nil), nil, "nil target")
+        end)
+
+        it("rejects an empty or absent target on decode", function()
+            eq(Codec.Decode("H;"), nil, "empty target")
+            eq(Codec.Decode("H"), nil, "no separator")
+        end)
+
+        it("does not collide with other tags", function()
+            eq(Codec.Decode("H;Bob").kind, "H", "H stays H")
+            eq(Codec.Decode("M;Z;M;3;8;KILL;NIL").kind, "M", "M unaffected")
+            eq(Codec.Decode("Q;1;0").kind, "Q", "Q unaffected")
+        end)
+    end)
 end)

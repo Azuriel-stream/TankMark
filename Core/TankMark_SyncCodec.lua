@@ -24,6 +24,13 @@
 -- slice) and small enough to be ONE atomic message, so a drone replaces the whole
 -- zone in one apply (deletions are free; no framing). Tags are now multi-char
 -- ("PR"), so Decode splits the tag on the first ';' rather than taking one char.
+--
+-- [v0.29] Swarm slice 5a.1: "H" (handoff offer, queen->target) -- the protocol's
+-- first explicit control-edge message (SWARM_DESIGN.md sec.5.10). A directed
+-- crown-pass, broadcast on the shared transport; every client decodes it but only
+-- the named target acts (the name-filter lives in Sync.lua, slice 5a.3). The wire
+-- is one field, the target name. This checkpoint is the pure codec only -- no
+-- election or runtime behavior rides on it yet.
 
 if not TankMark then return end
 
@@ -50,6 +57,11 @@ local HEARTBEAT_TAG = "Q"
 --   pull     "PR;<zone>"  -- a bare refetch request for one zone.
 local PROFILE_TAG = "P"
 local PULL_TAG    = "PR"
+
+-- [v0.29] slice 5a.1 wire grammar:
+--   handoff  "H;<targetName>"  -- a directed crown-pass offer, queen->target.
+--            Broadcast; the target name carries no ';' so it is the whole body.
+local HANDOFF_TAG = "H"
 
 -- Encode a mob DB entry to its wire string, or nil if the entry is unusable.
 -- Mirrors the historical BroadcastZone defaults: only the FIRST mark is synced
@@ -100,6 +112,15 @@ end
 function Codec.EncodePull(zone)
     if not zone then return nil end
     return PULL_TAG .. ";" .. zone
+end
+
+-- [v0.29] slice 5a.1: encode a handoff offer -- the queen's directed crown-pass to
+-- <target>. Broadcast like any other message; only the named target acts on it (the
+-- name-filter is Sync.lua's job, slice 5a.3). A nil target returns nil, mirroring the
+-- other encoders; an empty name is left to the decoder to reject (as PR does).
+function Codec.EncodeHandoff(target)
+    if not target then return nil end
+    return HANDOFF_TAG .. ";" .. target
 end
 
 -- Decode the "M;..." body into a typed mob record, or nil if malformed.
@@ -178,11 +199,19 @@ local function decodePull(body)
     return { kind = PULL_TAG, zone = zone }
 end
 
+-- [v0.29] slice 5a.1: decode an "H;..." body into a typed handoff offer, or nil if
+-- the target name is empty. Single field, trailing-tolerant (mirrors decodePull).
+local function decodeHandoff(body)
+    local _, _, target = L._strfind(body, "^([^;]*)")
+    if not target or target == "" then return nil end
+    return { kind = HANDOFF_TAG, target = target }
+end
+
 -- Decode a wire message into a typed record, or nil if malformed / unknown type.
 -- Pure validation only -- it rejects bad input but never touches the DB. The tag is
 -- everything before the first ';' (so a multi-char tag like "PR" parses correctly),
 -- and the body is everything after it. Branches: "M" -> mob, "Q" -> heartbeat,
--- "P" -> profile snapshot, "PR" -> pull-request.
+-- "P" -> profile snapshot, "PR" -> pull-request, "H" -> handoff offer.
 function Codec.Decode(msg)
     if not msg then return nil end
 
@@ -197,6 +226,8 @@ function Codec.Decode(msg)
         return decodeProfile(body)
     elseif tag == PULL_TAG then
         return decodePull(body)
+    elseif tag == HANDOFF_TAG then
+        return decodeHandoff(body)
     end
     return nil -- unknown type tag
 end
