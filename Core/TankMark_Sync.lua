@@ -73,6 +73,15 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
+	-- [v0.29] slice 5a.3: a directed handoff offer (queen -> named target). Passed the
+	-- same rank>=1 IsTrustedSender gate; OnHandoffOffer additionally requires the sender
+	-- be our OWN elected queen and the target be us (4 gates, sec.5.10), so a trusted
+	-- non-queen cannot forge a crown-pass and a bystander ignores it. No DB write.
+	if rec.kind == "H" then
+		if TankMark.Swarm then TankMark.Swarm.OnHandoffOffer(sender, rec) end
+		return
+	end
+
 	if rec.kind ~= "M" then return end
 
 	if not TankMarkDB.Zones[rec.zone] then TankMarkDB.Zones[rec.zone] = {} end

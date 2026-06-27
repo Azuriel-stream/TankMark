@@ -570,6 +570,15 @@ function TankMark:SlashHandler(msg)
         
     elseif cmd == "sync" or cmd == "share" then
         if TankMark.BroadcastZone then TankMark:BroadcastZone() end
+
+    elseif cmd == "handoff" then
+        -- [v0.29] slice 5a.3: pass the marking Queen role to a named candidate (sec.5.10).
+        local _, _, targetName = L._strfind(args or "", "^(%S+)")
+        if TankMark.Swarm and TankMark.Swarm.InitiateHandoff then
+            TankMark.Swarm.InitiateHandoff(targetName)
+        else
+            TankMark:Print("Handoff requires the swarm (SuperWoW).")
+        end
     else
         TankMark:Print("|cff00ffffTankMark Commands:|r")
         TankMark:Print(" |cffffffff/tmark reset|r - Clear all marks and reset session")
@@ -580,6 +589,7 @@ function TankMark:SlashHandler(msg)
         TankMark:Print(" |cffffffff/tmark config|r - Open configuration panel")
         TankMark:Print(" |cffffffff/tmark announce|r - Broadcast assignments to chat")
         TankMark:Print(" |cffffffff/tmark sync|r - Share mob database with raid")
+        TankMark:Print(" |cffffffff/tmark handoff [player]|r - Pass the marking Queen role")
         TankMark:Print(" |cffffffff/tmark zone|r - Show current zone and driver info")
     end
 end
