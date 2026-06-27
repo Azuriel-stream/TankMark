@@ -643,7 +643,8 @@ Full snapshots throughout. Profile is too small to bother; Mob DB pushes too rar
 
 ## 7. Security model — Mob DB sharing (consent + trust)
 
-The untrusted cross-client surface. **Gets its own `/security-review` (slice 6).**
+The untrusted cross-client surface. **SHIPPED & 2-box verified 2026-06-27 (PRs #89–#93); the
+`/security-review` at 6.4a was clean.**
 
 *Resolved 2026-06-27 in a slice-6 design stress-test (grill-me). The buildable specifics below —
 confirmed against the 1.12 FrameXML `SetItemRef` and pfQuest/WeakAuras source. Headline change
@@ -691,8 +692,10 @@ The legacy `/tmark sync` push (rank-gated, silent auto-overwrite of every receiv
 **Clicking is the consent-to-receive**, so the only popup is the **post-receipt overwrite confirm**
 (named loss): *"Replace your N-mob ⟨Zone⟩ DB with PlayerX's M-mob DB? A snapshot will be saved.
 [Import] [Cancel] [Always trust PlayerX]"* — fired on receipt (concrete counts), not on click, so an
-unanswered click just TTLs out quietly. (`StaticPopupDialogs` caps at **3 buttons**, so Block is not
-a popup action — see §7.3.)
+unanswered click just TTLs out quietly. *(As-built: 1.12 `StaticPopupDialogs` supports only **2**
+buttons — button1→OnAccept, button2→OnCancel, no third callback — verified against the 1.12 FrameXML.
+So the three-choice confirm is a small **custom frame** (Import / Always trust / Cancel), which also
+sidesteps Turtle's Escape-skips-OnCancel quirk. Block is still not a confirm action — see §7.3.)*
 
 **The share plane is consent-only (no rank gate).** `SB`/`M`/`SE` and the pull-request **drop** the
 rank≥1 `IsTrustedSender` gate — anyone in the group/raid may share, since click + trust axis + confirm
@@ -709,10 +712,10 @@ Block and "always-trust" are the two ends of **one** per-player setting, stored
 - **Neutral** (default) → click → pull → **post-receipt overwrite confirm** (§7.2).
 - **Trusted** → click → pull → **auto-import on receipt** (snapshot first, one-line notice, no popup).
 
-Precedence **Blocked > Trusted > Neutral** (a name can't be in both). The **Always-trust** popup button
-writes Trusted; **Block is set in the Options-tab management UI** (the 3-button popup has no room, and
-you'll also want to block a known troll *preemptively*). UI: one backing table rendered as allow/block
-sections + add-by-name, in the near-empty Options tab.
+Precedence **Blocked > Trusted > Neutral** (a name can't be in both). The **Always-trust** button on the
+confirm frame writes Trusted; **Block is set in the Options-tab management UI** (the confirm frame stays
+a clean three choices, and you'll also want to block a known troll *preemptively*). UI: one backing
+table rendered as allow/block sections + add-by-name, in the near-empty Options tab.
 
 ### 7.4 Scoped block (Mob-DB plane only)
 A block suppresses **only the Mob DB sharing surface** — inert link click, dropped `SB`/`M`/`SE`
@@ -855,7 +858,7 @@ that owns them.
 | **3** | **Single-marker enforcement** (ratified §5.9) | New `ShouldDriveMarks()` gate (`CanAutomate ∧ (¬swarm ∨ selfAmQueen)`, fail-open); `CanAutomate` unchanged (candidacy/failover preserved). Migrates 7 marking sites + the audit-found pull-end-clear / `ResetSession`-strip from `HasPermissions`. | The **one** slice flipping marking behavior — isolated. Acts on slice 2's verified queen. Closes the §11 `SetRaidTarget` holes; in-game 2-box verify (queen marks / drone silent / failover / pull-end). |
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
 | **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX **SHIPPED** (PRs #82–#87): handoff-trigger UI, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
-| **6** | **Mob DB sharing (security)** | Advertise→pull→consent chat-link share (**replaces** the push) + trust axis + scoped block + widened `M` (marks array). Checkpoints: 6.1 codec+trust-model → 6.2 trust UI → 6.3 poster → 6.4 receiver+cutover | §7 (ratified 2026-06-27). The untrusted-parse slice → **its own `/security-review`** at 6.4. Consent-only share plane; rank kept on control plane. |
+| **6 ✅** | **Mob DB sharing (security)** | Advertise→pull→consent chat-link share (**replaced** the push) + trust axis + scoped block + widened `M` (marks array). Shipped 6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review` (#92) → 6.4b cutover (#93). | §7. **SHIPPED 2026-06-27**, 2-box verified, security-review clean. Consent-only share plane; rank kept on control plane. |
 | **7** | **Mob-DB-at-handoff** | Opt-in DB attachment to a handoff (checkbox + accept/reject), **reusing slice-6 transport/consent/snapshot**; broadcast + name-filter (no whisper); Block overrides queen for the DB attachment | §6.2 / §7.4. |
 
 **Ordering rationale:** the codec (slice 1) is low-risk and foundational, so it comes first
@@ -895,8 +898,10 @@ ineligible-target rejected; the queen-DC inheritance path is pinned by pure spec
 focused `/security-review` of the wire diff found no actionable findings (4 gates sound, no forge /
 escalation / state-corruption path — bounded by the queen-gated accept + the server-rank
 `SetRaidTarget` backstop). **Slice 5b (promotion UX) shipped & closed** (PRs #82–#87; local-only,
-no `/security-review`). **Slice 6 design ratified 2026-06-27** (§7, grill-me): unsolicited push
-**replaced** by an advertise→pull chat-link share + per-player trust axis + scoped block; widened `M`.
-**Next action: build checkpoint 6.1** (codec — widen `M`, add `SB`/`SE` + `tankmark:` link helpers,
-add `TankMarkDB.Trust`; pure/harness). Slice 6 is the untrusted-parse slice → its own
-`/security-review` at 6.4.
+no `/security-review`). **Slice 6 (Mob DB sharing / security) SHIPPED & 2-box verified 2026-06-27**
+(§7): the unsolicited push is **replaced** by an advertise→pull chat-link share + per-player trust
+axis + scoped block; the `M` mark field widened to a list. Built in five reload-safe checkpoints —
+6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review`
+clean (#92) → 6.4b cutover, legacy push removed (#93). **Next action: build slice 7 (Mob-DB-at-handoff)**
+— reuses this slice's transport/consent/snapshot (broadcast + name-filter, since 1.12 has no addon-
+WHISPER; Block overrides queen for the DB attachment), and unlocks healers-in-profile at full fidelity.
