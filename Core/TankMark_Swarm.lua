@@ -301,6 +301,12 @@ function Swarm.Recompute(now)
         Swarm.pendingClaim = false
         Swarm.pendingClaimUntil = 0
         Swarm.OnPromoted()
+        -- [v0.29] slice 5b.2: a Flight Recorder left running on a fresh Queen is a
+        -- dead-queen trap -- ProcessUnit records-and-returns under the recorder, so
+        -- the new Queen never marks. Prompt to stop. Rising edge only; UI-guarded.
+        if TankMark.IsRecorderActive and TankMark.PromptRecorderOnPromotion then
+            TankMark:PromptRecorderOnPromotion(Swarm.SelfIsSoleCandidate())
+        end
     end
 
     local role = Swarm.DeriveRole(selfName, queen, Swarm.bootstrapping)
@@ -548,6 +554,22 @@ function Swarm.OnPromoted()
     Swarm.planVersion = Swarm.planVersion + 1
     local zone = L._GetRealZoneText()
     if zone and zone ~= "" then Swarm.PushProfile(zone) end
+end
+
+-- [v0.29] slice 5b.2: true when self is the ONLY present candidate -- nobody else
+-- could take over marking. Drives the recorder-on-promotion prompt's sole-candidate
+-- notice ("keep recording = no one marks"). Mirrors InitiateHandoff's presence read.
+function Swarm.SelfIsSoleCandidate()
+    local selfName = Swarm.SelfName()
+    local now      = L._GetTime()
+    local roster   = Swarm.BuildRoster()
+    local present  = Swarm.ComputePresence(selfName, Swarm.SelfIsCandidate(),
+        Swarm.selfAmQueen, Swarm.lastHeard, Swarm.amQueenHeard, roster, now,
+        Swarm.PRESENCE_WINDOW)
+    for i = 1, L._tgetn(present) do
+        if present[i] ~= selfName then return false end
+    end
+    return true
 end
 
 -- True when a drone's applied (queen,version,zone) key matches the live triple.

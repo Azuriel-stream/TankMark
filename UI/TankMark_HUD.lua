@@ -356,6 +356,56 @@ function TankMark:RenderSwarmLine()
 end
 
 -- ==========================================================
+-- [v0.29] slice 5b.2: RECORDER-ON-PROMOTION PROMPT
+-- ==========================================================
+-- Safety interlock for the dead-queen trap: a Flight Recorder left running makes
+-- ProcessUnit record-and-return, so a freshly-promoted Queen would silently never
+-- mark. On promotion (rising edge) while recording, Swarm.Recompute calls
+-- PromptRecorderOnPromotion. Stop is the ONLY outcome that suppresses the warning;
+-- Keep, Escape, and the X all leave the recorder running and warn loudly via OnHide
+-- (1.12 Escape hides WITHOUT firing OnCancel, so the flag-in-OnHide is what makes
+-- a silent dismiss still warn).
+
+function TankMark:WarnRecordingQueen()
+    TankMark:Print("|cffff0000WARNING:|r You are the Queen but the Flight Recorder is ON "
+        .. "-- mobs are being recorded, NOT marked. Use |cffffffff/tmark recorder stop|r to mark.")
+end
+
+StaticPopupDialogs["TANKMARK_RECORDER_ON_PROMOTE"] = {
+    text = "",  -- set per-show in PromptRecorderOnPromotion (sole-candidate notice)
+    button1 = "Stop Recording",
+    button2 = "Keep Recording",
+    OnShow = function()
+        TankMark.recorderPromoteStopped = false
+    end,
+    OnAccept = function()
+        TankMark.recorderPromoteStopped = true
+        TankMark.IsRecorderActive = false
+        TankMark:Print("Flight Recorder: |cffff0000DISABLED|r -- you are the Queen; marking is live.")
+    end,
+    OnHide = function()
+        -- Fires for every dismissal (button or Escape). Warn unless Stop was chosen.
+        if not TankMark.recorderPromoteStopped then
+            TankMark:WarnRecordingQueen()
+        end
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
+function TankMark:PromptRecorderOnPromotion(soleCandidate)
+    local text = "You are now the marking Queen, but the Flight Recorder is running -- "
+        .. "while it is on you record mobs instead of marking them. Stop recording so you can mark?"
+    if soleCandidate then
+        text = text .. "\n\n|cffff8000You are the only eligible marker -- "
+            .. "if you keep recording, no one will mark.|r"
+    end
+    StaticPopupDialogs["TANKMARK_RECORDER_ON_PROMOTE"].text = text
+    StaticPopup_Show("TANKMARK_RECORDER_ON_PROMOTE")
+end
+
+-- ==========================================================
 -- 3. TOGGLE & UPDATE LOGIC
 -- ==========================================================
 function TankMark:ToggleMarkState(iconID)
