@@ -192,4 +192,56 @@ describe("Profile sync", function()
             eq(sent[1], "P;Z;2;8,Bob,T", "P only")
         end)
     end)
+
+    -- [v0.29] slice 7.3: OnHealerRecord layers healers onto the entry the matching P
+    -- already applied -- queen-only + version-gated, no-op (no error) on a miss.
+    describe("OnHealerRecord (slice 7.3 apply)", function()
+        local function hrec(z, ver, m, h)
+            return { kind = "HR", zone = z, planVersion = ver, mark = m, healers = h }
+        end
+        local function seedProfile(z, ver)
+            TankMarkProfileDB[z] = {
+                { mark = 8, tank = "Bob", role = "TANK", healers = "" },
+                { mark = 6, tank = "Sue", role = "CC",   healers = "" },
+            }
+            Swarm.versionHeard["Queenie"] = ver
+        end
+
+        it("sets healers on the entry whose mark matches, leaving others untouched", function()
+            reset()
+            seedProfile("Blackrock Depths", 5)
+            Swarm.OnHealerRecord("Queenie", hrec("Blackrock Depths", 5, 8, "Aine Boldo"))
+            eq(TankMarkProfileDB["Blackrock Depths"][1].healers, "Aine Boldo", "mark 8 set")
+            eq(TankMarkProfileDB["Blackrock Depths"][2].healers, "", "mark 6 untouched")
+        end)
+
+        it("ignores an HR from anyone but our elected queen", function()
+            reset()
+            seedProfile("Blackrock Depths", 5)
+            Swarm.OnHealerRecord("Impostor", hrec("Blackrock Depths", 5, 8, "Evil"))
+            eq(TankMarkProfileDB["Blackrock Depths"][1].healers, "", "not applied")
+        end)
+
+        it("drops a stale HR whose version != the version last heard", function()
+            reset()
+            seedProfile("Blackrock Depths", 5)
+            Swarm.OnHealerRecord("Queenie", hrec("Blackrock Depths", 4, 8, "Stale"))
+            eq(TankMarkProfileDB["Blackrock Depths"][1].healers, "", "stale dropped")
+        end)
+
+        it("is a no-op when the zone has no applied profile", function()
+            reset()
+            Swarm.versionHeard["Queenie"] = 5
+            Swarm.OnHealerRecord("Queenie", hrec("Unseen Zone", 5, 8, "Aine"))
+            eq(TankMarkProfileDB["Unseen Zone"], nil, "nothing created")
+        end)
+
+        it("is a no-op when no entry has the record's mark", function()
+            reset()
+            seedProfile("Blackrock Depths", 5)
+            Swarm.OnHealerRecord("Queenie", hrec("Blackrock Depths", 5, 1, "Nobody"))
+            eq(TankMarkProfileDB["Blackrock Depths"][1].healers, "", "mark 8 untouched")
+            eq(TankMarkProfileDB["Blackrock Depths"][2].healers, "", "mark 6 untouched")
+        end)
+    end)
 end)

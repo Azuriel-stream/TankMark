@@ -264,8 +264,16 @@ function Swarm.Recompute(now)
         end
     end
 
-    -- Bootstrap ENTRY: just became a candidate -> open the listen-window.
-    if selfIsCandidate and not Swarm.wasCandidate then
+    -- Bootstrap ENTRY: just became a candidate -> open the listen-window. BUT skip it if
+    -- we ALREADY follow an external queen: bootstrap exists to discover a queen on a COLD
+    -- start, so a candidacy-GAIN flicker (IsPartyLeader() glitching TRUE for a non-leader
+    -- drone -- the gain-side of the CANDIDATE_GRACE quirk) must NOT tear a settled drone
+    -- into a 15s listen (the churn that stranded the late-join pull). The election's
+    -- lone-claimant stickiness keeps the incumbent, so we just stay a drone. Failover is
+    -- unaffected: a drone whose queen genuinely departs re-elects via DeterministicMax
+    -- (no rising edge needed), and a true cold start has no currentQueen so still boots.
+    local followingQueen = Swarm.currentQueen and Swarm.currentQueen ~= selfName
+    if selfIsCandidate and not Swarm.wasCandidate and not followingQueen then
         Swarm.bootstrapping  = true
         Swarm.bootstrapUntil = now + Swarm.PRESENCE_WINDOW
         Swarm.selfAmQueen    = false
@@ -422,8 +430,16 @@ end
 -- Emit one heartbeat if we are a candidate and there is a group to hear it. Rides
 -- the shared TM_SYNC prefix + 0.3s throttle; the 3-miss threshold absorbs any
 -- delay behind a mob-sync burst.
+-- [v0.29] Gate on the DEBOUNCED candidacy (Swarm.wasCandidate, set by Recompute), NOT
+-- the raw SelfIsCandidate(): a queen holding its crown through a transient CanAutomate
+-- blip (IsPartyLeader() flicker -- see CANDIDATE_GRACE) MUST keep heartbeating, or drones
+-- miss its beats, time out its presence (3 misses / 15s), and churn DRONE<->NONE -- which
+-- stranded late joiners in election thrash, unable to settle and pull. The role debounce
+-- and the beat must agree, else the queen marks but is invisible to the swarm.
+-- (wasCandidate trails by one tick -- harmless for beat continuity: a held blip keeps it
+-- true the whole time, so no beat is skipped.)
 function Swarm.SendBeat()
-    if not Swarm.SelfIsCandidate() then return end
+    if not Swarm.wasCandidate then return end
     if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
     local channel = (L._GetNumRaidMembers() > 0) and "RAID" or "PARTY"
     -- [v0.29] slice 5a.2: the heartbeat's amQueen bit is the ADVERTISED CLAIM (a
@@ -606,6 +622,16 @@ end
 -- the old on the heartbeat, then push immediately (the fast path). A non-queen Save
 -- is silent -- its slot is overwritten by the next queen push.
 function Swarm.OnProfileSaved(zone)
+    -- [v0.29] A local Save MUTATES this client's profile for `zone`, so a drone's
+    -- "already synced" bookkeeping (appliedKey) for that zone is now stale -- clear it so
+    -- EvaluatePull re-arms a pull and re-fetches the queen's plan. Without this, a manual
+    -- reset/edit followed by a (re)join while the queen's planVersion is UNCHANGED leaves
+    -- keyMatches reporting "synced" over an emptied local profile, so the drone never
+    -- pulls until a /reload clears appliedKey (the late-join "no sync" we chased). Only the
+    -- matching zone is cleared. Harmless for a queen -- it renders its own DB, never pulls.
+    if Swarm.appliedKey and Swarm.appliedKey.zone == zone then
+        Swarm.appliedKey = nil
+    end
     if not Swarm.selfAmQueen then return end
     Swarm.planVersion = Swarm.planVersion + 1
     Swarm.PushProfile(zone)
@@ -650,6 +676,19 @@ local function keyMatches(key, queen, version, zone)
     return key ~= nil and key.queen == queen and key.version == version and key.zone == zone
 end
 
+-- [v0.29] Resolve the current zone, HEALING a raw "" via GetCachedZone -- the same
+-- healed accessor CanAutomate and the HUD already use. GetRealZoneText() returns "" in
+-- the cold-login window (until PLAYER_ENTERING_WORLD); the swarm pull/render path read
+-- it RAW, so a drone whose zone was transiently "" silently never armed its pull (and
+-- skipped the render) and stayed unsynced -- the flaky late-join failure. The
+-- `and TankMark.GetCachedZone` guard keeps the off-client harness (no GetCachedZone
+-- defined) on the raw stub, so the existing EvaluatePull specs are unaffected.
+local function currentZone()
+    local z = L._GetRealZoneText()
+    if (not z or z == "") and TankMark.GetCachedZone then z = TankMark:GetCachedZone() end
+    return z
+end
+
 -- Arm a refetch when our queen's advertised plan no longer matches what we have
 -- applied. Only a DRONE pulls (a queen renders its own DB; NONE/BOOTSTRAP have no
 -- queen). The triple covers every staleness case: edit (version up), late join /
@@ -660,7 +699,7 @@ function Swarm.EvaluatePull(queen, role)
         Swarm.needPull = false
         return
     end
-    local zone = L._GetRealZoneText()
+    local zone = currentZone()
     if not zone or zone == "" then return end
     local heard = Swarm.versionHeard[queen] or 0
     if not keyMatches(Swarm.appliedKey, queen, heard, zone) then
@@ -688,7 +727,7 @@ function Swarm.OnProfile(sender, rec)
         TankMarkProfileDB[rec.zone] = slot
         -- Render only the zone we are standing in (the HUD shows the current zone);
         -- other zones are stored but not painted.
-        if rec.zone == L._GetRealZoneText() and TankMark.ApplyProfileToSession then
+        if rec.zone == currentZone() and TankMark.ApplyProfileToSession then
             TankMark:ApplyProfileToSession(rec.zone)
         end
         -- [v0.29] slice 5b.1: the HUD repaints above, but the open Profiles tab
@@ -711,6 +750,52 @@ function Swarm.OnProfile(sender, rec)
         TankMark:DebugLog("SWARM", "profile applied", {
             queen = sender, zone = rec.zone,
             ver = rec.planVersion, n = L._tgetn(rec.entries),
+        })
+    end
+end
+
+-- [v0.29] slice 7.3: receive a healer record (HandleSync, kind=="HR") and layer it
+-- onto the profile entry the matching "P" already applied (SWARM_DESIGN.md sec.6.1a).
+-- Queen-only (sender == currentQueen, like OnProfile) and version-gated
+-- (rec.planVersion == the version we last heard from that queen), so a stale HR from a
+-- superseded push is dropped -- the "P" rebuild reset healers="", and only the HRs
+-- matching the applied version refill them. Find the entry by mark, set its healers,
+-- and re-render through the same seams OnProfile uses. A missing zone/entry -- an HR
+-- whose "P" we have not applied (arrived first, or for an un-applied zone / version) --
+-- is a no-op; the next push/pull re-sends it. Does NOT touch appliedKey/needPull:
+-- healers are a layer on an already-applied profile (Cut 1 -- a lost HR self-heals on
+-- the next push, not via a healer-specific pull).
+function Swarm.OnHealerRecord(sender, rec)
+    if not sender or not rec or not rec.zone or not rec.mark then return end
+    if sender ~= Swarm.currentQueen then return end
+    if rec.planVersion ~= (Swarm.versionHeard[sender] or 0) then return end
+
+    local list = TankMarkProfileDB and TankMarkProfileDB[rec.zone]
+    if not list then return end
+
+    local applied = false
+    for i = 1, L._tgetn(list) do
+        local e = list[i]
+        if e and e.mark == rec.mark then
+            e.healers = rec.healers
+            applied = true
+            break
+        end
+    end
+    if not applied then return end
+
+    -- Re-render through the same seams OnProfile uses (HUD for the current zone, the
+    -- Profiles tab for whatever zone it is viewing). Guarded so neither forces UI creation.
+    if rec.zone == currentZone() and TankMark.ApplyProfileToSession then
+        TankMark:ApplyProfileToSession(rec.zone)
+    end
+    if TankMark.RefreshProfileTabForZone then
+        TankMark:RefreshProfileTabForZone(rec.zone)
+    end
+
+    if TankMark.DebugEnabled then
+        TankMark:DebugLog("SWARM", "healer record applied", {
+            queen = sender, zone = rec.zone, mark = rec.mark, ver = rec.planVersion,
         })
     end
 end
@@ -746,7 +831,7 @@ function Swarm.FlushSync()
         Swarm.pendingPush = nil
     end
     if Swarm.needPull and not Swarm.selfAmQueen and Swarm.currentQueen then
-        local zone = L._GetRealZoneText()
+        local zone = currentZone()  -- [v0.29] healed: raw "" stranded the late-join pull
         if zone and zone ~= "" then Swarm.SendPull(zone) end
     end
 end
