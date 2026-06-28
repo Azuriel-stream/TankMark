@@ -20,8 +20,8 @@
 -- [v0.29] Swarm slice 4: profile-sync (SWARM_DESIGN.md sec.6.1). Two new types --
 -- "P" (profile snapshot, queen->drones) and "PR" (pull-request, drone->queen) --
 -- plus the now-live "planVersion" field on the "Q" heartbeat. The "P" snapshot is
--- HUD-minimal (mark+tank+role only; healers are deferred to the chunked-transport
--- slice) and small enough to be ONE atomic message, so a drone replaces the whole
+-- HUD-minimal (mark+tank+role only; healers ride separate "HR" records, slice 7)
+-- and small enough to be ONE atomic message, so a drone replaces the whole
 -- zone in one apply (deletions are free; no framing). Tags are now multi-char
 -- ("PR"), so Decode splits the tag on the first ';' rather than taking one char.
 --
@@ -41,6 +41,14 @@
 -- (3) the clickable chat-link data grammar "tankmark:<poster>:<zone>" (a |H..|h
 -- hyperlink body, not an addon message) is encoded/decoded here so it stays
 -- single-sourced and harness-testable.
+--
+-- [v0.29] Swarm slice 7: healer-assignment sync (SWARM_DESIGN.md sec.6.1a). One new
+-- type "HR" (healer record, queen->drones) carries the healers that "P" drops -- a
+-- full profile WITH healers overflows one <=254B message, so "P" stays HUD-minimal
+-- and healers layer on as an ADDITIVE per-entry record: one "HR" per entry that HAS
+-- healers (~90B, never overflows), sent right after the "P", applied onto the
+-- just-applied profile (slices 7.2/7.3). This checkpoint is the pure codec only --
+-- no send/apply rides on it yet.
 
 if not TankMark then return end
 
@@ -93,6 +101,15 @@ local SHAREEND_TAG   = "SE"
 --                 CHAT_MSG_ADDON sender, gated poster-side in Sync.lua.
 local SHAREREQ_TAG = "SR"
 
+-- [v0.29] slice 7 wire grammar (SWARM_DESIGN.md sec.6.1a) -- the additive healer
+-- record layered onto a "P" snapshot:
+--   healer "HR;<zone>;<version>;<mark>;<space-delimited healers>"  -- one record per
+--          entry that has healers. <zone> and the healer list may contain spaces but
+--          never ';', so ';' stays the literal delimiter and the trailing healer list
+--          is one greedy field. Distinct from the "H" handoff tag (Decode splits the
+--          whole tag on the first ';', so "HR" and "H" never collide -- as "PR"/"P").
+local HEALER_TAG = "HR"
+
 -- [v0.29] slice 6: the clickable chat-LINK data grammar -- NOT an addon message,
 -- but a |H...|h hyperlink body: "tankmark:<poster>:<zone>". ':' is the hyperlink
 -- delimiter (no player/zone name contains one). Single-sourced here so every wire
@@ -139,8 +156,9 @@ function Codec.EncodeHeartbeat(amQueen, planVersion)
 end
 
 -- [v0.29] slice 4: encode a profile snapshot. entries is an array of
--- { mark, tank, role } (role "TANK"/"CC"); healers are deliberately omitted (they
--- are never rendered and would overflow one message -- see SWARM_DESIGN.md sec.6.1).
+-- { mark, tank, role } (role "TANK"/"CC"); healers are omitted here -- a full profile
+-- WITH them overflows one message, so they travel separately as additive "HR" records
+-- (slice 7, Codec.EncodeHealerRecord -- see SWARM_DESIGN.md sec.6.1/6.1a).
 -- An entry without a mark is skipped; an empty/absent entry list yields the
 -- header-only "P;<zone>;<planVersion>" which decodes to an empty snapshot.
 function Codec.EncodeProfile(zone, planVersion, entries)
@@ -208,6 +226,18 @@ function Codec.DecodeShareLink(linkData)
     if not poster or poster == "" then return nil end
     if not zone or zone == "" then return nil end
     return { poster = poster, zone = zone }
+end
+
+-- [v0.29] slice 7: encode one healer record -- the additive per-entry healer list
+-- that layers onto a "P" snapshot (SWARM_DESIGN.md sec.6.1a). <healers> is the
+-- stored space-delimited name list; the caller sends one record per entry that HAS
+-- healers (a healer-less entry sends nothing -- a removal rides the "P" rebuild that
+-- resets healers=""). Returns nil for a missing zone/mark or an empty healer list,
+-- mirroring the other encoders (a meaningless record is never put on the wire).
+function Codec.EncodeHealerRecord(zone, version, mark, healers)
+    if not zone or not mark then return nil end
+    if not healers or healers == "" then return nil end
+    return HEALER_TAG .. ";" .. zone .. ";" .. (version or 0) .. ";" .. mark .. ";" .. healers
 end
 
 -- Decode the "M;..." body into a typed mob record, or nil if malformed.
@@ -334,12 +364,35 @@ local function decodeShareRequest(body)
     return { kind = SHAREREQ_TAG, poster = poster, zone = zone }
 end
 
+-- [v0.29] slice 7: decode an "HR;..." body into a typed healer record, or nil if
+-- malformed. body = "<zone>;<version>;<mark>;<healers>". <zone> and <healers> may
+-- contain spaces but not ';'; the healer list is the whole trailing field (greedy),
+-- so an embedded space can't truncate it. Mark range mirrors decodeProfile (0-8);
+-- an empty healer list is rejected (a healer record must carry healers).
+local function decodeHealerRecord(body)
+    local _, _, zone, ver, mark, healers = L._strfind(body, "^([^;]*);(%d+);(%d+);(.*)$")
+    if not zone or zone == "" then return nil end
+    local numVer = L._tonumber(ver)
+    if not numVer then return nil end
+    local numMark = L._tonumber(mark)
+    if not numMark or numMark < 0 or numMark > 8 then return nil end
+    if not healers or healers == "" then return nil end
+    return {
+        kind        = HEALER_TAG,
+        zone        = zone,
+        planVersion = numVer,
+        mark        = numMark,
+        healers     = healers,
+    }
+end
+
 -- Decode a wire message into a typed record, or nil if malformed / unknown type.
 -- Pure validation only -- it rejects bad input but never touches the DB. The tag is
 -- everything before the first ';' (so a multi-char tag like "PR" parses correctly),
 -- and the body is everything after it. Branches: "M" -> mob, "Q" -> heartbeat,
 -- "P" -> profile snapshot, "PR" -> pull-request, "H" -> handoff offer,
--- "SB"/"SE" -> share-frame begin/end (slice 6).
+-- "SB"/"SE"/"SR" -> share frame begin/end/request (slice 6), "HR" -> healer
+-- record (slice 7).
 function Codec.Decode(msg)
     if not msg then return nil end
 
@@ -362,6 +415,8 @@ function Codec.Decode(msg)
         return decodeShareEnd(body)
     elseif tag == SHAREREQ_TAG then
         return decodeShareRequest(body)
+    elseif tag == HEALER_TAG then
+        return decodeHealerRecord(body)
     end
     return nil -- unknown type tag
 end
