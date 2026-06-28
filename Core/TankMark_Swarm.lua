@@ -562,10 +562,13 @@ end
 -- PROFILE SYNC  [v0.29] slice 4 (SWARM_DESIGN.md sec.6.1)
 -- ==========================================================
 
--- Broadcast TankMarkProfileDB[zone] as one atomic "P" snapshot. Builds the
--- HUD-minimal entry list (mark+tank+role; healers omitted) straight from the DB.
--- Caller-gated -- the push (OnProfileSaved) and the PR-response both verify the
--- sender is the queen first. No group -> nothing to send.
+-- Broadcast TankMarkProfileDB[zone] as one atomic "P" snapshot (mark+tank+role),
+-- then [v0.29 slice 7.2] append one "HR" healer record per entry that HAS healers
+-- (SWARM_DESIGN.md sec.6.1a). The HRs carry the SAME planVersion as the P and are
+-- queued AFTER it, so the FIFO throttle lands P first and a drone's version-gate
+-- matches (the receive/apply is slice 7.3 -- until then drones drop the unknown
+-- type, so the HR emission is DORMANT). Caller-gated -- the push (OnProfileSaved)
+-- and the PR-response both verify the sender is the queen first. No group -> send nothing.
 function Swarm.PushProfile(zone)
     if not zone then return end
     if L._GetNumRaidMembers() == 0 and L._GetNumPartyMembers() == 0 then return end
@@ -574,6 +577,26 @@ function Swarm.PushProfile(zone)
     local payload = TankMark.SyncCodec.EncodeProfile(zone, Swarm.planVersion, entries)
     if payload then
         TankMark:QueueMessage(TankMark.SyncPrefix, payload, channel)
+    end
+
+    -- [v0.29] slice 7.2: append the healer records -- one HR per entry that has
+    -- healers (EncodeHealerRecord returns nil for an empty list, so a healer-less
+    -- entry is naturally skipped). A healer REMOVAL needs no message: it rides the
+    -- P rebuild, which resets the drone's healers="" before these apply. Same
+    -- planVersion as the P above so the drone's version-gate (slice 7.3) matches.
+    local hrCount = 0
+    for i = 1, L._tgetn(entries) do
+        local e = entries[i]
+        if e and e.mark and e.healers and e.healers ~= "" then
+            local hr = TankMark.SyncCodec.EncodeHealerRecord(zone, Swarm.planVersion, e.mark, e.healers)
+            if hr then
+                TankMark:QueueMessage(TankMark.SyncPrefix, hr, channel)
+                hrCount = hrCount + 1
+            end
+        end
+    end
+    if TankMark.DebugEnabled and hrCount > 0 then
+        TankMark:DebugLog("SWARM", "pushed healer records", { zone = zone, n = hrCount, ver = Swarm.planVersion })
     end
 end
 
