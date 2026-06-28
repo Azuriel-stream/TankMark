@@ -621,20 +621,61 @@ solo render paths are **byte-identical** to today.
 **Net new protocol surface:** two message types — `P` (profile snapshot, queen→drones) and `PR`
 (pull-request, drone→queen) — plus one `Q` heartbeat field (`planVersion`).
 
-### 6.2 Mob DB sharing — opt-in (link/pull §7.2, or attached to a handoff)
-The Mob DB drives the *queen's* marking only; drones never need it for the HUD. So it is
-**not** auto-pushed. Two opt-in, consent-gated paths (both per §7): the **link/pull broadcast
-share** (slice 6, §7.2 — advertise any zone to the group, pulled on click) and the **optional
-attachment to a handoff** below (slice 7, reusing slice 6's transport/consent/snapshot):
+### 6.1a Healer-assignment sync (slice 7 — RATIFIED 2026-06-28)
+Slice 4's `P` is HUD-minimal — mark+tank+role — because a full zone profile *with* healers
+(8 marks × tank + several healer names) overflows one ≤254B message (§6.1). Healers are real
+plan data, though: they fire the **healer-death alert** (`Death.lua` whispers the tank when a
+listed healer dies), render in the **Profiles tab** (offline-healer warning), and must travel so
+a **promoted** ex-drone inherits them. So healers ride as an **additive per-entry record** layered
+on the *untouched* `P`:
 
-- **Default OFF**, scoped to the **current zone** (the motivating case is "hand off *because*
-  the new queen has the better DB" — don't clobber it).
-- Recipient gets **accept/reject** with an overwrite warning that **names the zone**
-  ("Your Mob DB for ⟨Zone⟩ will be replaced").
-- **Snapshot before overwrite** (reuse `TankMarkDB_Snapshot`) — an accidental Accept is
-  recoverable.
-- **Role and DB are decoupled** — rejecting the DB does *not* reject the role; the role
-  transfers like leadership, the DB is the only consent point.
+- **Wire:** one new control-plane type `HR;<zone>;<version>;<mark>;<space-delimited healers>`,
+  one message per entry that *has* healers (mirrors slice 6's one-record-per-`M`; ~90B, never
+  overflows). Entries without healers send nothing — a healer *removal* propagates for free via
+  the `P` rebuild that resets `healers=""`.
+- **Queen (`PushProfile`):** queues the `HR`s right after the `P`, from the same
+  `TankMarkProfileDB[zone]`. Same channel + 0.3s throttle → `P` always lands first (FIFO).
+- **Drone (`OnHealerRecord`):** apply iff `sender == currentQueen` ∧ `rec.version ==
+  versionHeard[sender]` (drops a stale `HR` from a superseded push) ∧ an entry with `rec.mark`
+  exists in `TankMarkProfileDB[rec.zone]` → set its `.healers`, then re-render via the existing
+  `ApplyProfileToSession` + `RefreshProfileTabForZone`. **`P` and its empty/version/pull semantics
+  are untouched** — healers are a pure layer.
+- **Trust:** control plane — rank-gated (`IsTrustedSender`) + queen-only apply, identical to `P`.
+  No new trust model.
+- **Reliability (Cut 1):** `HR`s re-send on every push (Save / promotion / pull-response), so a
+  lost `HR` self-heals at the next push or version-mismatch pull. **Residual:** an `HR` lost while
+  the version is *stable* and no pull fires leaves that mark's healers blank until the next bump —
+  narrow, since healer lists are set at pull-one and re-pushed on the moments that matter
+  (promotion above all). *Deferred Cut 2 if it bites:* gate the drone's `appliedKey` on
+  healer-completeness (an `HB(count)`/`HE` frame) so a lost `HR` keeps `needPull` armed and
+  self-heals without a version bump.
+- **Rejected alternative:** re-framing `P` itself into a healers-inclusive frame — would force
+  re-implementing empty-keeps / version-align / coalesced-pull inside a new framed receiver,
+  re-touching a working, security-reviewed path for no functional gain. The additive `HR` keeps the
+  blast radius at zero.
+
+**Build checkpoints (reload-safe):** **7.1** codec `HR` + harness (pure; round-trip +
+malformed-reject; fix the stale "healers never rendered" comment) → **7.2** queen send *dormant*
+(`PushProfile` appends `HR`s; receivers drop the unknown type) → **7.3** drone receive+apply
+(`HandleSync` routes `HR` → `OnHealerRecord` + render hook), **2-box verify** (queen's healers show
+on the drone + survive promotion) + a focused **`/security-review`** of the parse/apply diff. Then a
+DEV_GUIDE + SWARM_DESIGN reconcile; optional `.toc` 0.29 → 0.30.
+
+### 6.2 Mob DB sharing — opt-in link/pull (§7.2)
+The Mob DB drives the *queen's* marking only; drones never need it for the HUD. So it is
+**not** auto-pushed. It travels by **one** opt-in, consent-gated path (§7): the **link/pull
+broadcast share** (slice 6, §7.2 — advertise any zone to the group, pulled on click), with a
+**snapshot before overwrite** (`TankMarkDB_Snapshot`) and the per-player trust axis.
+
+**Mob-DB-attached-to-handoff — CUT (2026-06-28).** A planned slice 7 would have bundled an opt-in
+Mob DB offer into the queen handoff (checkbox + accept/reject, reusing slice-6
+transport/consent/snapshot; Block overrides queen for the DB attachment). **Cut after a design
+stress-test:** the capability already exists in two steps today (`/tmark handoff` + post a share
+link), it optimizes an *uncommon* case (the new queen has usually already pulled the DB at
+pull-one), and the cheap "thin" version (handoff also posts a link) doesn't serve the motivating
+"queen leaving ASAP" scenario — the *arriving* queen still has to click. Replaced as the final
+slice by **healer-assignment profile sync** (§6.1a) — the genuinely valuable capstone the handoff
+slice was nominally unlocking.
 
 ### 6.3 No deltas anywhere
 Full snapshots throughout. Profile is too small to bother; Mob DB pushes too rarely to bother.
@@ -719,12 +760,12 @@ table rendered as allow/block sections + add-by-name, in the near-empty Options 
 
 ### 7.4 Scoped block (Mob-DB plane only)
 A block suppresses **only the Mob DB sharing surface** — inert link click, dropped `SB`/`M`/`SE`
-frames, ignored pull-requests, and (slice 7) an auto-declined handoff-DB attachment. It leaves
-**untouched**: the `Q` heartbeat/election, the `H` handoff, and `P`/`PR` profile sync (queen-
-authoritative, already gated by `sender == currentQueen`, carved out of consent in §6.1). Block
-**overrides queen-authority for the handoff-DB attachment only** (slice 7) — the role still transfers
-(control plane), only the DB is declined — keeping the rule simple: *Block = never touch my Mob DB from
-this person, queen or not.* *(Considered total block; rejected as default because election is a
+frames, and ignored pull-requests. It leaves
+**untouched**: the `Q` heartbeat/election, the `H` handoff, and `P`/`PR`/`HR` profile sync (queen-
+authoritative, already gated by `sender == currentQueen`, carved out of consent in §6.1). The rule
+stays simple: *Block = never touch my Mob DB from this person, queen or not.* *(The slice-7
+handoff-DB attachment a block would also have overridden was cut — §6.2 — so a block now affects only
+the §7.2 link share.)* *(Considered total block; rejected as default because election is a
 **consensus protocol** — locally censoring a candidate's heartbeat can fracture the shared candidate
 set and, for an *eligible* blocker, cause a split-brain second queen. Marks are server-truth and
 visible regardless, and a rank-less actor can't mark anyway, so there's no safety need to censor the
@@ -859,7 +900,7 @@ that owns them.
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
 | **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX **SHIPPED** (PRs #82–#87): handoff-trigger UI, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
 | **6 ✅** | **Mob DB sharing (security)** | Advertise→pull→consent chat-link share (**replaced** the push) + trust axis + scoped block + widened `M` (marks array). Shipped 6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review` (#92) → 6.4b cutover (#93). | §7. **SHIPPED 2026-06-27**, 2-box verified, security-review clean. Consent-only share plane; rank kept on control plane. |
-| **7** | **Mob-DB-at-handoff** | Opt-in DB attachment to a handoff (checkbox + accept/reject), **reusing slice-6 transport/consent/snapshot**; broadcast + name-filter (no whisper); Block overrides queen for the DB attachment | §6.2 / §7.4. |
+| **7** | **Healer-assignment profile sync** | Additive per-entry `HR` record layered on the *untouched* slice-4 `P` — carries healer assignments queen→drone so death-alerts / Profiles-tab / promotion inherit them (`P` overflows one message with healers; `HR` chunks them, one per entry). Cut 1 best-effort (re-sent each push). *(Replaced the cut Mob-DB-at-handoff slice — §6.2.)* | §6.1a. |
 
 **Ordering rationale:** the codec (slice 1) is low-risk and foundational, so it comes first
 as the substrate; the *display-only* tracer (slice 2) puts the novel election/heartbeat in a
@@ -902,6 +943,9 @@ no `/security-review`). **Slice 6 (Mob DB sharing / security) SHIPPED & 2-box ve
 (§7): the unsolicited push is **replaced** by an advertise→pull chat-link share + per-player trust
 axis + scoped block; the `M` mark field widened to a list. Built in five reload-safe checkpoints —
 6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review`
-clean (#92) → 6.4b cutover, legacy push removed (#93). **Next action: build slice 7 (Mob-DB-at-handoff)**
-— reuses this slice's transport/consent/snapshot (broadcast + name-filter, since 1.12 has no addon-
-WHISPER; Block overrides queen for the DB attachment), and unlocks healers-in-profile at full fidelity.
+clean (#92) → 6.4b cutover, legacy push removed (#93). **Slice 7 (Mob-DB-at-handoff) was CUT
+2026-06-28** after a design stress-test (already a 2-step workflow today; optimizes an uncommon case;
+the thin version doesn't serve the ASAP scenario — §6.2). **Replaced by slice 7 = Healer-assignment
+profile sync (§6.1a, RATIFIED 2026-06-28, Cut 1):** an additive per-entry `HR` record layered on the
+untouched `P` carries healers queen→drone (death-alerts + Profiles tab + promotion-readiness).
+**Next action: build 7.1 (codec `HR` + harness).**
