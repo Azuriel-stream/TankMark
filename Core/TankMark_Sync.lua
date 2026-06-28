@@ -80,7 +80,20 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
-	-- [v0.29] CONTROL PLANE: rank>=1 gate (election integrity for Q/P/PR/H). As of
+	-- [v0.29] slice-4 late-joiner fix: a PR (pull-request) is routed BEFORE the
+	-- control-plane rank gate. A drone is typically rank-0 (a passive renderer needs
+	-- no rank), so the rank>=1 gate dropped its pull and left late joiners -- and
+	-- post-/reload or late-zone drones -- unsynced until the queen's next Save (the
+	-- push path). Ungating is safe: OnPullRequest only sets a coalesced pending-push
+	-- WHEN WE ARE THE QUEEN, and the answer merely REBROADCASTS the queen's
+	-- already-public profile (1 push/zone/tick) -- no state mutation for a non-queen,
+	-- no new disclosure. Mirrors the slice-6 share plane's pre-rank-gate data requests.
+	if rec.kind == "PR" then
+		if TankMark.Swarm then TankMark.Swarm.OnPullRequest(sender, rec) end
+		return
+	end
+
+	-- [v0.29] CONTROL PLANE: rank>=1 gate (election integrity for Q/P/H). As of
 	-- the slice 6.4b cutover there is NO legacy M apply -- an "M" only ever applies
 	-- inside a consent-gated share frame (handled above); a naked M is dropped.
 	if not TankMark:IsTrustedSender(sender) then return end
@@ -94,17 +107,13 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
-	-- [v0.29] slice 4: profile-sync data plane. Both passed the same rank>=1
+	-- [v0.29] slice 4: profile-sync data plane (the P push). Passed the rank>=1
 	-- IsTrustedSender gate above. OnProfile additionally requires the sender be the
 	-- drone's OWN elected queen before it overwrites the local plan (auto-apply), so
-	-- a rank>=1 non-queen can pollute comms but never rewrite a drone's HUD. A PR is
-	-- a public refetch the queen answers (coalesced); harmless from any trusted peer.
+	-- a rank>=1 non-queen can pollute comms but never rewrite a drone's HUD. (The PR
+	-- pull-request is routed ABOVE the rank gate -- see the late-joiner fix.)
 	if rec.kind == "P" then
 		if TankMark.Swarm then TankMark.Swarm.OnProfile(sender, rec) end
-		return
-	end
-	if rec.kind == "PR" then
-		if TankMark.Swarm then TankMark.Swarm.OnPullRequest(sender, rec) end
 		return
 	end
 
