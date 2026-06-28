@@ -30,6 +30,14 @@ Swarm.HEARTBEAT_INTERVAL = 5
 Swarm.MISS_THRESHOLD     = 3
 Swarm.PRESENCE_WINDOW    = Swarm.HEARTBEAT_INTERVAL * Swarm.MISS_THRESHOLD -- 15s
 
+-- [v0.29] Grace for a TRANSIENT self-candidacy loss. CanAutomate()'s HasPermissions()
+-- leg reads IsPartyLeader(), which the 1.12 client momentarily returns FALSE for around
+-- the combat-end boundary even for the real party leader (confirmed in-game: a ~0.9s
+-- perms blip). A candidacy loss shorter than this window is treated as a blip and does
+-- NOT depose the queen / re-arm bootstrap (see Recompute). Must exceed the observed blip
+-- yet stay well under PRESENCE_WINDOW so a GENUINE demote still fails over promptly.
+Swarm.CANDIDATE_GRACE    = Swarm.HEARTBEAT_INTERVAL -- 5s
+
 -- [v0.29] slice 5a.3 handoff TTLs (SWARM_DESIGN.md sec.5.10). Ordered
 -- CLAIM(20) > PRESENCE(15) > OFFER(10): the target's claim must outlive the queen's
 -- presence window so a queen-DC mid-handoff resolves as the target inheriting the
@@ -180,6 +188,7 @@ Swarm.lastHandoffAvail = false -- [v0.29] slice 5b.3: last queen-has-candidate s
 Swarm.bootstrapping  = false
 Swarm.bootstrapUntil = 0
 Swarm.wasCandidate   = false
+Swarm.lastCandidateTime = 0  -- [v0.29] last GetTime() we were a REAL candidate (transient-loss debounce)
 
 -- [v0.29] slice 2 tracer: chat-notice debounce. The HUD line follows the election
 -- live, but a chat announcement waits for the (role,queen) pair to survive >= one
@@ -232,7 +241,28 @@ function Swarm.Recompute(now)
     local selfName = Swarm.SelfName()
     if not selfName then return end
 
-    local selfIsCandidate = Swarm.SelfIsCandidate()
+    -- [v0.29] Candidacy with a TRANSIENT-LOSS DEBOUNCE. SelfIsCandidate() is
+    -- CanAutomate(); its HasPermissions() leg reads IsPartyLeader(), which the 1.12
+    -- client momentarily returns FALSE for around combat-end even for the real leader
+    -- (confirmed in-game: a ~0.9s perms blip mid-fight). Acting on that raw drop deposed
+    -- the queen to NONE and, on recovery, re-armed the 15s bootstrap EVERY kill --
+    -- violating "pure incumbency stickiness, never auto-depose". So a loss only counts
+    -- as real once it persists past CANDIDATE_GRACE; a briefer blip holds the crown
+    -- (selfIsCandidate stays true -> no NONE flicker, no bootstrap re-entry). A genuine
+    -- demote/zone-out still drops after the grace. The scanner's own raw CanAutomate()
+    -- still pauses for the sub-second blip (~1 skipped tick) -- invisible; only the
+    -- swarm's 15s teardown is fixed here.
+    local rawCandidate = Swarm.SelfIsCandidate()
+    local selfIsCandidate = rawCandidate
+    if rawCandidate then
+        Swarm.lastCandidateTime = now
+    elseif Swarm.wasCandidate and Swarm.lastCandidateTime > 0
+            and (now - Swarm.lastCandidateTime) < Swarm.CANDIDATE_GRACE then
+        selfIsCandidate = true  -- transient blip: keep the crown, do not bootstrap
+        if TankMark.DebugEnabled then
+            TankMark:DebugLog("SWARM", "candidacy blip held", { age = now - Swarm.lastCandidateTime })
+        end
+    end
 
     -- Bootstrap ENTRY: just became a candidate -> open the listen-window.
     if selfIsCandidate and not Swarm.wasCandidate then
