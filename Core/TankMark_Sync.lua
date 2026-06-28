@@ -93,7 +93,7 @@ function TankMark:HandleSync(prefix, msg, sender)
 		return
 	end
 
-	-- [v0.29] CONTROL PLANE: rank>=1 gate (election integrity for Q/P/H). As of
+	-- [v0.29] CONTROL PLANE: rank>=1 gate (election integrity for Q/P/HR/H). As of
 	-- the slice 6.4b cutover there is NO legacy M apply -- an "M" only ever applies
 	-- inside a consent-gated share frame (handled above); a naked M is dropped.
 	if not TankMark:IsTrustedSender(sender) then return end
@@ -114,6 +114,15 @@ function TankMark:HandleSync(prefix, msg, sender)
 	-- pull-request is routed ABOVE the rank gate -- see the late-joiner fix.)
 	if rec.kind == "P" then
 		if TankMark.Swarm then TankMark.Swarm.OnProfile(sender, rec) end
+		return
+	end
+
+	-- [v0.29] slice 7.3: a healer record (HR) layers healers onto the profile the
+	-- matching P already applied. Same trust as P -- rank-gated above + OnHealerRecord
+	-- requires sender == the drone's OWN elected queen and a matching plan version, so a
+	-- rank>=1 non-queen cannot inject healers and a stale record is dropped.
+	if rec.kind == "HR" then
+		if TankMark.Swarm then TankMark.Swarm.OnHealerRecord(sender, rec) end
 		return
 	end
 
