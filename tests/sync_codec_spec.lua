@@ -403,4 +403,63 @@ describe("SyncCodec", function()
             eq(Codec.EncodeShareLink("P", nil), nil, "no zone")
         end)
     end)
+
+    -- [v0.29] slice 7: the "HR" healer record (queen->drones) -- the additive
+    -- per-entry healer list that layers onto a "P" snapshot (SWARM_DESIGN.md
+    -- sec.6.1a). Pure codec only at this checkpoint; the send/apply is 7.2/7.3.
+    describe("HR healer record", function()
+        it("encodes the canonical HR wire (zone + version + mark + healer list)", function()
+            eq(Codec.EncodeHealerRecord("Blackrock Depths", 3, 8, "Alice Bob Carol"),
+                "HR;Blackrock Depths;3;8;Alice Bob Carol", "wire")
+        end)
+
+        it("defaults version to 0 when omitted", function()
+            eq(Codec.EncodeHealerRecord("Z", nil, 5, "Heala"), "HR;Z;0;5;Heala", "no version")
+        end)
+
+        it("returns nil for a missing zone/mark or an empty healer list", function()
+            eq(Codec.EncodeHealerRecord(nil, 1, 8, "Heala"), nil, "no zone")
+            eq(Codec.EncodeHealerRecord("Z", 1, nil, "Heala"), nil, "no mark")
+            eq(Codec.EncodeHealerRecord("Z", 1, 8, ""), nil, "empty healers")
+            eq(Codec.EncodeHealerRecord("Z", 1, 8, nil), nil, "nil healers")
+        end)
+
+        it("decodes an HR into a typed record (mark + version as numbers)", function()
+            local r = Codec.Decode("HR;Blackrock Depths;3;8;Alice Bob Carol")
+            eq(r.kind, "HR", "kind")
+            eq(r.zone, "Blackrock Depths", "zone")
+            eq(r.planVersion, 3, "planVersion")
+            eq(r.mark, 8, "mark")
+            eq(r.healers, "Alice Bob Carol", "healers")
+            eq(type(r.planVersion), "number", "version type")
+            eq(type(r.mark), "number", "mark type")
+        end)
+
+        it("keeps the whole space-delimited healer list as one trailing field", function()
+            local r = Codec.Decode("HR;Dire Maul;1;6;A B C D E")
+            eq(r.healers, "A B C D E", "greedy healer list")
+        end)
+
+        it("rejects malformed HR records", function()
+            eq(Codec.Decode("HR;;3;8;Heala"), nil, "empty zone")
+            eq(Codec.Decode("HR;Z;x;8;Heala"), nil, "non-numeric version")
+            eq(Codec.Decode("HR;Z;3;y;Heala"), nil, "non-numeric mark")
+            eq(Codec.Decode("HR;Z;3;9;Heala"), nil, "mark out of range")
+            eq(Codec.Decode("HR;Z;3;8;"), nil, "empty healer list")
+            eq(Codec.Decode("HR;Z;3;8"), nil, "missing healer field")
+        end)
+
+        it("round-trips zone/version/mark/healers through Encode -> Decode", function()
+            local r = Codec.Decode(Codec.EncodeHealerRecord("Zul'Gurub", 12, 7, "Naru Heala Menda"))
+            eq(r.zone, "Zul'Gurub", "zone")
+            eq(r.planVersion, 12, "version")
+            eq(r.mark, 7, "mark")
+            eq(r.healers, "Naru Heala Menda", "healers")
+        end)
+
+        it("does not collide with the single-char H handoff tag", function()
+            eq(Codec.Decode("H;Bob").kind, "H", "H stays H")
+            eq(Codec.Decode("HR;Z;1;8;Heala").kind, "HR", "HR stays HR")
+        end)
+    end)
 end)
