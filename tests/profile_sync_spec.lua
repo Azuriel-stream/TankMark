@@ -151,4 +151,45 @@ describe("Profile sync", function()
             eq(captured, nil, "no push with unknown zone")
         end)
     end)
+
+    -- [v0.29] slice 7.2: PushProfile appends one HR healer record per entry that HAS
+    -- healers, right after the P, at the SAME planVersion. Dormant on the wire until
+    -- 7.3 (drones drop the unknown HR), but the queen-side EMISSION is pinned here.
+    describe("PushProfile (slice 7.2 healer records)", function()
+        local sent
+        L._GetNumRaidMembers  = function() return 0 end
+        L._GetNumPartyMembers = function() return 1 end
+        TankMark.SyncPrefix   = "TM_SYNC"
+        function TankMark:QueueMessage(prefix, text, channel)
+            table.insert(sent, text)
+        end
+
+        it("sends the P first, then one HR per healer-bearing entry (same version)", function()
+            reset()
+            sent = {}
+            zone = "Blackrock Depths"
+            Swarm.planVersion = 7
+            TankMarkProfileDB["Blackrock Depths"] = {
+                { mark = 8, tank = "Bob", role = "TANK", healers = "Aine Boldo" },
+                { mark = 6, tank = "Sue", role = "CC",   healers = "" },
+                { mark = 1, tank = "Tim", role = "TANK", healers = "Cara" },
+            }
+            Swarm.PushProfile("Blackrock Depths")
+            eq(table.getn(sent), 3, "P + 2 HRs (healer-less entry skipped)")
+            eq(sent[1], "P;Blackrock Depths;7;8,Bob,T;6,Sue,C;1,Tim,T", "P first")
+            eq(sent[2], "HR;Blackrock Depths;7;8;Aine Boldo", "HR for mark 8")
+            eq(sent[3], "HR;Blackrock Depths;7;1;Cara", "HR for mark 1")
+        end)
+
+        it("sends no HR when no entry has healers", function()
+            reset()
+            sent = {}
+            zone = "Z"
+            Swarm.planVersion = 2
+            TankMarkProfileDB["Z"] = { { mark = 8, tank = "Bob", role = "TANK", healers = "" } }
+            Swarm.PushProfile("Z")
+            eq(table.getn(sent), 1, "only the P")
+            eq(sent[1], "P;Z;2;8,Bob,T", "P only")
+        end)
+    end)
 end)
