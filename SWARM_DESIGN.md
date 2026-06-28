@@ -621,7 +621,7 @@ solo render paths are **byte-identical** to today.
 **Net new protocol surface:** two message types — `P` (profile snapshot, queen→drones) and `PR`
 (pull-request, drone→queen) — plus one `Q` heartbeat field (`planVersion`).
 
-### 6.1a Healer-assignment sync (slice 7 — RATIFIED 2026-06-28)
+### 6.1a Healer-assignment sync (slice 7 — SHIPPED 2026-06-28, PRs #97/#99/#100)
 Slice 4's `P` is HUD-minimal — mark+tank+role — because a full zone profile *with* healers
 (8 marks × tank + several healer names) overflows one ≤254B message (§6.1). Healers are real
 plan data, though: they fire the **healer-death alert** (`Death.lua` whispers the tank when a
@@ -900,7 +900,7 @@ that owns them.
 | **4** | **Profile-sync** | Push-on-Save + `planVersion` pull; drones render the queen's plan | Drone-mode render path; the actual *visibility* payoff. |
 | **5** | **Manual handoff** (ratified §5.10) | **5a SHIPPED** (PRs #78/#79/#80) — protocol: codec `H` + claim-override election (election stays the sole marking authority) + queen-only `/tmark handoff <name>` + harness. **5b** UX **SHIPPED** (PRs #82–#87): handoff-trigger UI, recorder-on-promotion prompt, drone Profiles-tab gate. | §5.6/§5.10. 5a was the only new wire surface → built dormant-decoupling-first, 2-box verified + `/security-review` clean. 5b is local-only (no security-review). |
 | **6 ✅** | **Mob DB sharing (security)** | Advertise→pull→consent chat-link share (**replaced** the push) + trust axis + scoped block + widened `M` (marks array). Shipped 6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review` (#92) → 6.4b cutover (#93). | §7. **SHIPPED 2026-06-27**, 2-box verified, security-review clean. Consent-only share plane; rank kept on control plane. |
-| **7** | **Healer-assignment profile sync** | Additive per-entry `HR` record layered on the *untouched* slice-4 `P` — carries healer assignments queen→drone so death-alerts / Profiles-tab / promotion inherit them (`P` overflows one message with healers; `HR` chunks them, one per entry). Cut 1 best-effort (re-sent each push). *(Replaced the cut Mob-DB-at-handoff slice — §6.2.)* | §6.1a. |
+| **7 ✅** | **Healer-assignment profile sync** | Additive per-entry `HR` record layered on the *untouched* slice-4 `P` — carries healer assignments queen→drone so death-alerts / Profiles-tab / promotion inherit them. Cut 1 best-effort (re-sent each push). Shipped 7.1 codec (#97) → 7.2 queen send (#99) → 7.3 drone apply (#100). *(Replaced the cut Mob-DB-at-handoff — §6.2.)* | §6.1a. **SHIPPED 2026-06-28**, `/security-review` clean; +4 late-join reliability fixes (#100, with #95/#98 earlier). |
 
 **Ordering rationale:** the codec (slice 1) is low-risk and foundational, so it comes first
 as the substrate; the *display-only* tracer (slice 2) puts the novel election/heartbeat in a
@@ -945,7 +945,18 @@ axis + scoped block; the `M` mark field widened to a list. Built in five reload-
 6.1 codec+trust-model (#89) → 6.2 trust UI (#90) → 6.3 poster (#91) → 6.4a receiver + `/security-review`
 clean (#92) → 6.4b cutover, legacy push removed (#93). **Slice 7 (Mob-DB-at-handoff) was CUT
 2026-06-28** after a design stress-test (already a 2-step workflow today; optimizes an uncommon case;
-the thin version doesn't serve the ASAP scenario — §6.2). **Replaced by slice 7 = Healer-assignment
-profile sync (§6.1a, RATIFIED 2026-06-28, Cut 1):** an additive per-entry `HR` record layered on the
-untouched `P` carries healers queen→drone (death-alerts + Profiles tab + promotion-readiness).
-**Next action: build 7.1 (codec `HR` + harness).**
+the thin version doesn't serve the ASAP scenario — §6.2), and **replaced by slice 7 = Healer-assignment
+profile sync (§6.1a, Cut 1) — SHIPPED 2026-06-28:** an additive per-entry `HR` record layered on the
+untouched `P` carries healers queen→drone (death-alerts + Profiles tab + promotion-readiness). Built
+7.1 codec (#97) → 7.2 queen send dormant (#99) → 7.3 drone apply + `/security-review` clean (#100);
+harness 159/0. **⇒ ALL 8 SLICES SHIPPED — the swarm is functionally complete (HEAD `1fe1eb2`, `.toc`
+0.30).** Four late-join reliability fixes landed (with #100, plus #95/#98 earlier), all rooted in 1.12
+`IsPartyLeader()` being unreliable in BOTH directions: **#95** candidacy-loss debounce (`CANDIDATE_GRACE`)
+— a combat-end false-flicker no longer re-elects the queen every kill; **#98** un-gated the `PR`
+pull-request (it sat behind the rank gate, so rank-0 drones — most of them — never pulled, stranding late
+joiners until a Save); **#100**: (1) `SendBeat` gates on the *debounced* candidacy so a queen held
+through a blip keeps beating (else drones time it out and churn); (2) skip bootstrap when already
+following an external queen (a candidacy-*gain* flicker no longer tears a settled drone into a 15s
+listen); (3) clear `appliedKey` on a local profile Save (a reset-without-`/reload` no longer leaves the
+drone "synced" over an emptied profile — THE "no sync on join" cause); (4) the swarm pull/render path
+reads the healed `GetCachedZone`, not the raw `GetRealZoneText()` that returns "" in the cold-login window.
