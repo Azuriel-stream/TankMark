@@ -50,6 +50,30 @@ A *player's* job in the **Team Profile** roster — `TANK` / `CC`. Lives on
 `TankMarkProfileDB`, a different table from mob role. Says who holds which mark.
 _Avoid_: bare "role".
 
+### Pull-time marking (Phase 4)
+
+**pack**:
+The set of enemy mobs in a single pull — the unit the pull-time decision reasons
+over *as a whole*, rather than mob-by-mob. Pack composition decides each mob's
+mark: the *same* mob type is CC'd in one pack and killed first in another (a lone
+elite Warrior gets sheeped to clear the trash; a Warrior beside a healer Oracle
+gets skull-killed while the Oracle is sheeped).
+
+**CC-worthiness**:
+How much a mob warrants spending a scarce **CC** slot on — derived from **mob
+role** × **tier** (HEALER > dangerous CASTER > durable elite MELEE > trash). A
+*relative* ranking input, distinct from **prio** (kill order) and from **legal
+CC** (capability). Read live from role/tier, never from `prio` (which is the
+human's overridable kill-order knob). Used two ways: ranked across a pack to pick
+CC targets pre-fight; thresholded per-mob to auto-CC the always-worthy ones
+(healers / elite casters) in combat. _Avoid_: conflating with prio or legal CC.
+
+**CC-immune tier**:
+Mobs of tier `rare` / `rareelite` / `worldboss` / `boss` are generally immune to
+player CC (Polymorph, Banish, Sap, Shackle, …); only `normal` and `elite` mobs
+are CC-eligible. This gate is **independent of legal CC**: an elite Humanoid is
+CC-able, a *boss* Humanoid is not, even though the creatureType is the same.
+
 ## Flagged ambiguities
 
 - **"role" is two distinct concepts.** **mob `role`** (HEALER/CASTER/MELEE, on the
