@@ -387,6 +387,7 @@ local function CreateMobEditorControls(editor)
 			-- SaveFormData stamps these only for the exact mob that was targeted.
 			TankMark.detectedTier = L._UnitClassification("target")
 			TankMark.detectedForName = targetName
+			TankMark.editTier = TankMark.detectedTier  -- [v0.30] Phase 3: tier for role-prio derivation
 			
 			local currentIcon = L._GetRaidTargetIndex("target")
 			if currentIcon then
@@ -466,7 +467,25 @@ local function CreateMobEditorControls(editor)
 		ToggleDropDownMenu(1, nil, cDrop, "cursor", 0, 0)
 	end)
 	TankMark.classBtn = cBtn
-	
+
+	-- [v0.30] Phase 3 mob-Role button (same row as Class). Picking a role pre-fills
+	-- prio via role x tier (ApplyRoleDefaults); "No Role" leaves prio. Mob role is a
+	-- DIFFERENT axis from the profile role (TANK/CC). Width 64 keeps it inside the
+	-- 238px editor (x=162..226) clear of the Class button (ends x=157).
+	local rBtn = CreateFrame("Button", "TMRoleBtn", editor, "UIPanelButtonTemplate")
+	rBtn:SetWidth(64)
+	rBtn:SetHeight(20)
+	rBtn:SetPoint("TOPLEFT", 162, -43)
+	rBtn:SetText("No Role")
+
+	local rDrop = CreateFrame("Frame", "TMRoleDropDown", rBtn, "UIDropDownMenuTemplate")
+	UIDropDownMenu_Initialize(rDrop, function() TankMark:InitRoleMenu() end, "MENU")
+
+	rBtn:SetScript("OnClick", function()
+		ToggleDropDownMenu(1, nil, rDrop, "cursor", 0, 0)
+	end)
+	TankMark.roleBtn = rBtn
+
 	-- Save Button
 	local saveBtn = CreateFrame("Button", "TMSaveBtn", editor, "UIPanelButtonTemplate")
 	saveBtn:SetWidth(50)
@@ -486,7 +505,8 @@ local function CreateMobEditorControls(editor)
 	cancelBtn:SetScript("OnClick", function() TankMark:ResetEditorState() end)
 	TankMark.cancelBtn = cancelBtn
 
-	-- [v0.30] Read-only Tier-A/B metadata line (creatureType / tier / role).
+	-- [v0.30] Read-only Tier-A metadata line (creatureType / tier). Role moved to
+	-- its own editable dropdown in Phase 3, so it is no longer echoed here.
 	-- Populated when a mob is loaded for edit; cleared by ResetEditorState. Display only.
 	local metaText = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	metaText:SetPoint("TOPLEFT", 10, -65)

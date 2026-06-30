@@ -31,6 +31,19 @@ function TankMark:UpdateClassButton()
 	end
 end
 
+-- [v0.30] Phase 3: update the Role button text/color from the selected mob role.
+function TankMark:UpdateRoleButton()
+	if not TankMark.roleBtn then return end
+
+	if TankMark.selectedRole then
+		TankMark.roleBtn:SetText(TankMark.selectedRole)
+		TankMark.roleBtn:SetTextColor(0, 1, 0)
+	else
+		TankMark.roleBtn:SetText("No Role")
+		TankMark.roleBtn:SetTextColor(1, 0.82, 0)
+	end
+end
+
 -- Apply smart defaults based on selected class or KILL/IGNORE
 function TankMark:ApplySmartDefaults(className)
 	local CLASS_DEFAULTS = {
@@ -56,6 +69,18 @@ function TankMark:ApplySmartDefaults(className)
 	end
 end
 
+-- [v0.30] Phase 3: pre-fill the prio field from mob role x tier (pure RoleTierPrio
+-- in Core). Authoring-time convenience ONLY -- this writes into the visible prio
+-- field; the human always overrides (last edit wins, SaveFormData reads the field).
+-- Fires only when a real role is picked (see InitRoleMenu). Tier read from editTier
+-- (set on Target detect / edit-open); nil tier degrades to the `normal` column.
+function TankMark:ApplyRoleDefaults(role)
+	local prio = TankMark:RoleTierPrio(role, TankMark.editTier)
+	if TankMark.editPrio then
+		TankMark.editPrio:SetText(L._tostring(prio))
+	end
+end
+
 -- ==========================================================
 -- CENTRALIZED RESET FUNCTION
 -- ==========================================================
@@ -76,6 +101,9 @@ function TankMark:ResetEditorState()
 	TankMark.detectedForName = nil       -- [v0.30]
 	TankMark.selectedClass = nil
 	TankMark:UpdateClassButton()
+	TankMark.selectedRole = nil          -- [v0.30] Phase 3
+	TankMark.editTier = nil              -- [v0.30] Phase 3
+	TankMark:UpdateRoleButton()
 
 	-- [v0.30] Clear the read-only Tier-A metadata display
 	if TankMark.editMetaText then
@@ -309,8 +337,14 @@ function TankMark:SaveFormData()
 	if existing then
 		mobEntry.creatureType = existing.creatureType
 		mobEntry.tier = existing.tier
-		mobEntry.role = existing.role
 	end
+
+	-- [v0.30] Phase 3: mob role is now EDITABLE (Role dropdown), so write the
+	-- selected value rather than carrying existing.role forward (the split from the
+	-- Phase-1 preserve block above). selectedRole is populated from existing.role on
+	-- edit-open, so an untouched edit round-trips; a new mob leaves it nil. role is
+	-- human-only -- detection never stamps it.
+	mobEntry.role = TankMark.selectedRole
 
 	-- [v0.30] Manual add/edit via the Target button: stamp the live-detected Tier-A
 	-- fields for the exact mob that was targeted (name-matched -- no stale leak). A

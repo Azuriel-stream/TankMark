@@ -129,12 +129,19 @@ local function RenderMobRow(row, data, zone)
 		TankMark.selectedClass = data.class
 		TankMark:UpdateClassButton()
 
-		-- [v0.30] Read-only Tier-A/B metadata line (ASCII separators -- no Unicode on 1.12)
+		-- [v0.30] Phase 3: populate the editable Role dropdown + the tier the role-prio
+		-- derivation reads (mirrors how selectedClass is populated above). role round-
+		-- trips an untouched edit; editTier feeds ApplyRoleDefaults if a role is picked.
+		TankMark.selectedRole = data.role
+		TankMark.editTier = data.tier
+		TankMark:UpdateRoleButton()
+
+		-- [v0.30] Read-only Tier-A metadata line (ASCII separators -- no Unicode on 1.12).
+		-- role is NOT echoed here in Phase 3 -- the Role dropdown is its sole control.
 		if TankMark.editMetaText then
 			local meta = ""
 			if data.creatureType then meta = data.creatureType end
 			if data.tier then meta = (meta ~= "" and (meta .. " / ") or "") .. data.tier end
-			if data.role then meta = (meta ~= "" and (meta .. " / ") or "") .. data.role end
 			if meta == "" then meta = "|cff666666(no metadata)|r" end
 			TankMark.editMetaText:SetText(meta)
 		end
