@@ -5,10 +5,12 @@
 -- overrides only what it needs:
 --   busy      = {[8]=true}        -- IsMarkBusy(icon)
 --   ownerPrio = {[8]=5}           -- GetMarkOwnerPriority(icon) (default 99 = untracked)
---   free      = 4                 -- GetFreeTankIcon() return
---   disabled  = {[4]=true}        -- disabledMarks[icon]
---   cc        = 6                 -- FindCCPlayerForClass() return
---   blocker   = {icon=4, prio=2}  -- GetBlockingMarkInfo() best blocker
+--   free        = 4               -- GetFreeTankIcon() return
+--   disabled    = {[4]=true}      -- disabledMarks[icon]
+--   creatureType = "Humanoid"     -- UnitCreatureType(guid) live read (default nil)
+--   ccSlots     = { {mark=6, class="MAGE", race="Orc", alive=true, used=false, disabled=false} }
+--                                 -- GetCCSlots() snapshot (default {})
+--   blocker     = {icon=4, prio=2}-- GetBlockingMarkInfo() best blocker
 --   playerInCombat / guidInCombat = false
 function make_board(o)
     o = o or {}
@@ -24,7 +26,8 @@ function make_board(o)
         markOwnerPriority   = function(i) return lookup(o.ownerPrio, i) or 99 end,
         getFreeTankIcon     = function()  return o.free end,
         isDisabled          = function(i) return lookup(o.disabled, i) or false end,
-        findCCPlayer        = function()  return o.cc end,
+        creatureType        = function()  return o.creatureType end,
+        getCCSlots          = function()  return o.ccSlots or {} end,
         getBlockingMarkInfo = function()
             if o.blocker then
                 return o.blocker.icon, o.blocker.guid or "blocker-guid", o.blocker.prio, o.blocker.hp or 100

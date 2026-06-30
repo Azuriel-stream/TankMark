@@ -383,7 +383,7 @@ local function CreateMobEditorControls(editor)
 			nameBox:SetText(targetName)
 			nameBox:SetTextColor(1, 1, 1)
 			TankMark.detectedCreatureType = L._UnitCreatureType("target")
-			-- [v0.29] Tier-A capture for manual add: snapshot tier + tag the name so
+			-- [v0.30] Tier-A capture for manual add: snapshot tier + tag the name so
 			-- SaveFormData stamps these only for the exact mob that was targeted.
 			TankMark.detectedTier = L._UnitClassification("target")
 			TankMark.detectedForName = targetName
@@ -486,7 +486,7 @@ local function CreateMobEditorControls(editor)
 	cancelBtn:SetScript("OnClick", function() TankMark:ResetEditorState() end)
 	TankMark.cancelBtn = cancelBtn
 
-	-- [v0.29] Read-only Tier-A/B metadata line (creatureType / tier / role).
+	-- [v0.30] Read-only Tier-A/B metadata line (creatureType / tier / role).
 	-- Populated when a mob is loaded for edit; cleared by ResetEditorState. Display only.
 	local metaText = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	metaText:SetPoint("TOPLEFT", 10, -65)

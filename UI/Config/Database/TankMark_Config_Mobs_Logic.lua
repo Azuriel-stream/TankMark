@@ -72,12 +72,12 @@ function TankMark:ResetEditorState()
 	end
 	
 	TankMark.detectedCreatureType = nil
-	TankMark.detectedTier = nil          -- [v0.29]
-	TankMark.detectedForName = nil       -- [v0.29]
+	TankMark.detectedTier = nil          -- [v0.30]
+	TankMark.detectedForName = nil       -- [v0.30]
 	TankMark.selectedClass = nil
 	TankMark:UpdateClassButton()
 
-	-- [v0.29] Clear the read-only Tier-A metadata display
+	-- [v0.30] Clear the read-only Tier-A metadata display
 	if TankMark.editMetaText then
 		TankMark.editMetaText:SetText("")
 	end
@@ -302,7 +302,7 @@ function TankMark:SaveFormData()
 		class = TankMark.selectedClass
 	}
 
-	-- [v0.29] Preserve Tier-A/B cache fields across an edit-save. PerformSave does a
+	-- [v0.30] Preserve Tier-A/B cache fields across an edit-save. PerformSave does a
 	-- full-replace, and these fields are not editable in this form, so without
 	-- carrying them forward, editing any mob would silently drop creatureType/tier/role.
 	local existing = TankMarkDB.Zones[zone] and TankMarkDB.Zones[zone][mob]
@@ -312,7 +312,7 @@ function TankMark:SaveFormData()
 		mobEntry.role = existing.role
 	end
 
-	-- [v0.29] Manual add/edit via the Target button: stamp the live-detected Tier-A
+	-- [v0.30] Manual add/edit via the Target button: stamp the live-detected Tier-A
 	-- fields for the exact mob that was targeted (name-matched -- no stale leak). A
 	-- fresh detection wins over a missing stored value, so it also backfills an old
 	-- metadata-less entry the user re-targets. role stays human-only.
