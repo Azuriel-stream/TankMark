@@ -21,7 +21,11 @@ TankMark.LiveBoard = {
     markOwnerPriority   = function(icon)  return TankMark:GetMarkOwnerPriority(icon) end,
     getFreeTankIcon     = function()      return TankMark:GetFreeTankIcon() end,
     getBlockingMarkInfo = function()      return TankMark:GetBlockingMarkInfo() end,
-    findCCPlayer        = function(class) return TankMark:FindCCPlayerForClass(class) end,
+    -- [v0.30] legal-CC ports (Phase 2): the live creatureType read and the
+    -- role=="CC" profile-slot snapshot. The CC routing decision itself is the
+    -- pure SelectCCSlot, so these two only do the live reads.
+    creatureType        = function(guid)  return L._UnitCreatureType(guid) end,
+    getCCSlots          = function()      return TankMark:GetCCSlots() end,
     isDisabled          = function(icon)  return TankMark.disabledMarks[icon] end,
     -- [v0.28] Side-effect SINK (not a read): the single DECIDE log. Production
     -- emits the guarded DebugLog (resolving the unknown-path name via UnitName);
@@ -255,14 +259,19 @@ function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal, board)
     return nil
 end
 
--- [v0.28] CC resolver seam (decide/apply split, roadmap #2). Returns the CC
--- mark icon for this mob, or nil if it is not a CC target or no CC player is
--- assigned to its class. Pure extraction -- behavior-identical to the inline
--- block it replaced; owns the type=="CC" guard so callers just read the return.
--- The decide-once+notify CC model is future work that lands behind this seam.
-function TankMark:ResolveCC(mobData, board)
-    if mobData.type ~= "CC" or not mobData.class then return nil end
-    return board.findCCPlayer(mobData.class)
+-- [v0.30] CC resolver seam (legal-CC routing, marking-redesign Phase 2). Returns
+-- the CC mark for this mob, or nil if it is not a CC target or no legal CC slot
+-- qualifies. Owns the type=="CC" guard. creatureType is read LIVE first (free,
+-- authoritative) with the stored mobData.creatureType as fallback for the
+-- off-client harness; no write-back (respects the Phase-1 lazy-backfill cut).
+-- The routing decision is the pure SelectCCSlot over the live getCCSlots()
+-- snapshot -- this seam only resolves creatureType and orchestrates. A nil class
+-- is allowed now (routes on creatureType alone); a fully-unknown creatureType
+-- degrades to authored-class-only inside SelectCCSlot.
+function TankMark:ResolveCC(mobData, guid, board)
+    if mobData.type ~= "CC" then return nil end
+    local ct = board.creatureType(guid) or mobData.creatureType
+    return TankMark:SelectCCSlot(mobData.class, ct, board.getCCSlots())
 end
 
 -- [v0.28] Known-mob decision (decide/apply split, roadmap #2). Returns an
@@ -297,8 +306,9 @@ function TankMark:DecideKnownMark(mobData, guid, mode, board)
     local isBusy      = false
     local canOverride = false
 
-    -- [v0.28] CC Logic via ResolveCC seam.
-    iconToApply = TankMark:ResolveCC(mobData, board)
+    -- [v0.28] CC Logic via ResolveCC seam. [v0.30] passes guid for the live
+    -- creatureType read (legal-CC routing, Phase 2).
+    iconToApply = TankMark:ResolveCC(mobData, guid, board)
 
     if not iconToApply then
         isBusy = board.isMarkBusy(markToUse)
@@ -421,7 +431,7 @@ function TankMark:RecordUnit(guid)
         TankMarkDB.Zones[zone] = {}
     end
     if TankMarkDB.Zones[zone][name] then return end
-    -- [v0.29] Tier-A metadata: stamp creatureType + tier (cType already read above).
+    -- [v0.30] Tier-A metadata: stamp creatureType + tier (cType already read above).
     -- Convenience cache only -- the decision layer re-reads these live; never a runtime input.
     local tier = L._UnitClassification(guid)
     TankMarkDB.Zones[zone][name] = {

@@ -62,14 +62,30 @@ describe("allowSteal asymmetry (PR #57 -- deliberate, not a TODO)", function()
 end)
 
 describe("ResolveCC / CC marking", function()
-    local function ccMob() return { type="CC", class="MAGE", marks={6}, prio=5, name="M" } end
-    it("resolves to the CC mark when a CC player is available", function()
-        eq_intent(decide(ccMob(), "SCANNER", make_board{ cc=6 }), 6, "known")
+    -- [v0.30] legal-CC routing: the board now exposes getCCSlots() + creatureType()
+    -- and the decision is the pure SelectCCSlot. ccMob carries creatureType so the
+    -- stored-fallback path resolves it (board.creatureType defaults nil).
+    local function ccMob() return { type="CC", class="MAGE", creatureType="Humanoid", marks={6}, prio=5, name="M" } end
+    local function mageSlot(mark) return { mark=mark, class="MAGE", race="Orc", alive=true, used=false, disabled=false } end
+    local function warlockSlot(mark) return { mark=mark, class="WARLOCK", race="Orc", alive=true, used=false, disabled=false } end
+
+    it("resolves to the CC mark when a legal CC slot is available", function()
+        eq_intent(decide(ccMob(), "SCANNER", make_board{ ccSlots={ mageSlot(6) } }), 6, "known")
     end)
-    it("falls back to the configured mark when no CC player is available", function()
-        eq_intent(decide(ccMob(), "SCANNER", make_board{ cc=nil }), 6, "known")
+    it("falls back to the configured mark when no CC slot is available", function()
+        eq_intent(decide(ccMob(), "SCANNER", make_board{ ccSlots={} }), 6, "known")
     end)
-    it("yields no-icon if the CC mark is busy and nothing else is free", function()
-        eq_intent(decide(ccMob(), "SCANNER", make_board{ cc=nil, busy={[6]=true} }), nil, "no-icon")
+    it("yields no-icon if the configured mark is busy and nothing else is free", function()
+        eq_intent(decide(ccMob(), "SCANNER", make_board{ ccSlots={}, busy={[6]=true} }), nil, "no-icon")
+    end)
+    it("routes a mistagged MAGE/Elemental to the Warlock slot (legal-CC end to end)", function()
+        local mob = { type="CC", class="MAGE", creatureType="Elemental", marks={6}, prio=5, name="M" }
+        eq_intent(decide(mob, "SCANNER", make_board{ ccSlots={ mageSlot(5), warlockSlot(3) } }), 3, "known")
+    end)
+    it("prefers the live creatureType over the stored one", function()
+        -- Stored says Humanoid (Mage legal) but the live read says Elemental
+        -- (only Warlock legal) -> must route to Warlock, proving live-first.
+        local mob = { type="CC", class="MAGE", creatureType="Humanoid", marks={6}, prio=5, name="M" }
+        eq_intent(decide(mob, "SCANNER", make_board{ creatureType="Elemental", ccSlots={ mageSlot(5), warlockSlot(3) } }), 3, "known")
     end)
 end)

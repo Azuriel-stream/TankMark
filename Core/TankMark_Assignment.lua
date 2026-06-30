@@ -82,6 +82,78 @@ function TankMark:FindUnitByName(name)
     return nil
 end
 
+-- ==========================================================
+-- [v0.30] LEGAL-CC AUTHORITY (marking-redesign Phase 2)
+-- ==========================================================
+-- The single Core source of CC capability, shared by the editor menus and the
+-- runtime decision layer. Two COMPOSING predicates gate CC routing:
+--   * creature-legality: IsLegalCC(class, creatureType) -- class is in CCMap.
+--   * player-capability: CCRaceEligible(class, race)     -- the narrow race gate.
+-- CCMap stays RACE-FREE (it is class x creatureType only); the one sub-class CC
+-- constraint in Turtle 1.12 (Troll-only Hex) lives in CCRaceEligible. Do NOT use
+-- IsPlayerCCClass as the capability check -- it excludes Druid/Rogue (kept legal
+-- here on purpose) and serves a different job (conservative role auto-inference).
+
+-- creatureType -> the classes whose CC is legal on it (race-free).
+TankMark.CCMap = {
+    ["Humanoid"]  = { "MAGE", "ROGUE", "WARLOCK", "SHAMAN" },  -- Sap/Polymorph/Fear/Hex
+    ["Beast"]     = { "MAGE", "DRUID", "HUNTER", "SHAMAN" },   -- Polymorph/Hibernate/Trap/Hex
+    ["Elemental"] = { "WARLOCK" },                              -- Banish
+    ["Demon"]     = { "WARLOCK" },                              -- Banish
+    ["Undead"]    = { "PRIEST" },                               -- Shackle
+    ["Dragonkin"] = { "DRUID" },                                -- Hibernate
+}
+
+-- Creature-legality: is `class` a legal CC for `creatureType`? Pure.
+function TankMark:IsLegalCC(class, creatureType)
+    local list = TankMark.CCMap[creatureType]
+    if not list then return false end
+    for _, c in L._ipairs(list) do
+        if c == class then return true end
+    end
+    return false
+end
+
+-- Player-capability: the narrow race gate. Only non-Troll Shamans fail (no Hex);
+-- every other CCMap class has no per-player CC constraint. Pure.
+function TankMark:CCRaceEligible(class, race)
+    return class ~= "SHAMAN" or race == "Troll"
+end
+
+-- [v0.30] The pure two-pass CC resolver. Picks a CC mark from a snapshot of the
+-- role=="CC" profile slots (built live by GetCCSlots), or nil if none qualifies.
+--   slot = { mark, class (UPPER token), race, alive, used, disabled }
+-- Pass 1 prefers the authored class IFF it is legal; pass 2 takes the first legal
+-- slot in profile order. With an unknown creatureType it degrades to authored-
+-- class-only. A slot is eligible only if alive, not used, not disabled, and
+-- race-eligible -- so a disabled mark (HUD toggle) is never routed to.
+function TankMark:SelectCCSlot(authoredClass, creatureType, slots)
+    local function eligible(s)
+        return s.alive and not s.used and not s.disabled
+           and TankMark:CCRaceEligible(s.class, s.race)
+    end
+    if creatureType and TankMark.CCMap[creatureType] then
+        -- Pass 1: authored preference, only if the authored class is legal here.
+        if authoredClass and TankMark:IsLegalCC(authoredClass, creatureType) then
+            for _, s in L._ipairs(slots) do
+                if s.class == authoredClass and eligible(s) then return s.mark end
+            end
+        end
+        -- Pass 2: first legal slot in profile order.
+        for _, s in L._ipairs(slots) do
+            if eligible(s) and TankMark:IsLegalCC(s.class, creatureType) then return s.mark end
+        end
+        return nil
+    end
+    -- Degrade (creatureType unknown): authored-class-only, still gated.
+    if authoredClass then
+        for _, s in L._ipairs(slots) do
+            if s.class == authoredClass and eligible(s) then return s.mark end
+        end
+    end
+    return nil
+end
+
 -- Check if player is a CC-capable class
 function TankMark:IsPlayerCCClass(playerName)
     if not playerName or playerName == "" then return false end
@@ -157,41 +229,37 @@ function TankMark:GetTankRoster(zone)
     return roster
 end
 
--- Find CC player in Team Profile matching required class
-function TankMark:FindCCPlayerForClass(requiredClass)
+-- [v0.30] Live enumerator for the legal-CC resolver (marking-redesign Phase 2).
+-- Snapshots the role=="CC" profile slots as PURE DATA so the decision lives in
+-- the pure SelectCCSlot (and the off-client harness can drive it). Each record:
+--   { mark, class (UPPER token), race, alive, used, disabled }
+-- Replaces FindCCPlayerForClass -- its single-class match + availability checks
+-- are now SelectCCSlot's job. `used`/`disabled` carry the same availability gate
+-- (Ledger.IsUsed + disabledMarks) so a HUD-disabled mark is never routed to.
+function TankMark:GetCCSlots()
     local zone = TankMark:GetCachedZone()
+    TankMark:MigrateProfileRoles(zone)   -- ensure entry.role populated (idempotent)
     local list = TankMarkProfileDB[zone]
-    if not list then return nil end
-    
-    -- Normalize required class to uppercase for comparison
-    if requiredClass then
-        requiredClass = L._strupper(requiredClass)
-    end
-    
+    if not list then return {} end
+
+    local slots = {}
     for _, entry in L._ipairs(list) do
-        local playerName = entry.tank
-        local markID = entry.mark
-        
-        if playerName and playerName ~= "" then
-            local unit = TankMark:FindUnitByName(playerName)
+        if entry.role == "CC" and entry.tank and entry.tank ~= "" then
+            local unit = TankMark:FindUnitByName(entry.tank)
             if unit then
-                local _, playerClassEng = L._UnitClass(unit)
-                
-                -- Use English class token (always uppercase)
-                if playerClassEng == requiredClass then
-                    -- Check if mark is available (not used and not disabled)
-                    if not TankMark.Ledger.IsUsed(markID) and not TankMark.disabledMarks[markID] then
-                        -- Check if player is alive
-                        if not L._UnitIsDeadOrGhost(unit) then
-                            return markID
-                        end
-                    end
-                end
+                local _, classEng = L._UnitClass(unit)
+                L._tinsert(slots, {
+                    mark     = entry.mark,
+                    class    = classEng,
+                    race     = L._UnitRace(unit),
+                    alive    = not L._UnitIsDeadOrGhost(unit),
+                    used     = TankMark.Ledger.IsUsed(entry.mark) and true or false,
+                    disabled = TankMark.disabledMarks[entry.mark] and true or false,
+                })
             end
         end
     end
-    
-    return nil
+    return slots
 end
 
 -- Helper: Check if player is alive and in raid

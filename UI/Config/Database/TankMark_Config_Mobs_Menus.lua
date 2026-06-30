@@ -23,14 +23,10 @@ local CLASS_DEFAULTS = {
 	["IGNORE"]  = { icon = 0, prio = 9 }
 }
 
-local CC_MAP = {
-	["Humanoid"]   = { "MAGE", "ROGUE", "WARLOCK", "PRIEST" },
-	["Beast"]      = { "MAGE", "DRUID", "HUNTER" },
-	["Elemental"]  = { "WARLOCK" },
-	["Demon"]      = { "WARLOCK" },
-	["Undead"]     = { "PRIEST" },
-	["Dragonkin"]  = { "DRUID" }
-}
+-- [v0.30] Single source of truth: the shared Core legal-CC authority
+-- (TankMark.CCMap, defined in Core/TankMark_Assignment.lua, loaded before UI).
+-- The editor's "Recommended" CC suggestions now match runtime routing exactly.
+local CC_MAP = TankMark.CCMap
 
 local ALL_CLASSES = { "MAGE", "WARLOCK", "DRUID", "ROGUE", "PRIEST", "HUNTER", "WARRIOR", "SHAMAN", "PALADIN" }
 
