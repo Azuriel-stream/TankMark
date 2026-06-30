@@ -43,7 +43,11 @@ local function BuildListData(db, zone, filter)
 					marks=info.marks, -- Keep full array for editing
 					type=info.type,
 					class=info.class,
-					isSequential=isSequential
+					isSequential=isSequential,
+					-- [v0.29] Tier-A/B cache fields, for the read-only editor display
+					creatureType=info.creatureType,
+					tier=info.tier,
+					role=info.role
 				})
 			end
 		end
@@ -124,7 +128,17 @@ local function RenderMobRow(row, data, zone)
 		TankMark.selectedIcon = data.mark
 		TankMark.selectedClass = data.class
 		TankMark:UpdateClassButton()
-		
+
+		-- [v0.29] Read-only Tier-A/B metadata line (ASCII separators -- no Unicode on 1.12)
+		if TankMark.editMetaText then
+			local meta = ""
+			if data.creatureType then meta = data.creatureType end
+			if data.tier then meta = (meta ~= "" and (meta .. " / ") or "") .. data.tier end
+			if data.role then meta = (meta ~= "" and (meta .. " / ") or "") .. data.role end
+			if meta == "" then meta = "|cff666666(no metadata)|r" end
+			TankMark.editMetaText:SetText(meta)
+		end
+
 		if TankMark.iconBtn then
 			TankMark:SetIconTexture(TankMark.iconBtn.tex, data.mark)
 		end
