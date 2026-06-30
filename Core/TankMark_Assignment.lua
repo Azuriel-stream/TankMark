@@ -154,6 +154,33 @@ function TankMark:SelectCCSlot(authoredClass, creatureType, slots)
     return nil
 end
 
+-- [v0.30] Phase 3 role x tier -> default kill-priority derivation. The pure
+-- lookup behind the editor's authoring-time prio pre-fill (ApplyRoleDefaults);
+-- the human prio field always overrides (this only pre-fills it). TOTAL: any
+-- input returns a number -- nil/unknown role degrades to the MELEE row,
+-- nil/unknown tier to the `normal` column. NB: mob `role` (HEALER/CASTER/MELEE)
+-- is a DIFFERENT axis from the profile `role` (TANK/CC). Curve from
+-- DATA-MODEL.md S5 (defaults, not law -- tuned against real pulls).
+local ROLE_PRIO = {
+    HEALER = { normal = 2, elite = 1, rare = 1, boss = 1 },
+    CASTER = { normal = 3, elite = 2, rare = 2, boss = 1 },
+    MELEE  = { normal = 5, elite = 4, rare = 3, boss = 1 },
+}
+-- Collapse the live client tier classifications into the four curve columns.
+local ROLE_TIER_BUCKET = {
+    normal    = "normal",
+    elite     = "elite",
+    rare      = "rare",
+    rareelite = "rare",
+    worldboss = "boss",
+    boss      = "boss",
+}
+function TankMark:RoleTierPrio(role, tier)
+    local row    = ROLE_PRIO[role] or ROLE_PRIO.MELEE
+    local bucket = ROLE_TIER_BUCKET[tier] or "normal"
+    return row[bucket]
+end
+
 -- Check if player is a CC-capable class
 function TankMark:IsPlayerCCClass(playerName)
     if not playerName or playerName == "" then return false end
