@@ -129,6 +129,40 @@ function TankMark:InitClassMenu()
 end
 
 -- ==========================================================
+-- MOB ROLE MENU (Phase 3)
+-- ==========================================================
+-- [v0.30] Initialize the mob-role dropdown (HEALER/CASTER/MELEE). Picking a role
+-- pre-fills the prio field via ApplyRoleDefaults (role x tier); "No Role" clears
+-- the role and leaves prio untouched (derivation fires only on a real role).
+-- NB: mob role is a DIFFERENT axis from the profile role (TANK/CC).
+local MOB_ROLES = { "HEALER", "CASTER", "MELEE" }
+function TankMark:InitRoleMenu()
+	local info = {}
+
+	info = {
+		text = "|cffffffffNo Role|r",
+		func = function()
+			TankMark.selectedRole = nil
+			TankMark:UpdateRoleButton()
+		end
+	}
+	UIDropDownMenu_AddButton(info)
+
+	for _, role in L._ipairs(MOB_ROLES) do
+		local capturedRole = role
+		info = {
+			text = "|cff00ff00" .. capturedRole .. "|r",
+			func = function()
+				TankMark.selectedRole = capturedRole
+				TankMark:UpdateRoleButton()
+				TankMark:ApplyRoleDefaults(capturedRole)
+			end
+		}
+		UIDropDownMenu_AddButton(info)
+	end
+end
+
+-- ==========================================================
 -- SEQUENTIAL ROW CLASS MENU
 -- ==========================================================
 -- Initialize CC class menu for a sequential row

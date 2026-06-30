@@ -12,6 +12,8 @@ TankMark.isZoneListMode = false
 TankMark.detectedCreatureType = nil
 TankMark.detectedTier = nil          -- [v0.30] live tier from the Target button
 TankMark.detectedForName = nil       -- [v0.30] name the detection was captured for
+TankMark.selectedRole = nil          -- [v0.30] Phase 3 mob role (HEALER/CASTER/MELEE) -- != profile role (TANK/CC)
+TankMark.editTier = nil              -- [v0.30] Phase 3 tier of the mob in the editor (role-prio derivation read)
 TankMark.editingSequentialMarks = {}
 TankMark.sequentialRows = {}
 TankMark.isAddMobExpanded = false       -- LEFT accordion state
