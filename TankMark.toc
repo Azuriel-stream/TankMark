@@ -15,6 +15,7 @@ Core\TankMark_Ledger.lua
 Core\TankMark_Permissions.lua
 Core\TankMark_Assignment.lua
 Core\TankMark_Processor.lua
+Core\TankMark_Pull.lua
 Core\TankMark_Death.lua
 Core\TankMark_Batch.lua
 Core\TankMark_Scanner.lua

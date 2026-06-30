@@ -22,6 +22,7 @@ TankMark.Locals._sub      = TankMark.Locals._sub      or string.sub
 TankMark.Locals._strfind  = TankMark.Locals._strfind  or string.find
 TankMark.Locals._tonumber = TankMark.Locals._tonumber or tonumber
 TankMark.Locals._tinsert  = TankMark.Locals._tinsert  or table.insert
+TankMark.Locals._tsort    = TankMark.Locals._tsort    or table.sort
 TankMark.Locals._pairs    = TankMark.Locals._pairs    or pairs
 TankMark.Locals._ipairs   = TankMark.Locals._ipairs   or ipairs
 -- Vanilla's string.gfind is Lua 5.1's string.gmatch; the SyncCodec uses _gfind to
@@ -35,6 +36,7 @@ TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 local SUT = {
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",
+    "Core/TankMark_Pull.lua",
     "Core/TankMark_SyncCodec.lua",
     "Core/TankMark_Trust.lua",
     "Core/TankMark_Swarm.lua",

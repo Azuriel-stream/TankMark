@@ -120,6 +120,22 @@ function TankMark:ExecuteBatchMarking()
         end
         return a.prio < b.prio
     end)
+
+    -- [v0.30] Phase 4 (A): smart pre-mark. When enabled, decide the WHOLE pack at
+    -- once (DecidePull) and stash a guid->icon plan; ProcessBatchMark applies it
+    -- per mob through the existing delayed queue + re-validation. Sequential mobs
+    -- are NOT in the plan (DecidePull partitions them out and reserves their
+    -- icons), so they still run the cursor branch below. Toggle off -> no plan ->
+    -- classic per-mob marking, unchanged.
+    TankMark.pullPlan = nil
+    if TankMark:SmartMarkEnabled() then
+        local plan = TankMark:DecidePull(sortedCandidates, TankMark.LiveBoard)
+        TankMark.pullPlan = {}
+        for _, intent in L._ipairs(plan.intents) do
+            TankMark.pullPlan[intent.guid] = intent.icon
+        end
+        TankMark:ReportPullPlan(plan)
+    end
     
     -- Limit to top 8
     local maxMarks = L._min(8, L._tgetn(sortedCandidates))
@@ -274,6 +290,15 @@ function TankMark:ProcessBatchMark(candidateData)
             -- Advance cursor (clamp, never wrap -- the exhausted branch above
             -- handles every body past the sequence length).
             TankMark.sequentialMarkCursor[mobName] = cursorIndex + 1
+        end
+    elseif TankMark.pullPlan then
+        -- [v0.30] Phase 4 (A): smart pre-mark active. Apply the precomputed pull
+        -- intent for this mob; a plan with no entry means it was deliberate
+        -- overflow / un-CCable -> leave it unmarked (handed off to the scanner).
+        local plannedIcon = TankMark.pullPlan[guid]
+        if plannedIcon then
+            local name = mobData and mobData.name or L._UnitName(guid)
+            TankMark:ApplyMarkIntent(guid, name, { icon = plannedIcon }, false)
         end
     else
         -- [v0.28] Single-mark / unknown: decide via the unified seam, then apply
