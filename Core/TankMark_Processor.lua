@@ -421,11 +421,16 @@ function TankMark:RecordUnit(guid)
         TankMarkDB.Zones[zone] = {}
     end
     if TankMarkDB.Zones[zone][name] then return end
+    -- [v0.29] Tier-A metadata: stamp creatureType + tier (cType already read above).
+    -- Convenience cache only -- the decision layer re-reads these live; never a runtime input.
+    local tier = L._UnitClassification(guid)
     TankMarkDB.Zones[zone][name] = {
         prio  = 5,
         marks = {8},
         type  = "KILL",
-        class = nil
+        class = nil,
+        creatureType = cType,
+        tier = tier
     }
     TankMark:Print("|cff00ff00Recorded:|r " .. name .. " |cff888888(P5, Mark: Skull)|r")
     TankMark.recordedGUIDs[guid] = true

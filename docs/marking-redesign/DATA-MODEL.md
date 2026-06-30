@@ -161,7 +161,7 @@ Frostmane Slave      -> { Humanoid,  normal, MELEE  }
 Frostmane Leopard    -> { Beast,     elite,  MELEE  }
 Ice Elemental        -> { Elemental, elite,  MELEE  }
 Kan'za the Seer      -> { Humanoid,  worldboss, CASTER }
-Hallar the Frigid    -> { Elemental, worldboss, CASTER }
+Hailar the Frigid    -> { Elemental, worldboss, CASTER }   -- in-game name is "Hailar" (recorder-captured), not "Hallar"
 ```
 
 Representative pack assertions (roster = 1 Mage + 1 Warlock, marks plentiful):

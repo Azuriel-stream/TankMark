@@ -8,6 +8,19 @@
 Auto-capture each mob's `creatureType` and `tier` into its DB entry, and show them (read-only) in the
 Mob Database editor. **No marking decision changes** — this phase only enriches data.
 
+### Purpose framing (decided during build planning)
+
+The stored A-fields are a **convenience cache, not a runtime input.** The decision layer (Phases 2–4)
+always holds a live GUID and can read `UnitCreatureType`/`UnitClassification` for free at decide time
+(`Processor.lua:67`, `:72–74`); per [`DATA-MODEL.md §2`](DATA-MODEL.md#2-schema-evolution-what-this-redesign-adds)
+a nil stored field falls back to that live read. So the stored copy only matters when the mob is **not in
+front of you** — the editor display (this phase) and pre-pull planning (future). A missing field is always
+recoverable, which is why backfill is unnecessary (see below).
+
+**No backward-compat burden:** the addon is in active development with a single user, so old DB entries
+that predate these fields do not need migrating — they heal organically as mobs are re-recorded, or via a
+one-time offline DB stamp. Do not build migration machinery for them.
+
 ## Prereqs
 
 None. This is the foundation; build it first.
@@ -44,10 +57,28 @@ TankMarkDB.Zones[zone][name] = {
 }
 ```
 
-**Optional lazy backfill** (recommended, mirrors `MigrateProfileRoles`): when the scanner sees an
-already-known mob whose entry lacks `creatureType`/`tier`, stamp them from the live GUID. Cheapest place
-is where `ProcessUnit` already resolves the entry, guarded so it runs once per entry. Keep it behind the
-existing `if TankMark.DebugEnabled` discipline for any logging.
+**Lazy backfill — CUT.** An earlier draft proposed stamping A-fields onto already-known mobs from the
+`ProcessUnit` scanner path. **Dropped during build planning:** it was the *only* part of this phase that
+touched the hot scanner path, and its sole purpose was healing pre-existing entries — which the
+convenience-cache framing plus the no-backward-compat decision (above) make unnecessary. Phase 1 therefore
+touches **nothing** on the scanner/decision path. Old entries heal organically when re-recorded.
+
+**Save-path preservation — REQUIRED (was missing from this doc).** The editor save is field-explicit:
+`SaveFormData` (`UI/Config/Database/TankMark_Config_Mobs_Logic.lua:291–296`) builds the entry from a fixed
+`{prio, marks, type, class}` literal and `PerformSave` does a **full replace**
+(`TankMarkDB.Zones[zone][mob] = mobEntry`, `:248`). Without intervention, editing *any* mob in the config UI
+would **silently drop** the stored `creatureType`/`tier`/`role`. So `SaveFormData` must read the existing
+entry and carry those fields forward (read-modify-write). All three are read-only in the Phase 1 editor
+(`role` only becomes user-editable in Phase 3), so unconditional carry-forward is correct.
+
+**Manual add via the Target button.** The recorder is not the only way an entry is born — a user can add
+a mob by hand in the editor. The **Target** button (`TankMark_Config_Mobs_UI.lua`) already reads
+`UnitCreatureType("target")` into `TankMark.detectedCreatureType` (it drives the CC-class menu's legal-CC
+filter). Extend it to also snapshot `UnitClassification("target")` and tag the detection with the targeted
+name (`detectedForName`); then `SaveFormData` stamps `creatureType`/`tier` from those when the saved name
+matches. The name-match guard prevents a stale detection from leaking onto a different mob, and a fresh
+detection also backfills an old metadata-less entry the user re-targets. A hand-typed mob with no target
+stays nil (heals on next sighting — convenience cache). `role` is never set here (human/Phase-3 only).
 
 **Editor display (read-only).** The editor already detects creature type on the "Target" button
 (`UI/Config/Database/TankMark_Config_Mobs_UI.lua:384` sets `TankMark.detectedCreatureType`). Add a
@@ -57,14 +88,20 @@ already used by sequential rows; no validation, display only.
 
 ## Files & functions to touch
 
-- `Core/TankMark_Processor.lua` — `RecordUnit` (`:411–441`): add `tier` read + stamp both fields.
-  Optional: lazy backfill near the entry-resolution in `ProcessUnit`.
-- `Data/TankMark_Data.lua` — ensure DB init/validation/snapshot logic tolerates the two new optional
-  fields (no stripping on load/merge; `RefreshActiveDB` carries them through).
-- `UI/Config/Database/TankMark_Config_Mobs_List.lua` — populate the read-only display fields on edit.
-- `UI/Config/Database/TankMark_Config_Mobs_UI.lua` — add the read-only FontString row.
-- `TankMark.lua` — confirm `UnitClassification` is in `Locals` (it is — used at `Processor.lua:72`).
-  Add `UnitCreatureFamily` **only** if you decide to capture family now (not required this phase).
+- `Core/TankMark_Processor.lua` — `RecordUnit` (`:411–441`): add `tier` read + stamp `creatureType` + `tier`
+  on the new-mob write. **No `ProcessUnit` change** (backfill cut — see Design).
+- `UI/Config/Database/TankMark_Config_Mobs_Logic.lua` — `SaveFormData`: carry forward
+  `creatureType`/`tier`/`role` from the existing entry so an edit-save does not drop them (the required
+  fix above). `ResetEditorState`: clear the display FontString.
+- `UI/Config/Database/TankMark_Config_Mobs_List.lua` — `BuildListData`: pass the three fields onto the row
+  view object; the row's edit-click handler populates the read-only display from them.
+- `UI/Config/Database/TankMark_Config_Mobs_UI.lua` — add the read-only FontString row to the editor.
+- `Data/TankMark_Data.lua` — **no change needed.** Verified already field-agnostic: `ValidateDB` checks only
+  `prio`/`marks`, `CreateSnapshot` deep-copies all keys, `LoadZoneData`/`RefreshActiveDB` copy the entry by
+  reference. (`MergeDefaults` is field-explicit but only reconstructs *shipped-default* mobs, which carry no
+  A-fields — so it can't lose anything here.)
+- `TankMark.lua` — **no change needed.** `UnitClassification` + `UnitCreatureType` are already in `Locals`
+  (`:28–29`). `UnitCreatureFamily` is not captured this phase.
 
 ## Schema / data changes
 
