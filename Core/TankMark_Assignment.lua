@@ -181,6 +181,40 @@ function TankMark:RoleTierPrio(role, tier)
     return row[bucket]
 end
 
+-- [v0.30] Phase 4 CC-worthiness: how much a mob warrants a scarce CC slot,
+-- derived from mob role x tier -- and NOT from prio (prio is the human's
+-- overridable kill-order knob, a DIFFERENT axis; deriving worthiness from it
+-- would make the scanner try to sheep a melee the human set to prio 1). One curve
+-- serves both callers: the pre-fight DecidePull SORTS a pack by it; the in-combat
+-- scanner THRESHOLDS it (SCANNER_CC_FLOOR, Phase 4 part B) to auto-CC only the
+-- absolutely-worthy. TOTAL: nil/unknown role -> MELEE row, nil/unknown tier ->
+-- normal column (reuses ROLE_TIER_BUCKET above). NB: mob role (HEALER/CASTER/
+-- MELEE) is a different axis from profile role (TANK/CC). Curve from CONTEXT.md /
+-- the phase-4 doc -- defaults, not law (tune against real pulls).
+local CC_WORTH = {
+    HEALER = { normal = 90, elite = 100, rare = 100, boss = 100 },
+    CASTER = { normal = 40, elite = 70,  rare = 70,  boss = 80  },
+    MELEE  = { normal = 10, elite = 30,  rare = 35,  boss = 40  },
+}
+function TankMark:CCWorthiness(role, tier)
+    local row    = CC_WORTH[role] or CC_WORTH.MELEE
+    local bucket = ROLE_TIER_BUCKET[tier] or "normal"
+    return row[bucket]
+end
+
+-- [v0.30] Phase 4 tier-immunity gate: rare/boss-class mobs are generally immune
+-- to player CC (Polymorph/Banish/Sap/Shackle/...). Only normal & elite mobs are
+-- CC-eligible. A MOB gate, composed ALONGSIDE creature-legality (IsLegalCC) and
+-- the race gate (CCRaceEligible) but applied BEFORE SelectCCSlot (which only
+-- picks a slot). Independent of creatureType: an elite Humanoid is CC-able, a
+-- boss Humanoid is not. Reuses ROLE_TIER_BUCKET (worldboss/boss -> "boss";
+-- rare/rareelite -> "rare"). nil tier defaults to normal -> eligible (the live
+-- UnitClassification read fills it in-game).
+function TankMark:CCTierEligible(tier)
+    local bucket = ROLE_TIER_BUCKET[tier] or "normal"
+    return bucket == "normal" or bucket == "elite"
+end
+
 -- Check if player is a CC-capable class
 function TankMark:IsPlayerCCClass(playerName)
     if not playerName or playerName == "" then return false end

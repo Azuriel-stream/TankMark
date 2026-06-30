@@ -457,6 +457,16 @@ function TankMark:SlashHandler(msg)
         if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
             if TankMark.normalsCheck then TankMark.normalsCheck:SetChecked(TankMark.MarkNormals) end
         end
+
+    elseif cmd == "smartmark" or cmd == "smart" then
+        -- [v0.30] Phase 4 (A): toggle pack-aware Shift+mouseover pre-marking.
+        local on
+        if args == "on" then on = true
+        elseif args == "off" then on = false
+        else on = not TankMark:SmartMarkEnabled() end
+        if not TankMarkCharConfig then TankMarkCharConfig = {} end
+        TankMarkCharConfig.smartMark = on
+        TankMark:Print("Smart pre-mark (pack-aware Shift+mouseover): " .. (on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
         
     elseif cmd == "recorder" then
         if args == "start" then
@@ -598,6 +608,7 @@ function TankMark:SlashHandler(msg)
         TankMark:Print(" |cffffffff/tmark reset|r - Clear all marks and reset session")
         TankMark:Print(" |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
         TankMark:Print(" |cffffffff/tmark normals|r - Toggle marking normal mobs")
+        TankMark:Print(" |cffffffff/tmark smartmark|r - Toggle pack-aware Shift+mouseover pre-marking")
         TankMark:Print(" |cffffffff/tmark recorder start|r | |cffffffff/tmark recorder stop|r - Flight recorder")
         TankMark:Print(" |cffffffff/tmark assign [mark] [player]|r - Manual assignment")
         TankMark:Print(" |cffffffff/tmark config|r - Open configuration panel")

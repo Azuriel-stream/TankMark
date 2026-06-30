@@ -1,0 +1,53 @@
+-- Phase 4 (A) pure helpers: CC-worthiness curve + tier-immunity gate.
+--
+-- Both pure (no board, no WoW client), in Core/TankMark_Assignment.lua beside
+-- RoleTierPrio/SelectCCSlot. CCWorthiness is the single curve DecidePull sorts by
+-- and (Phase 4 B) the scanner thresholds; CCTierEligible is the third composing
+-- CC gate (rare/boss are CC-immune).
+
+describe("CCWorthiness (role x tier curve)", function()
+    it("healer dominates; caster mid; melee low at each tier", function()
+        eq(TankMark:CCWorthiness("HEALER", "elite"),  100, "healer elite")
+        eq(TankMark:CCWorthiness("HEALER", "normal"), 90,  "healer normal")
+        eq(TankMark:CCWorthiness("CASTER", "elite"),  70,  "caster elite")
+        eq(TankMark:CCWorthiness("CASTER", "normal"), 40,  "caster normal")
+        eq(TankMark:CCWorthiness("MELEE",  "elite"),  30,  "melee elite")
+        eq(TankMark:CCWorthiness("MELEE",  "normal"), 10,  "melee normal")
+    end)
+    it("ranks HEALER > CASTER > MELEE at the same tier", function()
+        local h = TankMark:CCWorthiness("HEALER", "elite")
+        local c = TankMark:CCWorthiness("CASTER", "elite")
+        local m = TankMark:CCWorthiness("MELEE",  "elite")
+        eq(h > c and c > m, true, "healer > caster > melee")
+    end)
+    it("elite Warrior (30) outranks normal Cretin (10) -- the pack-A pick", function()
+        eq(TankMark:CCWorthiness("MELEE", "elite") > TankMark:CCWorthiness("MELEE", "normal"),
+           true, "durable elite melee preferred over trash")
+    end)
+    it("total: nil role -> MELEE row, nil tier -> normal column", function()
+        eq(TankMark:CCWorthiness(nil, "elite"),    30, "nil role -> melee elite")
+        eq(TankMark:CCWorthiness("CASTER", nil),   40, "nil tier -> caster normal")
+        eq(TankMark:CCWorthiness(nil, nil),        10, "nil/nil -> melee normal")
+        eq(TankMark:CCWorthiness("BOGUS", "elite"),30, "unknown role -> melee")
+    end)
+    it("worldboss/rareelite collapse via ROLE_TIER_BUCKET", function()
+        eq(TankMark:CCWorthiness("CASTER", "worldboss"), 80, "worldboss -> boss col")
+        eq(TankMark:CCWorthiness("MELEE",  "rareelite"), 35, "rareelite -> rare col")
+    end)
+end)
+
+describe("CCTierEligible (CC-immune tiers)", function()
+    it("normal and elite are CC-eligible", function()
+        eq(TankMark:CCTierEligible("normal"), true, "normal")
+        eq(TankMark:CCTierEligible("elite"),  true, "elite")
+    end)
+    it("rare / rareelite / worldboss / boss are CC-immune", function()
+        eq(TankMark:CCTierEligible("rare"),      false, "rare")
+        eq(TankMark:CCTierEligible("rareelite"), false, "rareelite")
+        eq(TankMark:CCTierEligible("worldboss"), false, "worldboss")
+        eq(TankMark:CCTierEligible("boss"),      false, "boss")
+    end)
+    it("nil tier defaults to eligible (treated as normal)", function()
+        eq(TankMark:CCTierEligible(nil), true, "nil -> normal -> eligible")
+    end)
+end)

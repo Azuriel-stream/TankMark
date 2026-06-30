@@ -26,6 +26,11 @@ TankMark.LiveBoard = {
     -- pure SelectCCSlot, so these two only do the live reads.
     creatureType        = function(guid)  return L._UnitCreatureType(guid) end,
     getCCSlots          = function()      return TankMark:GetCCSlots() end,
+    -- [v0.30] Phase 4 ports: live tier (UnitClassification) for CC-worthiness /
+    -- tier-immunity, and the tank roster for the kill ladder. DecidePull reads
+    -- these; the per-mob DecideMark path does not.
+    tier                = function(guid)  return L._UnitClassification(guid) end,
+    getTankRoster       = function()      return TankMark:GetTankRoster(TankMark:GetCachedZone()) end,
     isDisabled          = function(icon)  return TankMark.disabledMarks[icon] end,
     -- [v0.28] Side-effect SINK (not a read): the single DECIDE log. Production
     -- emits the guarded DebugLog (resolving the unknown-path name via UnitName);
