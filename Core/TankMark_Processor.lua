@@ -31,6 +31,9 @@ TankMark.LiveBoard = {
     -- these; the per-mob DecideMark path does not.
     tier                = function(guid)  return L._UnitClassification(guid) end,
     getTankRoster       = function()      return TankMark:GetTankRoster(TankMark:GetCachedZone()) end,
+    -- [v0.30] Phase 4 (B): the "Auto-CC in combat" toggle, injected so ResolveCC
+    -- stays zero-global (tests inject a boolean; production reads CharConfig).
+    autoCCEnabled       = function()      return TankMark:AutoCCEnabled() end,
     isDisabled          = function(icon)  return TankMark.disabledMarks[icon] end,
     -- [v0.28] Side-effect SINK (not a read): the single DECIDE log. Production
     -- emits the guarded DebugLog (resolving the unknown-path name via UnitName);
@@ -42,6 +45,7 @@ TankMark.LiveBoard = {
             icon     = intent.icon,
             mob      = mobData and mobData.name or L._UnitName(guid),
             prio     = mobData and mobData.prio,
+            type     = mobData and mobData.type,   -- [v0.30] B7: authored (CC) vs auto (KILL/nil) CC
             wasBusy  = intent.wasBusy,
             override = intent.override
         })
@@ -264,19 +268,51 @@ function TankMark:GovernorBlocks(icon, myPrio, mode, allowSteal, board)
     return nil
 end
 
--- [v0.30] CC resolver seam (legal-CC routing, marking-redesign Phase 2). Returns
--- the CC mark for this mob, or nil if it is not a CC target or no legal CC slot
--- qualifies. Owns the type=="CC" guard. creatureType is read LIVE first (free,
--- authoritative) with the stored mobData.creatureType as fallback for the
--- off-client harness; no write-back (respects the Phase-1 lazy-backfill cut).
--- The routing decision is the pure SelectCCSlot over the live getCCSlots()
--- snapshot -- this seam only resolves creatureType and orchestrates. A nil class
--- is allowed now (routes on creatureType alone); a fully-unknown creatureType
--- degrades to authored-class-only inside SelectCCSlot.
+-- [v0.30] Phase 4 (B) opt-in: the "Auto-CC in combat" toggle. Default off, so
+-- installing the update changes nothing until the player flips it. Per-character
+-- (TankMarkCharConfig), like HUD prefs / SmartMarkEnabled. ResolveCC never reads
+-- this directly -- it comes in through the board.autoCCEnabled() port so the
+-- decide layer stays zero-global (see LiveBoard).
+function TankMark:AutoCCEnabled()
+    return (TankMarkCharConfig and TankMarkCharConfig.autoCC) and true or false
+end
+
+-- [v0.30] CC resolver seam (legal-CC routing, marking-redesign Phase 2/4B).
+-- Returns the CC mark for this mob, or nil if no legal CC slot qualifies. Two
+-- ways to reach a CC slot:
+--   * authored type=="CC" -- the human's plan; honored regardless of the toggle,
+--     and the authored `class` is the preferred slot (SelectCCSlot pass 1).
+--   * [v0.30 Phase 4B] auto-CC -- when board.autoCCEnabled() is on AND a skull is
+--     already committed (reserve-a-kill-target), an above-floor mob (MeetsAutoCCFloor:
+--     healer / elite caster) is CC'd even if authored KILL. No authored preference,
+--     so authoredClass=nil ->
+--     first-legal-in-profile-order. This is the per-mob shadow of DecidePull's
+--     CC-pass-first: a CC result here pre-empts the kill/skull path below it.
+-- The CCTierEligible gate is UNIVERSAL (both branches, ratified #5/B4): a CC-immune
+-- tier (rare/boss) never routes to a CC slot, authored or automatic -- so a
+-- type=="CC" on a boss now yields nil even toggle-off (the one toggle-independent
+-- Phase-4B change). creatureType is read LIVE first (free, authoritative) with the
+-- stored fallback for the off-client harness; no write-back. The routing decision
+-- is the pure SelectCCSlot; this seam resolves tier/creatureType and orchestrates.
 function TankMark:ResolveCC(mobData, guid, board)
-    if mobData.type ~= "CC" then return nil end
+    local isAuthoredCC = (mobData.type == "CC")
+    -- auto-CC requires the toggle; authored type=="CC" does not.
+    if not isAuthoredCC and not board.autoCCEnabled() then return nil end
+    -- [v0.30 rev / BD3-A] reserve-a-kill-target applies to BOTH branches on the
+    -- scanner: no CC (auto OR authored) until a skull is committed, so the FIRST
+    -- mob engaged is always a kill, and a lone mob is killed -- an authored
+    -- type=="CC" mob falls through to its own kill mark. Matches the batch, which
+    -- enforces the same invariant via kill-first ordering. (Reversed from the
+    -- original BD3-B after in-game showed a lone type=="CC" mob should be killed.)
+    if not board.isMarkBusy(8) then return nil end
+    local tier = board.tier(guid) or mobData.tier
+    if not TankMark:CCTierEligible(tier) then return nil end
+    if not isAuthoredCC and not TankMark:MeetsAutoCCFloor(mobData.role, tier) then
+        return nil
+    end
     local ct = board.creatureType(guid) or mobData.creatureType
-    return TankMark:SelectCCSlot(mobData.class, ct, board.getCCSlots())
+    local authoredClass = isAuthoredCC and mobData.class or nil
+    return TankMark:SelectCCSlot(authoredClass, ct, board.getCCSlots())
 end
 
 -- [v0.28] Known-mob decision (decide/apply split, roadmap #2). Returns an
@@ -291,6 +327,10 @@ end
 -- GovernorBlocks helper (allowSteal=true here). Sequential (marks>1) stays out
 -- of scope -- Batch owns that cursor.
 function TankMark:DecideKnownMark(mobData, guid, mode, board)
+    -- LOAD-BEARING ORDER: this sequential bail MUST stay above the ResolveCC call
+    -- below. Phase 4B auto-CC lives inside ResolveCC; sequential mobs (marks>1) are
+    -- Batch's cursor and must never reach the CC seam. Do not float ResolveCC above
+    -- this return (sequential-safety, ratified #11 / phase-4 doc Part-B addendum).
     if mobData.marks and L._tgetn(mobData.marks) > 1 then
         return { icon = nil, reason = "sequential-marks" }
     end
@@ -312,8 +352,13 @@ function TankMark:DecideKnownMark(mobData, guid, mode, board)
     local canOverride = false
 
     -- [v0.28] CC Logic via ResolveCC seam. [v0.30] passes guid for the live
-    -- creatureType read (legal-CC routing, Phase 2).
+    -- creatureType read (legal-CC routing, Phase 2/4B auto-CC).
     iconToApply = TankMark:ResolveCC(mobData, guid, board)
+    -- [v0.30] B7: tag the intent reason "cc" IFF the CC seam produced the icon.
+    -- A nil ResolveCC that then falls through to primary-mark selection stays
+    -- "known" (the icon did not come from CC) -- so the log distinguishes a real
+    -- CC route (authored or auto) from an ordinary mark.
+    local ccResolved = (iconToApply ~= nil)
 
     if not iconToApply then
         isBusy = board.isMarkBusy(markToUse)
@@ -349,7 +394,7 @@ function TankMark:DecideKnownMark(mobData, guid, mode, board)
         return { icon = nil, reason = block, wasBusy = isBusy }
     end
 
-    return { icon = iconToApply, reason = "known", wasBusy = isBusy, override = canOverride }
+    return { icon = iconToApply, reason = ccResolved and "cc" or "known", wasBusy = isBusy, override = canOverride }
 end
 
 -- [v0.28] Single decision entry point (decide/apply split, roadmap #2). Routes

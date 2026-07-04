@@ -467,7 +467,21 @@ function TankMark:SlashHandler(msg)
         if not TankMarkCharConfig then TankMarkCharConfig = {} end
         TankMarkCharConfig.smartMark = on
         TankMark:Print("Smart pre-mark (pack-aware Shift+mouseover): " .. (on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-        
+
+    elseif cmd == "autocc" then
+        -- [v0.30] Phase 4 (B): toggle in-combat auto-CC of absolutely-worthy mobs
+        -- (healers / elite casters) as the scanner sees them. Default off.
+        local on
+        if args == "on" then on = true
+        elseif args == "off" then on = false
+        else on = not TankMark:AutoCCEnabled() end
+        if not TankMarkCharConfig then TankMarkCharConfig = {} end
+        TankMarkCharConfig.autoCC = on
+        TankMark:Print("Auto-CC in combat (healers / elite casters): " .. (on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        if on then
+            TankMark:Print("  |cff888888Best for deliberate pulls -- a sheep taking AoE/cleave breaks immediately.|r")
+        end
+
     elseif cmd == "recorder" then
         if args == "start" then
             local zone = TankMark:GetCachedZone()
@@ -609,6 +623,7 @@ function TankMark:SlashHandler(msg)
         TankMark:Print(" |cffffffff/tmark on|r | |cffffffff/tmark off|r - Toggle auto-marking")
         TankMark:Print(" |cffffffff/tmark normals|r - Toggle marking normal mobs")
         TankMark:Print(" |cffffffff/tmark smartmark|r - Toggle pack-aware Shift+mouseover pre-marking")
+        TankMark:Print(" |cffffffff/tmark autocc|r - Toggle in-combat auto-CC of healers / elite casters")
         TankMark:Print(" |cffffffff/tmark recorder start|r | |cffffffff/tmark recorder stop|r - Flight recorder")
         TankMark:Print(" |cffffffff/tmark assign [mark] [player]|r - Manual assignment")
         TankMark:Print(" |cffffffff/tmark config|r - Open configuration panel")

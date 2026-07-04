@@ -89,22 +89,58 @@ function TankMark:DecidePull(candidates, board)
         end
     end
 
-    -- 2. CC PASS. CC candidates = tier-eligible mobs; rank authored-CC first, then
-    -- CCWorthiness desc, then prio asc, then stable. Greedily fill slots via
-    -- SelectCCSlot (legal + race gating + the in-pass used overlay).
+    -- 2. KILL PASS. [v0.30 CC-model rev / ADR 0002] prio IS the kill order: walk the
+    -- tank ladder DOWN it (prio asc, seq asc) -- skull to the kill-FIRST, laddering.
+    -- These are the priority kills; the CC pass (step 3) then claims eligible
+    -- LEFTOVERS. Doing kills FIRST makes reserve-a-kill-target AUTOMATIC -- the
+    -- ladder always claims the lowest-prio mob before CC can reach it, so a lone /
+    -- low-prio mob is killed by construction and there is NO demotion step.
+    L._tsort(pack, function(a, b)
+        if a.prio ~= b.prio then return a.prio < b.prio end
+        return stableLess(a, b)
+    end)
+    local roster = board.getTankRoster()
+    local rosterN = L._tgetn(roster)
+    local ri = 1
+    for _, c in L._ipairs(pack) do
+        local mark = nil
+        while ri <= rosterN do
+            local entry = roster[ri]
+            ri = ri + 1
+            if entry.alive and entry.mark and not usedMarks[entry.mark] then
+                mark = entry.mark
+                break
+            end
+        end
+        if mark then
+            c.icon = mark
+            c.killAssigned = true
+            usedMarks[mark] = true
+            L._tinsert(intents, { guid = c.guid, name = c.name, icon = mark, reason = "pull-kill" })
+        end
+        -- no tank mark left -> c is a CC candidate or overflow (steps 3/4).
+    end
+
+    -- 3. CC PASS. Among mobs the ladder did NOT claim, CC the eligible ones.
+    -- Candidacy = tier-eligible AND (authored type=="CC" OR clears MeetsAutoCCFloor)
+    -- -- worthiness gates candidacy ONLY, it no longer ranks. Selection = kill-LAST
+    -- first (prio desc, then sequence desc). Greedy SelectCCSlot over the in-pass
+    -- slot overlay (legal + race + used).
     local slots = copySlots(board.getCCSlots())
     local ccCands = {}
     for _, c in L._ipairs(pack) do
-        if TankMark:CCTierEligible(c.tier) then
-            c.worth = TankMark:CCWorthiness(c.role, c.tier)
+        if not c.killAssigned
+           and TankMark:CCTierEligible(c.tier)
+           and (c.authoredCC or TankMark:MeetsAutoCCFloor(c.role, c.tier)) then
+            c.wasCCCand = true
             L._tinsert(ccCands, c)
         end
     end
     L._tsort(ccCands, function(a, b)
-        if a.authoredCC ~= b.authoredCC then return a.authoredCC end
-        if a.worth ~= b.worth then return a.worth > b.worth end
-        if a.prio ~= b.prio then return a.prio < b.prio end
-        return stableLess(a, b)
+        if a.prio ~= b.prio then return a.prio > b.prio end   -- kill-last (high prio) first
+        local sa, sb = a.sequence or 0, b.sequence or 0
+        if sa ~= sb then return sa > sb end                   -- later-moused (kill-last) first
+        return (a.guid or "") < (b.guid or "")                -- final determinism
     end)
     for _, c in L._ipairs(ccCands) do
         local mark = TankMark:SelectCCSlot(c.authoredClass, c.ctype, slots)
@@ -117,47 +153,18 @@ function TankMark:DecidePull(candidates, board)
             end
             L._tinsert(intents, { guid = c.guid, name = c.name, icon = mark, reason = "pull-cc" })
         end
-        -- authored CC with no legal/free slot simply falls through to the kill pass.
     end
 
-    -- 3. KILL PASS. Remaining mobs by prio onto the tank ladder (profile order).
-    -- Top mob -> first available tank mark (skull), laddering down; the rest are
-    -- overflow (the in-combat scanner picks them up as marks free).
-    local killMobs = {}
+    -- 4. Surface leftovers (never silently drop). A CC candidate we could NOT slot
+    -- -> unccd (worthy but un-CCable); a plain mob past the kill ladder -> overflow
+    -- (the in-combat scanner picks it up as marks free).
     for _, c in L._ipairs(pack) do
-        if not c.ccAssigned then L._tinsert(killMobs, c) end
-    end
-    L._tsort(killMobs, function(a, b)
-        if a.prio ~= b.prio then return a.prio < b.prio end
-        return stableLess(a, b)
-    end)
-
-    local roster = board.getTankRoster()
-    local rosterN = L._tgetn(roster)
-    local ri = 1
-    for _, c in L._ipairs(killMobs) do
-        local mark = nil
-        while ri <= rosterN do
-            local entry = roster[ri]
-            ri = ri + 1
-            if entry.alive and entry.mark and not usedMarks[entry.mark] then
-                mark = entry.mark
-                break
+        if not c.killAssigned and not c.ccAssigned then
+            if c.wasCCCand then
+                L._tinsert(unccd, { guid = c.guid, name = c.name })
+            else
+                L._tinsert(overflow, { guid = c.guid, name = c.name })
             end
-        end
-        if mark then
-            usedMarks[mark] = true
-            L._tinsert(intents, { guid = c.guid, name = c.name, icon = mark, reason = "pull-kill" })
-        else
-            L._tinsert(overflow, { guid = c.guid, name = c.name })
-        end
-    end
-
-    -- 4. Surface absolutely-worthy mobs (healer / elite caster) we could not CC --
-    -- never silently drop them. (worth is set only for tier-eligible candidates.)
-    for _, c in L._ipairs(pack) do
-        if not c.ccAssigned and c.worth and c.worth >= 70 then
-            L._tinsert(unccd, { guid = c.guid, name = c.name })
         end
     end
 

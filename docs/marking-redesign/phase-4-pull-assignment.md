@@ -138,6 +138,91 @@ scanner sees mobs one nameplate at a time and cannot make a pack-relative call, 
     `DebugLog` category (full ranked plan + per-mob gate reasons). No new HUD — pre-marking populates the
     existing mark→assignee HUD through the normal `RegisterMarkUsage`/`UpdateHUD` path.
 
+## Part-B refinements (grilled 2026-07-04)
+
+Building Part B surfaced eight calls that refine — and in one case *change* — the decisions above:
+
+- **B1. The toggle enters through a new board port `autoCCEnabled()`** (not a direct global read),
+  keeping `ResolveCC` in the zero-global decide layer and making both toggle states harness-testable.
+  `LiveBoard.autoCCEnabled → TankMark:AutoCCEnabled()`; the mock injects a boolean (default `false`).
+- **B2. `AutoCCEnabled()` lives in `Processor.lua`** beside `ResolveCC`/`LiveBoard` (not `Pull.lua`, which
+  B never touches); reads `TankMarkCharConfig.autoCC`. Mirrors `SmartMarkEnabled` in shape only.
+- **B3. `SCANNER_CC_FLOOR` (~70) is single-sourced in a floor-only pure helper
+  `ScannerAutoCCWorthy(role, tier)` in `Assignment.lua`**, beside `CC_WORTH` — `ResolveCC` stays a thin
+  router. Directly unit-tested (healer→true, caster-elite→true, caster-normal/melee→false).
+- **B4. CHANGES #5 — the tier gate is UNIVERSAL, not auto-CC-only.** `CCTierEligible` now gates the
+  `type=="CC"` path too, finally honoring #5's "applied before `SelectCCSlot`." Consequence: a
+  `type=="CC"` authored on a rare/boss tier stops routing to a CC slot **even with the toggle off** — a
+  small, correct behavior change independent of the toggle. See the Invariants caveat.
+- **B5. Auto-CC pre-empts an authored `type=="KILL"`** for a worthy mob with a free legal slot (the
+  per-mob shadow of A's CC-pass-first). `ResolveCC` returns before the kill/skull selection, so a CC
+  result structurally wins. No per-mob "kill-me-never-sheep-me" opt-out in B (the floor + toggle are the
+  only knobs); revisit only if in-game demands it.
+- **B6. The auto-CC branch passes `authoredClass=nil`** to `SelectCCSlot` (auto-CC has no authored CC
+  preference → first-legal-in-profile-order). `mobData.class` is used only on the `type=="CC"` branch.
+- **B7. Light-touch surfacing through the existing pure sink:** `DecideKnownMark` tags `reason="cc"` when
+  the icon came from the CC seam (also relabels today's authored CC, currently mislabeled `"known"`), and
+  `logDecision` gains a `type` field → the log distinguishes kill vs CC and authored vs auto CC. No
+  `DebugLog` inside the pure `ResolveCC`.
+- **B8. Toggle ships slash-only** (`/tmark autocc on/off`), matching Phase 4A's `smartmark` as *actually
+  shipped* — #14's "config checkbox each" was never built for A. A single follow-up adds **both**
+  checkboxes together (tracked). No sync (marking is the queen's job; the active marker's toggle governs).
+
+**Sequential-safety re-confirmed (code-traced, not inferred):** `ResolveCC` has exactly one caller
+(`DecideKnownMark:316`), which sits *below* the sequential bail (`:294`); and the batch path routes
+sequential mobs through a mutually-exclusive `if` branch (`Batch.lua:263`) that never reaches
+`DecideMark`. B changes only `ResolveCC`'s body, moving nothing — so #11 holds on the batch path too. A
+one-line comment at the bail marks it load-bearing for sequential-safety.
+
+## Phase-4 CC-model revision (grilled 2026-07-04)
+
+In-game testing of Part B exposed two bugs **and** forced a rethink of the CC *selection* model. The
+outcome **supersedes the worthiness-ranked selection** in ratified #8/#9 above and in Part A's design
+(those passages are kept for the decision trail, not deleted). Authority now lives in
+[ADR 0002](../adr/0002-prio-drives-cc-vs-kill-selection.md) and the sharpened `CONTEXT.md` terms
+(`prio`, `type`, `CC-worthiness`, `reserve-a-kill-target`).
+
+### The settled model
+
+- **`prio` is the master ordering knob** — it decides skull contests **and** orders CC-vs-kill among
+  candidates: CC the mobs killed *last* (highest prio number); kill the mobs killed *first* (lowest →
+  skull).
+- **CC-worthiness shrinks to the auto-candidacy *floor*** — which mobs are CC-eligible without a human
+  `type=="CC"` flag. It no longer ranks or selects.
+- **`type=="CC"` = candidacy forcer** (overrides the floor) + class preference — a guide, not a dictator.
+- **reserve-a-kill-target** — the engine never spends CC *it chose on its own* on the last killable mob.
+  A lone worthy/plain mob is killed; a fully-CC-able pack still leaves one kill. Full-pack CC is
+  manual-only.
+- **HUD enable/disable of CC players** (`disabledMarks`, already built) = the live per-pull CC
+  capacity/class dial. No new UI.
+
+### Build deltas (supersede the worthiness-ranked passages)
+
+- **(b) governor** — new pure `IsCCSlotMark(icon, profileList)`; `GetBlockingMarkInfo`'s `UpdateBest`
+  early-outs on it (beside `IsMarkCCd`) so a mob holding a **CC-role mark never blocks skull**, aura or
+  not. Fixes the "auto-CC'd mob suppresses skull for the whole pack" bug on **both** governor paths
+  (`GovernorBlocks` + `ReviewSkullState`). Predicate unit-tested (`legal_cc_spec`); wiring live-verified.
+- **(a) reserve** — scanner `ResolveCC` skips unless `board.isMarkBusy(8)` (a skull is committed) on
+  **both** branches (**BD3-A**, reversed from BD3-B after in-game): no CC — auto *or* authored
+  `type=="CC"` — until a kill target exists, so the first mob engaged is the kill and a lone `type=="CC"`
+  mob falls through to its own kill mark. Auto-CC additionally needs the toggle; authored `type=="CC"`
+  does not. Batch `DecidePull` reserves a kill target **automatically** via kill-first ordering (below).
+- **(c) selection** — `DecidePull` is now **KILL-FIRST**: the tank ladder claims the lowest-prio mobs
+  (skull to the kill-first; `prio asc`, `seq asc`), then CC claims the eligible **leftovers** taking the
+  **kill-last** (`prio desc`, `seq desc`). Candidacy = `CCTierEligible AND (type=="CC" OR
+  MeetsAutoCCFloor)` — worthiness gates candidacy only; `authoredCC` drops out of the *ranking*.
+  **No demotion** — reserve-a-kill-target is automatic (the ladder always kills the lowest-prio mob
+  before CC can reach it). `ScannerAutoCCWorthy` → renamed **`MeetsAutoCCFloor`** (both paths share the
+  one floor). NB: **mouseover order is the sub-`prio` kill-order tiebreak** — first-moused = kill-first =
+  **skull**; a CC target must be authored **high-prio / kill-last** (not low prio).
+
+### Consequence — the flip
+
+A healer + caster pack now **skulls the healer** (low prio, killed first) and **CCs the caster** (killed
+last) — the traditional "kill the healer, CC the adds." This **inverts** Part B's shipped worthiness
+default; the `pull_assignment_spec` Pack A/B expectations are recomputed by prio. Kept (from Part B):
+`MeetsAutoCCFloor` (as the floor), universal `CCTierEligible`, the `autocc` toggle/port, `reason="cc"`.
+
 ## Design
 
 ### Part A — `DecidePull` in the Batch path
@@ -163,11 +248,31 @@ DecidePull(candidates, board) -> { {guid, name, icon, reason}, ... }   -- intent
 
 ### Part B — scanner auto-CC in `ResolveCC`
 
-Today `ResolveCC` (`Processor.lua:271`) returns a CC mark **only** for `type=="CC"`. Extend it: when the
-**"Auto-CC in combat"** toggle is on, *also* resolve a CC slot for a mob that is
-`CCTierEligible(tier)` **and** `CCWorthiness(role, tier) >= SCANNER_CC_FLOOR` (healers / elite casters),
-when a legal slot is free — via the same `SelectCCSlot`. Toggle off → exactly today's behavior. The
-sequential bail above it (`:289`) and the governor/theft below are untouched. Needs the `tier(guid)` port.
+**Grilled + refined 2026-07-04** (see the Part-B addendum under Ratified decisions). Today `ResolveCC`
+(`Processor.lua:276`) returns a CC mark **only** for `type=="CC"`. The refined shape gates the *new*
+auto-CC behavior behind the **`board.autoCCEnabled()`** port and applies the tier gate **universally**:
+
+```
+function TankMark:ResolveCC(mobData, guid, board)
+    local isAuthoredCC = (mobData.type == "CC")
+    if not isAuthoredCC and not board.autoCCEnabled() then return nil end   -- auto-CC gated by toggle
+    local tier = board.tier(guid) or mobData.tier
+    if not TankMark:CCTierEligible(tier) then return nil end                -- UNIVERSAL tier gate (#5, B4)
+    if not isAuthoredCC and not TankMark:ScannerAutoCCWorthy(mobData.role, tier) then
+        return nil                                                          -- auto-CC worthiness floor
+    end
+    local ct = board.creatureType(guid) or mobData.creatureType
+    local authoredClass = isAuthoredCC and mobData.class or nil             -- auto-CC has NO authored pref
+    return TankMark:SelectCCSlot(authoredClass, ct, board.getCCSlots())
+end
+```
+
+Toggle off → today's behavior **except** the now-universal tier gate (a `type=="CC"` on a CC-immune tier
+stops routing — see the Invariants caveat). The sequential bail (`DecideKnownMark:294`) is upstream and
+the governor/theft below are untouched. The `tier(guid)` / `getCCSlots` ports already exist (Phase 4A).
+`ScannerAutoCCWorthy(role, tier)` is a new **floor-only** pure helper in `Assignment.lua`
+(`CCWorthiness(role,tier) >= SCANNER_CC_FLOOR`, ~70), co-located with the curve; the tier-immunity half of
+"boss healer → nil" is the universal `CCTierEligible` gate, not the helper.
 
 ## Files & functions to touch
 
@@ -185,6 +290,20 @@ sequential bail above it (`:289`) and the governor/theft below are untouched. Ne
 - `tests/support/board.lua` — per-guid `creatureType`/`tier`; `getTankRoster` port.
 - `tests/pull_assignment_spec.lua` — **new** (see Test plan). Register in `tests/run.lua`.
 
+**Part-B deltas (the A rows above are shipped):**
+- `Core/TankMark_Assignment.lua` — **new floor-only pure `ScannerAutoCCWorthy(role, tier)`** + file-local
+  `SCANNER_CC_FLOOR = 70`, beside `CC_WORTH`.
+- `Core/TankMark_Processor.lua` — **new `AutoCCEnabled()`** (reads `TankMarkCharConfig.autoCC`); **new
+  `autoCCEnabled` port** on `LiveBoard`; rewrite `ResolveCC` (universal `CCTierEligible` gate + toggle-gated
+  worthiness-floor branch, `authoredClass=nil` for auto-CC); tag `reason="cc"` in `DecideKnownMark` when
+  the icon came from the CC seam; add `type=mobData.type` to `logDecision`'s payload. One-line comment at
+  the sequential bail (`:294`) marking it load-bearing for sequential-safety.
+- `TankMark.lua` — `/tmark autocc on/off` handler (mirror `smartmark` at `:461`) + help line; writes
+  `TankMarkCharConfig.autoCC`. **Config checkbox deferred to a follow-up** (adds both toggles together).
+- `tests/support/board.lua` — **new `autoCCEnabled` port** (`flag(o.autoCC, false)`).
+- `tests/cc_worthiness_spec.lua` (`ScannerAutoCCWorthy`) + `tests/governor_spec.lua` (the 12 `ResolveCC`
+  Part-B cases, beside the existing CC tests) — **extend**. No new spec file.
+
 ## Schema / data changes
 
 None new — consumes Phase 1–3 fields. The board gains `getTankRoster` + `tier` ports (pure, for testing).
@@ -198,7 +317,10 @@ None new — consumes Phase 1–3 fields. The board gains `getTankRoster` + `tie
 - **Mechanism untouched:** intents only; `governor_spec`, `incumbency_spec`, `swarm_election_spec`,
   `sync_codec_spec`, `trust_spec`, `legal_cc_spec`, `role_prio_spec` all stay green.
 - **No silent truncation:** overflow + unCC'd-worthy are logged/surfaced.
-- **Default-off:** no behavior change until a toggle is flipped.
+- **Default-off:** no behavior change until a toggle is flipped — **except** the now-universal
+  `CCTierEligible` gate (Part-B refinement B4): a `type=="CC"` authored on a CC-immune tier
+  (`rare`/`rareelite`/`worldboss`/`boss`) stops routing to a CC slot even with Auto-CC off. Deliberate,
+  correct, and aligned with #5; the only toggle-independent change in Phase 4B.
 
 ## Test plan
 
@@ -217,9 +339,22 @@ None new — consumes Phase 1–3 fields. The board gains `getTankRoster` + `tie
   - Precedence → IGNORE excluded; `type=="CC"` forced into CC (still gated); authored `prio` reorders kills.
   - Sequential safety → a pack with a `marks>1` mob: `DecidePull` skips it **and** reserves its icons.
   - Determinism → same pack twice → identical intents. Overflow → handoff list logged.
-- **Part B (`decide_mark_spec`/`governor_spec`):** healer `type≠CC` + toggle on + free legal slot →
-  `ResolveCC` returns the CC mark; toggle off → nil (classic); melee → never (below floor); boss healer →
-  nil (tier gate).
+- **Part B pure units (`cc_worthiness_spec.lua`):** `ScannerAutoCCWorthy(role, tier)` floor-only —
+  HEALER normal/elite → true; CASTER elite → true (70≥70); CASTER normal → false (40<70); MELEE any →
+  false; totality (nil role→MELEE→false, nil tier→normal col: HEALER→true). Tier-immunity stays covered
+  by `CCTierEligible` (normal/elite→true, rare/rareelite/worldboss/boss→false).
+- **Part B integration (`governor_spec.lua` — where the `ResolveCC` tests live; direct `ResolveCC` + through `DecideKnownMark`), 12 cases:**
+  add `autoCCEnabled` to the mock board (default `false`). (1) toggle **off**, KILL HEALER, free legal
+  slot → nil; (2) toggle **on**, KILL HEALER Humanoid/elite, free Mage slot → the Mage's CC mark; (3)
+  toggle on, KILL MELEE → nil (below floor); (4) toggle on, KILL HEALER **boss** tier → nil (universal
+  tier gate); (5) toggle on, worthy HEALER, **no legal slot** → nil; (6) toggle on, worthy HEALER, slot
+  **already used** → nil (per-mob double-book safety via live Ledger); (7) `type=="CC"`, toggle **off** →
+  still the CC mark (authored CC toggle-independent); (8) `type=="CC"` on **boss**, toggle off → nil (the
+  B4 behavior-change pin); (9) toggle on, auto-CC HEALER, profile order Warlock-then-Mage, `mobData.class="MAGE"`
+  → Warlock's mark (authoredClass=nil ⇒ first-legal-in-profile-order, B6). Through `DecideKnownMark`:
+  (10) toggle on, KILL HEALER → `intent.icon`=CC mark **and** `reason=="cc"` (B7 + pre-empts skull);
+  (11) `type=="CC"` → `reason=="cc"` (relabel guard); (12) **sequential** mob (`marks`>1), toggle on →
+  `reason=="sequential-marks"`, no CC (sequential-safety regression).
 - **Regression:** all mechanism suites stay green.
 
 **In-game (OPEN-WORLD ONLY, deploy via `.claude/sync-to-network.sh`):** pre-mark mixed open-world packs
