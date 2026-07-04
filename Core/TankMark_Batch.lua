@@ -242,7 +242,7 @@ function TankMark:ProcessBatchMark(candidateData)
     end
     
     -- [v0.21] Respect MarkNormals filter for batch marking
-    if not TankMark.MarkNormals then
+    if not TankMark:MarkNormalsEnabled() then
         local cls = L._UnitClassification(guid)
         if cls == "normal" or cls == "trivial" or cls == "minus" then
             TankMark.batchSkipCounters.normalMob = TankMark.batchSkipCounters.normalMob + 1

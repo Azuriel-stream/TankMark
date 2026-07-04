@@ -81,7 +81,7 @@ function TankMark:ProcessUnit(guid, mode)
     if cType == "Critter" or cType == "Non-combat Pet" then return end
 
     -- Normal/Trivial Mob Filter
-    if not TankMark.MarkNormals then
+    if not TankMark:MarkNormalsEnabled() then
         local cls = L._UnitClassification(guid)
         if not cls and guid == TankMark:Driver_GetGUID("mouseover") then
             cls = L._UnitClassification("mouseover")
@@ -275,6 +275,14 @@ end
 -- decide layer stays zero-global (see LiveBoard).
 function TankMark:AutoCCEnabled()
     return (TankMarkCharConfig and TankMarkCharConfig.autoCC) and true or false
+end
+
+-- [v0.30] MarkNormals persistence accessor. Unlike Auto-CC / Smart Pre-Marking
+-- (which default OFF), this defaults ON: an unset field keeps the long-standing
+-- "mark normal mobs" behavior, so only an explicit off (checkbox or /tmark normals)
+-- persists across reloads. `markNormals ~= false` yields that default-true.
+function TankMark:MarkNormalsEnabled()
+    return (not TankMarkCharConfig) or (TankMarkCharConfig.markNormals ~= false)
 end
 
 -- [v0.30] CC resolver seam (legal-CC routing, marking-redesign Phase 2/4B).

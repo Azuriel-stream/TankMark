@@ -18,7 +18,9 @@ TankMark.sessionAssignments = {}
 
 -- Addon state
 TankMark.IsActive = true
-TankMark.MarkNormals = true
+-- [v0.30] MarkNormals now persists per-character (TankMarkCharConfig.markNormals),
+-- read via TankMark:MarkNormalsEnabled(). No runtime default here -- default-true
+-- lives in the accessor so an unset config keeps marking normals across reloads.
 TankMark.DeathPattern = nil
 TankMark.IsRecorderActive = false
 
