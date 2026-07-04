@@ -303,33 +303,73 @@ function TankMark:RefreshTrustList()
 	end
 end
 
--- Section builder: the legacy "Mark Normals" checkbox.
+-- Section builder: the "Mark Normals" checkbox (now persisted per-character via
+-- TankMarkCharConfig.markNormals, read through the default-true accessor).
 local function CreateMarkNormalsSection(tab)
 	local normalsCheck = CreateFrame("CheckButton", "TMNormalsCheck", tab, "UICheckButtonTemplate")
 	normalsCheck:SetPoint("TOPLEFT", 20, -50)
 	getglobal(normalsCheck:GetName().."Text"):SetText("Mark Normal/Non-Elite Mobs")
-	normalsCheck:SetChecked(TankMark.MarkNormals)
+	normalsCheck:SetChecked(TankMark:MarkNormalsEnabled())
 	normalsCheck:SetScript("OnClick", function()
-		TankMark.MarkNormals = this:GetChecked()
-		TankMark:Print("Marking Normal Mobs: " .. (TankMark.MarkNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+		if not TankMarkCharConfig then TankMarkCharConfig = {} end
+		TankMarkCharConfig.markNormals = this:GetChecked() and true or false
+		TankMark:Print("Marking Normal Mobs: " .. (TankMarkCharConfig.markNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 	end)
 	TankMark.normalsCheck = normalsCheck
+end
+
+-- Section builder: the two persisted marking-automation toggles, stacked under the
+-- Mark-Normals checkbox. Each writes its TankMarkCharConfig field directly -- the
+-- same switch as /tmark smartmark|autocc -- and stores a ref so the slash handlers
+-- and the tab OnShow can re-sync the box. (Pixel offsets are reload-tunable.)
+local function CreateMarkingAutomationSection(tab)
+	-- Smart Pre-Marking: the PRE-FIGHT batch mode (pack-aware Shift+mouseover).
+	local smartCheck = CreateFrame("CheckButton", "TMSmartMarkCheck", tab, "UICheckButtonTemplate")
+	smartCheck:SetPoint("TOPLEFT", 20, -76)
+	getglobal(smartCheck:GetName().."Text"):SetText("Smart Pre-Marking")
+	smartCheck:SetChecked(TankMark:SmartMarkEnabled())
+	smartCheck:SetScript("OnClick", function()
+		if not TankMarkCharConfig then TankMarkCharConfig = {} end
+		TankMarkCharConfig.smartMark = this:GetChecked() and true or false
+		TankMark:Print("Smart pre-mark (pack-aware Shift+mouseover): " .. (TankMarkCharConfig.smartMark and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+	end)
+	TankMark.smartMarkCheck = smartCheck
+
+	local smartLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	smartLegend:SetPoint("TOPLEFT", 44, -96)
+	smartLegend:SetText("Plans the whole pack on Shift+mouseover, before you engage.")
+
+	-- Auto-CC in Combat: the IN-COMBAT scanner mode (per-mob as nameplates appear).
+	local autoCheck = CreateFrame("CheckButton", "TMAutoCCCheck", tab, "UICheckButtonTemplate")
+	autoCheck:SetPoint("TOPLEFT", 20, -116)
+	getglobal(autoCheck:GetName().."Text"):SetText("Auto-CC in Combat")
+	autoCheck:SetChecked(TankMark:AutoCCEnabled())
+	autoCheck:SetScript("OnClick", function()
+		if not TankMarkCharConfig then TankMarkCharConfig = {} end
+		TankMarkCharConfig.autoCC = this:GetChecked() and true or false
+		TankMark:Print("Auto-CC in combat (healers / elite casters): " .. (TankMarkCharConfig.autoCC and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+	end)
+	TankMark.autoCCCheck = autoCheck
+
+	local autoLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	autoLegend:SetPoint("TOPLEFT", 44, -136)
+	autoLegend:SetText("Auto-sheeps healers / elite casters as they appear. Best for deliberate pulls.")
 end
 
 -- Section builder: the Mob DB sharing trust list (add-by-name + scroll list).
 local function CreateTrustSection(tab)
 	-- Header + one-line legend (ASCII only -- 1.12 FontStrings drop Unicode).
 	local hdr = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	hdr:SetPoint("TOPLEFT", 20, -90)
+	hdr:SetPoint("TOPLEFT", 20, -162)
 	hdr:SetText("Mob DB Sharing - Trusted / Blocked Players")
 
 	local legend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	legend:SetPoint("TOPLEFT", 20, -107)
+	legend:SetPoint("TOPLEFT", 20, -179)
 	legend:SetText("Trusted = shares auto-import; Blocked = shares ignored.")
 
 	-- Add-by-name row: EditBox + Trust / Block buttons.
 	local addBox = TankMark:CreateEditBox(tab, "Add player name", 150)
-	addBox:SetPoint("TOPLEFT", 24, -140)
+	addBox:SetPoint("TOPLEFT", 24, -212)
 
 	local function addWith(state)
 		local name = L._gsub(addBox:GetText() or "", "%s", "")  -- names are single words
@@ -354,7 +394,7 @@ local function CreateTrustSection(tab)
 
 	-- Scroll list + tooltip-style backdrop.
 	local sf = CreateFrame("ScrollFrame", "TankMarkTrustScroll", tab, "FauxScrollFrameTemplate")
-	sf:SetPoint("TOPLEFT", 24, -172)
+	sf:SetPoint("TOPLEFT", 24, -244)
 	sf:SetWidth(430)
 	sf:SetHeight(TRUST_MAX_ROWS * TRUST_ROW_H)
 
@@ -436,12 +476,19 @@ function TankMark:BuildGeneralOptionsTab(parent)
 	title:SetText("General Options")
 
 	CreateMarkNormalsSection(tab)
+	CreateMarkingAutomationSection(tab)
 	CreateTrustSection(tab)
 
-	-- Version Info
-	local versionInfo = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	versionInfo:SetPoint("BOTTOM", 0, 20)
-	versionInfo:SetText("|cff888888TankMark\nDatabase Resilience System|r")
+	-- [v0.30] Re-sync all three toggle checkboxes from their (persisted) accessors
+	-- whenever the tab is shown. The panel is built once and cached, so a slash
+	-- toggle made while it was closed would otherwise leave the box stale on reopen.
+	-- Also repaints the trust list on show.
+	tab:SetScript("OnShow", function()
+		if TankMark.normalsCheck   then TankMark.normalsCheck:SetChecked(TankMark:MarkNormalsEnabled()) end
+		if TankMark.smartMarkCheck then TankMark.smartMarkCheck:SetChecked(TankMark:SmartMarkEnabled()) end
+		if TankMark.autoCCCheck    then TankMark.autoCCCheck:SetChecked(TankMark:AutoCCEnabled()) end
+		TankMark:RefreshTrustList()
+	end)
 
 	TankMark:RefreshTrustList()
 	return tab
