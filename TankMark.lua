@@ -452,10 +452,12 @@ function TankMark:SlashHandler(msg)
         TankMark:Print("Auto-Marking |cffff0000DISABLED|r.")
         
     elseif cmd == "normals" then
-        TankMark.MarkNormals = not TankMark.MarkNormals
-        TankMark:Print("Marking Normal Mobs: " .. (TankMark.MarkNormals and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        -- [v0.30] MarkNormals now persists per-character (default-true accessor).
+        if not TankMarkCharConfig then TankMarkCharConfig = {} end
+        TankMarkCharConfig.markNormals = not TankMark:MarkNormalsEnabled()
+        TankMark:Print("Marking Normal Mobs: " .. (TankMark:MarkNormalsEnabled() and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
         if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() then
-            if TankMark.normalsCheck then TankMark.normalsCheck:SetChecked(TankMark.MarkNormals) end
+            if TankMark.normalsCheck then TankMark.normalsCheck:SetChecked(TankMark:MarkNormalsEnabled()) end
         end
 
     elseif cmd == "smartmark" or cmd == "smart" then
@@ -467,6 +469,9 @@ function TankMark:SlashHandler(msg)
         if not TankMarkCharConfig then TankMarkCharConfig = {} end
         TankMarkCharConfig.smartMark = on
         TankMark:Print("Smart pre-mark (pack-aware Shift+mouseover): " .. (on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() and TankMark.smartMarkCheck then
+            TankMark.smartMarkCheck:SetChecked(on)
+        end
 
     elseif cmd == "autocc" then
         -- [v0.30] Phase 4 (B): toggle in-combat auto-CC of absolutely-worthy mobs
@@ -480,6 +485,9 @@ function TankMark:SlashHandler(msg)
         TankMark:Print("Auto-CC in combat (healers / elite casters): " .. (on and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
         if on then
             TankMark:Print("  |cff888888Best for deliberate pulls -- a sheep taking AoE/cleave breaks immediately.|r")
+        end
+        if TankMark.optionsFrame and TankMark.optionsFrame:IsVisible() and TankMark.autoCCCheck then
+            TankMark.autoCCCheck:SetChecked(on)
         end
 
     elseif cmd == "recorder" then

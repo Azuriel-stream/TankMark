@@ -91,6 +91,21 @@ player CC (Polymorph, Banish, Sap, Shackle, …); only `normal` and `elite` mobs
 are CC-eligible. This gate is **independent of legal CC**: an elite Humanoid is
 CC-able, a *boss* Humanoid is not, even though the creatureType is the same.
 
+**Smart Pre-Marking**:
+The **pre-fight** marking mode. When on, a Shift+mouseover over a **pack** runs the
+pack-aware `DecidePull` and marks the *whole pack at once* — kill ladder and CC
+assignment computed together, before engagement. A per-character toggle, default
+off. Contrast **Auto-CC** (acts in combat, per-mob). _Avoid_: conflating the two
+modes — this one is pre-fight and pack-aware.
+
+**Auto-CC**:
+The **in-combat** marking mode. When on, the live scanner assigns a CC mark to a
+mob that clears the **CC-worthiness** floor (healers / elite casters) as its
+nameplate appears — per-mob and incremental, always honoring
+**reserve-a-kill-target**. A per-character toggle, default off. Contrast **Smart
+Pre-Marking** (pre-fight, whole-pack). _Avoid_: assuming it reasons over the pack —
+it does not; that is Smart Pre-Marking's job.
+
 ## Flagged ambiguities
 
 - **"role" is two distinct concepts.** **mob `role`** (HEALER/CASTER/MELEE, on the
