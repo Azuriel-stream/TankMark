@@ -16,6 +16,7 @@
 --                                 -- GetCCSlots() snapshot (default {})
 --   tankRoster  = { {mark=8, player="T", alive=true} }  -- GetTankRoster() (default {})
 --   blocker     = {icon=4, prio=2}-- GetBlockingMarkInfo() best blocker
+--   autoCC      = true            -- autoCCEnabled() toggle (Phase 4B; default false)
 --   playerInCombat / guidInCombat = false
 function make_board(o)
     o = o or {}
@@ -41,6 +42,7 @@ function make_board(o)
         tier                = function(g) return perGuid(o.tier, g) end,
         getCCSlots          = function()  return o.ccSlots or {} end,
         getTankRoster       = function()  return o.tankRoster or {} end,
+        autoCCEnabled       = function()  return flag(o.autoCC, false) end,
         getBlockingMarkInfo = function()
             if o.blocker then
                 return o.blocker.icon, o.blocker.guid or "blocker-guid", o.blocker.prio, o.blocker.hp or 100
