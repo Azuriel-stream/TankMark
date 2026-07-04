@@ -35,15 +35,22 @@ _Avoid_: bare "role" — always qualify (see Flagged ambiguities).
 ### Strategy (what a human authors)
 
 **type**:
-The per-mob plan for a mob — `KILL` / `CC` / `IGNORE`. Distinct from **mob role**:
-type is the *intent* (kill it, crowd-control it, leave it), role is an *attribute*.
-A `KILL` mob defaults to **skull**; a `CC` mob gets its crowd-control class icon.
+The per-mob plan for a mob — `KILL` / `CC` / `IGNORE`. A **guide, not a dictator**.
+`KILL` = normal (killed in **prio** order). `CC` = **forces the mob into the CC
+candidate set** (overriding the auto-candidacy floor) and names a preferred CC class
+— but it still yields to legality, capability, and **reserve-a-kill-target**, so a
+`CC`-flagged mob can still be killed (it's the last killable mob, or a
+higher-priority CC target took the slot). `IGNORE` = no mark. Distinct from **mob
+role** (an *attribute*): type is *intent*.
 
 **prio**:
-A mob's **kill-order rank** — a small number where *lower = killed sooner*. Its one
-mechanical effect is **deciding skull contests**: among skull-authored mobs, lowest
-prio wins/holds skull. It does *not* (yet) reorder non-skull marks — that is Phase 4
-routing. _Avoid_: weight, priority (unqualified), importance.
+A mob's **kill-order rank** — a small number where *lower = killed sooner*. The
+**master ordering knob**, with two mechanical effects: (1) it **decides skull
+contests** (among mobs contesting skull, lowest prio wins/holds it); and (2) it
+**orders CC-vs-kill** among CC candidates — the mobs killed *last* (highest prio
+number) get the scarce CC slots, the mobs killed *first* (lowest prio) are killed
+(skull to the lowest). Defaults from **mob role** × **tier**, human-overridable.
+_Avoid_: weight, priority (unqualified), importance.
 
 **profile `role`**:
 A *player's* job in the **Team Profile** roster — `TANK` / `CC`. Lives on
@@ -60,13 +67,23 @@ elite Warrior gets sheeped to clear the trash; a Warrior beside a healer Oracle
 gets skull-killed while the Oracle is sheeped).
 
 **CC-worthiness**:
-How much a mob warrants spending a scarce **CC** slot on — derived from **mob
-role** × **tier** (HEALER > dangerous CASTER > durable elite MELEE > trash). A
-*relative* ranking input, distinct from **prio** (kill order) and from **legal
-CC** (capability). Read live from role/tier, never from `prio` (which is the
-human's overridable kill-order knob). Used two ways: ranked across a pack to pick
-CC targets pre-fight; thresholded per-mob to auto-CC the always-worthy ones
-(healers / elite casters) in combat. _Avoid_: conflating with prio or legal CC.
+The **auto-CC candidacy floor** — derived from **mob role** × **tier**. Its *only*
+job is deciding which mobs are eligible for **automatic** CC without a human
+`type=="CC"` flag (healers / elite casters clear the floor; trash does not). It does
+**not** decide *which* candidate gets CC'd, nor whether a mob is CC'd vs killed —
+**prio** orders that (CC the kill-last tail). Distinct from **prio** (kill order) and
+**legal CC** (capability). _Avoid_: treating it as "sheep the most valuable mob" — a
+healer is often a priority *kill*, not a CC target; **prio** decides, and it defaults
+to killing the healer first.
+
+**reserve-a-kill-target**:
+The invariant that a pull always keeps at least one **kill target** — the engine
+never spends **CC** on the last killable mob. So a lone mob is killed, not CC'd
+(**even one authored `type=="CC"`** — it falls through to its own kill mark), and a
+fully-CC-able pack still leaves one mob to kill. On the scanner this means the first
+mob engaged is the kill and CC only starts once a skull is committed; the batch
+enforces it via kill-first ordering. Neutralizing an *entire* pack is a deliberate
+manual action, never an automatic outcome.
 
 **CC-immune tier**:
 Mobs of tier `rare` / `rareelite` / `worldboss` / `boss` are generally immune to
