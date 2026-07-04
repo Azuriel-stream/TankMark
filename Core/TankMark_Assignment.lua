@@ -215,6 +215,20 @@ function TankMark:CCTierEligible(tier)
     return bucket == "normal" or bucket == "elite"
 end
 
+-- [v0.30] Phase 4 CC-model floor: does this mob clear the auto-CC candidacy
+-- threshold? Shared by BOTH paths -- the batch DecidePull uses it to GATE
+-- candidacy (a below-floor mob is not an auto-CC candidate), the scanner ResolveCC
+-- thresholds it per-mob. Floor-only + pure, single-sourcing SCANNER_CC_FLOOR beside
+-- the CC_WORTH curve. NB: tier-immunity ("boss healer must not CC") is the separate
+-- universal CCTierEligible gate, NOT this -- so this stays a clean floor compare.
+-- 70 => HEALER normal(90)/elite(100) pass, CASTER elite(70) passes, CASTER
+-- normal(40) and all MELEE fail. type=="CC" OVERRIDES this (forces candidacy).
+-- Default, not law (tune with the curve).
+local SCANNER_CC_FLOOR = 70
+function TankMark:MeetsAutoCCFloor(role, tier)
+    return TankMark:CCWorthiness(role, tier) >= SCANNER_CC_FLOOR
+end
+
 -- Check if player is a CC-capable class
 function TankMark:IsPlayerCCClass(playerName)
     if not playerName or playerName == "" then return false end
@@ -381,11 +395,35 @@ function TankMark:IsMarkCCd(icon)
     return false
 end
 
+-- [v0.30] Phase-4 CC-model revision: is `icon` a CC-role profile slot? Pure over
+-- the passed profile list (any entry with role=="CC" whose mark == icon). A mob
+-- holding a CC-role mark is being PARKED, not killed, so it must NEVER count as a
+-- skull blocker. IsMarkCCd only catches it once the Polymorph/Banish AURA lands;
+-- this catches it the moment the CC MARK is placed (auto-CC or authored), before
+-- any aura exists -- which is the "auto-CC'd mob suppresses skull for the whole
+-- pack" bug. Takes the profile list as a param (UpdateBest has it in scope), so it
+-- stays a total, directly-tested function. Fail-safe: nil icon/list or an
+-- unmigrated nil-role entry -> false -> current (pre-fix) blocking behavior.
+function TankMark:IsCCSlotMark(icon, profileList)
+    if not icon or not profileList then return false end
+    for _, entry in L._ipairs(profileList) do
+        if entry.role == "CC" and L._tonumber(entry.mark) == L._tonumber(icon) then
+            return true
+        end
+    end
+    return false
+end
+
 -- [v0.26 FIXED] Safe GUID Handling + Liveness Guard
 -- A mark holder only qualifies as a blocker if its mark unit token currently
 -- exists server-side AND is not dead. This prevents dead-but-not-yet-evicted
 -- MarkMemory entries from blocking SKULL reassignment after their mob dies.
 function TankMark:GetBlockingMarkInfo()
+    -- [v0.30] Read the profile ONCE up top so the UpdateBest closure below can see
+    -- `list` for the CC-slot exclusion. Also consumed by Pass 1.
+    local zone = TankMark:GetCachedZone()
+    local list = TankMarkProfileDB[zone]
+
     local bestBlocker = {
         icon = nil,
         guid = nil,
@@ -399,9 +437,11 @@ function TankMark:GetBlockingMarkInfo()
         -- chokepoint for all three discovery passes below. Both governor paths
         -- (decide-path GovernorBlocks + death-path ReviewSkullState) read this
         -- function, so excluding here fixes both with no duplication.
-        if TankMark:IsMarkCCd(icon) then
+        -- [v0.30] Exclude a CC-role mark holder whether or not the aura has landed
+        -- yet: IsMarkCCd = aura present; IsCCSlotMark = assigned to a CC slot.
+        if TankMark:IsMarkCCd(icon) or TankMark:IsCCSlotMark(icon, list) then
             if TankMark.DebugEnabled then
-                TankMark:DebugLog("SKULL_REVIEW", "blocker excluded: parked CC", {
+                TankMark:DebugLog("SKULL_REVIEW", "blocker excluded: parked/assigned CC", {
                     icon = icon,
                     guid = guid,
                 })
@@ -427,9 +467,6 @@ function TankMark:GetBlockingMarkInfo()
         if L._UnitIsDead("mark" .. iconID) == 1 then return false end
         return true
     end
-
-    local zone = TankMark:GetCachedZone()
-    local list = TankMarkProfileDB[zone]
 
     -- PASS 1: Static Profile Checks
     if list then

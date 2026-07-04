@@ -123,3 +123,35 @@ describe("SelectCCSlot two-pass resolver", function()
         eq(TankMark:SelectCCSlot("SHAMAN", "Humanoid", troll), 5, "troll shaman ok")
     end)
 end)
+
+describe("IsCCSlotMark (Phase-4 rev: a CC-role mark never blocks skull)", function()
+    -- A Team Profile is a list of { mark, role, tank }; only role=="CC" marks are
+    -- CC slots. The governor's UpdateBest excludes these from skull-blocker
+    -- selection -- aura or not -- so an auto-CC'd / authored CC mob can't suppress
+    -- the pack's skull. Pure over the passed profile list.
+    local profile = {
+        { mark = 8, role = "TANK", tank = "MainTank" },
+        { mark = 6, role = "CC",   tank = "Mage" },
+        { mark = 4, role = "TANK", tank = "OffTank" },
+    }
+    it("true for a CC-role mark", function()
+        eq(TankMark:IsCCSlotMark(6, profile), true, "square is the mage CC slot")
+    end)
+    it("false for a TANK-role (kill) mark", function()
+        eq(TankMark:IsCCSlotMark(8, profile), false, "skull is a tank mark")
+        eq(TankMark:IsCCSlotMark(4, profile), false, "triangle is a tank mark")
+    end)
+    it("false for a mark absent from the profile", function()
+        eq(TankMark:IsCCSlotMark(2, profile), false, "no such slot")
+    end)
+    it("compares numerically (string mark in profile)", function()
+        local strMark = { { mark = "6", role = "CC", tank = "Mage" } }
+        eq(TankMark:IsCCSlotMark(6, strMark), true, "string mark tonumber'd")
+    end)
+    it("fail-safe: nil icon / nil list / unmigrated nil-role -> false", function()
+        eq(TankMark:IsCCSlotMark(nil, profile), false, "nil icon")
+        eq(TankMark:IsCCSlotMark(6, nil), false, "nil list")
+        local unmigrated = { { mark = 6, tank = "Mage" } }  -- role nil
+        eq(TankMark:IsCCSlotMark(6, unmigrated), false, "nil role fail-safe")
+    end)
+end)
