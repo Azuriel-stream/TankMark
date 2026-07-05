@@ -10,6 +10,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
 
 - **TankMark_Session.lua**: Centralized runtime state variables (`usedIcons`, `activeGUIDs`, `activeMobNames`, `disabledMarks`, `sessionAssignments`, etc.), the `MarkInfo` constants table, and **[v0.28]** `CCAuraSet` — the flattened set of parked-CC aura IDs (built at load from the grouped `CC_SOURCE` table) that `IsMarkCCd` reads. Loaded first among Core modules. **[v0.31]** `MarkNormals` no longer lives here — it moved to a persisted per-character field (`TankMarkCharConfig.markNormals`, read via `TankMark:MarkNormalsEnabled()`, default-true); the runtime default was removed.
 - **TankMark_Reservation.lua**: **[v0.31]** The **reservation** seam — `Reservation.Reserve(icon, player)`, the single writer of a *manual* mark-slot claim (`/tmark assign`, the HUD). It occupies the icon (`usedIcons`) and binds the responsible player (`sessionAssignments`) in one guarded write, so `usedIcons` now has exactly two named writers: the **Ledger** (ownership — a live mob wears the mark) and this module (reservation). Pure Core (no WoW API / UI — callers keep their own HUD refresh); loaded right after the Ledger. Distinct from **ownership** and **assignment** — see `CONTEXT.md`. (The dead `AssignCC` wrapper was removed when this landed.)
+- **TankMark_ZoneView.lua**: **[v0.31]** Builds the **active zone view** (`activeDB`) — `ZoneView.Merge(userZone, defaultsZone)` overlays user entries over the shipped defaults (user wins, defaults fill gaps) and runs every entry through `ZoneView.ValidateEntry` on the way in. Validation is **fail-closed on the required fields** (a non-numeric `prio`, or an empty / non-numeric / out-of-`[0,8]` `marks` array, **drops** the entry → its mob falls to the unknown-mob path; a rank is never fabricated) and **normalizing on the optional ones** (bad `type` → `KILL`, bad mob `role` → nil, non-string `class` → nil; `creatureType`/`tier` pass through untouched). **Non-mutating**: a clean entry returns the **same reference** (so `activeDB` keeps sharing tables with `TankMarkDB.Zones` exactly as before), a normalized one a shallow copy — the authored DB is never rewritten. Pure Core (no WoW API / globals — the `Data.lua` `LoadZoneData` shell reads the world and assigns `activeDB`); loaded right after the Reservation seam. **Behavior-identical**: every writer already sanitizes (editor coerces `prio`, `SyncCodec` rejects bad `prio`/`marks`, recorder hard-codes, Defaults are clean), so this is a **fail-closed chokepoint** (architecture candidate C) whose one net-new guarantee is `type` / mob-`role` enum membership — asserted nowhere else. The recorder's live `activeDB` inject (`RecordUnit`) routes through `ValidateEntry` too, so "every `activeDB` entry passed validation" holds for both doors. Harness-tested (`tests/zone_merge_spec.lua`). See **active zone view** in `CONTEXT.md`.
 - **TankMark_Permissions.lua**: `CanAutomate()`, `HasPermissions()`, `ShouldDriveMarks()`, `Driver_GetGUID()`, and `Driver_ApplyMark()`. The last wraps `SetRaidTarget` with debug logging (guarded by `TankMark.DebugEnabled`). **[v0.29, swarm slice 3, PR #72]** `ShouldDriveMarks()` is the **marking** gate, deliberately distinct from `CanAutomate()` the **candidacy** gate: `CanAutomate() and (not Swarm.IsRunning() or Swarm.selfAmQueen)`, **fail-open** when the election shell isn't running. Every world-mark path reads it; `CanAutomate` is left unchanged so the swarm election/failover pool is preserved. See **Single-Marker Enforcement** under Key Systems.
 - **TankMark_Assignment.lua**: Mark assignment algorithms and player detection:
   - `GetFreeTankIcon()` — iterates Team Profile entries, uses `IsMarkBusy()` to check availability.
@@ -66,7 +67,7 @@ Contains business logic (marking algorithms, death handling, scanner, etc.)
 ### Data/
 Database management and persistence
 
-- **TankMark_Data.lua**: DB initialization (`InitializeDB`), corruption detection (`ValidateDB`), snapshot system (`CreateSnapshot`/`RestoreFromSnapshot`), lazy-load zone data (`LoadZoneData`/`RefreshActiveDB`), roster management (`UpdateRoster`/`GetFirstAvailableBackup`), and the **Debug Logging System**:
+- **TankMark_Data.lua**: DB initialization (`InitializeDB`), corruption detection (`ValidateDB`), snapshot system (`CreateSnapshot`/`RestoreFromSnapshot`), lazy-load zone data (`LoadZoneData` — **[v0.31]** now a thin shell over `ZoneView.Merge`, which builds the validated **active zone view** — and `RefreshActiveDB`), roster management (`UpdateRoster`/`GetFirstAvailableBackup`), and the **Debug Logging System**:
   - `DebugLog(category, message, data)` — circular buffer (500 entries max), stored in `TankMarkDB.DebugLog`. Early-returns if `TankMark.DebugEnabled == false`, then **[v0.28, PR #49]** drops any category not in the optional `TankMark.DebugCategories` capture-time allow-list (`nil` = log every category).
   - `DumpDebugLog(filterCategory)` — prints to chat with color-coded categories.
   - `ClearDebugLog()` — wipes the buffer.
@@ -259,7 +260,7 @@ apart from a few pure-language utilities the harness shims to their stock Lua
 versions — `L._tgetn` (→ `table.getn`) for the decide layer, and **[v0.29]**
 `L._sub` / `L._strfind` / `L._tonumber` / `L._tinsert` / `L._pairs` / `L._ipairs`
 and **[slice 4]** `L._gfind` (→ `string.gmatch`, Vanilla's `string.gfind`) for the
-SyncCodec and the swarm.
+SyncCodec and the swarm, and **[v0.31]** `L._type` (→ `type`) for the ZoneView validator.
 
 **Runtime:** production code stays Lua **5.0**-idiomatic (Vanilla WoW); the harness
 runs on Lua **5.1** (closest widely-available interpreter — it still has
@@ -269,7 +270,8 @@ runs on Lua **5.1** (closest widely-available interpreter — it still has
 script excludes the whole tree by path prefix):
 - `run.lua` — entry point; lists the spec files and prints a pass/fail summary.
 - `support/harness.lua` — stubs the minimum, loads the SUT (`Assignment.lua`,
-  `Processor.lua`, and **[v0.29]** `SyncCodec.lua` + `Swarm.lua` — all
+  `Processor.lua`, and **[v0.29]** `SyncCodec.lua` + `Swarm.lua`, **[v0.31]** plus
+  the pure `Reservation.lua` + `ZoneView.lua` seams — all
   definition-only), and provides a tiny `describe`/`it`/`eq`/`eq_intent` runner (**[v0.31]** plus `eq_skull` for `DecideSkullSuccessor`'s `action`-tagged intents).
 - `support/board.lua` — `make_board(overrides)`, a mock ports board with safe
   defaults (in combat, nothing busy/disabled/free, no CC, no blocker).

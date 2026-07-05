@@ -118,6 +118,18 @@ nameplate appears — per-mob and incremental, always honoring
 Pre-Marking** (pre-fight, whole-pack). _Avoid_: assuming it reasons over the pack —
 it does not; that is Smart Pre-Marking's job.
 
+### Mob-knowledge store (runtime)
+
+**active zone view**:
+The mob knowledge for the **current zone** as the decision layer reads it: the
+per-zone entries from `TankMarkDB.Zones` overlaid **user-wins** on the shipped
+`TankMarkDefaults`, validated as it is built, and cached in `activeDB`. Rebuilt on
+zone change. Distinct from the persistent multi-zone store (`TankMarkDB.Zones`,
+every zone as authored) and the shipped baseline (`TankMarkDefaults`): the active
+zone view is the *transient, merged, validated* projection of both for the one
+zone in play — what every marking decision reads. _Avoid_: conflating with the
+persistent store.
+
 ### Mark-slot state (runtime)
 
 Three distinct facts about a mark slot during a live session. They are routinely
