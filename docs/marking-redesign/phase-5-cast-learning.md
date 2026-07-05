@@ -3,7 +3,12 @@
 > Prev: [`phase-4-pull-assignment.md`](phase-4-pull-assignment.md) · Next: — · Up:
 > [`00-OVERVIEW.md`](00-OVERVIEW.md) · Schema: [`DATA-MODEL.md`](DATA-MODEL.md)
 
-> **Status: deferred.** Build only after Phases 1–4 are solid and you want to reduce the one remaining
+> **Status: SHELVED by decision (2026-07-05).** Phases 1–4 shipped and the redesign is considered
+> complete; this phase was reviewed and judged **high-investment / low-return**, so it is deliberately
+> not built — not a pending backlog item. Revisit only if manual `role`-tagging becomes a real in-game
+> pain. The design below is preserved as-is for that possibility.
+>
+> **Originally deferred.** Build only after Phases 1–4 are solid and you want to reduce the one remaining
 > piece of human authoring (mob `role`). Everything else works without this.
 
 ## Goal
