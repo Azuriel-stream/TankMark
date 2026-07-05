@@ -21,6 +21,10 @@ TankMark.LiveBoard = {
     markOwnerPriority   = function(icon)  return TankMark:GetMarkOwnerPriority(icon) end,
     getFreeTankIcon     = function()      return TankMark:GetFreeTankIcon() end,
     getBlockingMarkInfo = function()      return TankMark:GetBlockingMarkInfo() end,
+    -- [v0.31] Skull-succession port (architecture candidate A): the death-path
+    -- candidate scan, opaque to the pure DecideSkullSuccessor (which only consumes
+    -- its (guid, prio) result). Lazily called only past the guards.
+    findEmergencyCandidate = function()  return TankMark:FindEmergencyCandidate() end,
     -- [v0.30] legal-CC ports (Phase 2): the live creatureType read and the
     -- role=="CC" profile-slot snapshot. The CC routing decision itself is the
     -- pure SelectCCSlot, so these two only do the live reads.
@@ -449,6 +453,66 @@ function TankMark:DecideUnknownMark(guid, mode, board)
     end
 
     return { icon = iconToApply, reason = "unknown-free" }
+end
+
+-- [v0.31] Pure death-path skull-succession decision (architecture candidate A).
+-- The harness-testable mirror of DecideMark for the skull governor's death path:
+-- a cheap skull-slot `snapshot` in + the live-scan `board` ports (getBlockingMarkInfo,
+-- findEmergencyCandidate stay OPAQUE, lazily called only past the guards) -> a tagged
+-- intent { action = "none"|"adopt"|"assign", ... }. Applies NOTHING; the shell
+-- (ReviewSkullState, Death.lua) builds the snapshot and dispatches. See CONTEXT.md
+-- "skull succession".
+function TankMark:DecideSkullSuccessor(snapshot, board)
+    -- mark8-alive arm: skull is on a living unit, so there is nothing to succeed.
+    -- Three sub-cases, in precedence order:
+    --   owner == live GUID -> we already own it: a quiet no-op confirm.
+    --   owner is nil        -> a physical skull we lost track of: ADOPT (record
+    --                          ownership only; the mark is already placed, so the
+    --                          shell must NOT re-emit SetRaidTarget).
+    --   owner set but stale -> leave the live skull alone (blocked).
+    -- The mob NAME is not a snapshot fact (it would cost a UnitName read every
+    -- confirm tick); the shell resolves it from intent.guid only at apply time,
+    -- symmetric with the assign path (findEmergencyCandidate returns guid+prio too).
+    if snapshot.skullAlive then
+        if snapshot.memoryOwner == snapshot.skullLiveGUID then
+            return { action = "none", reason = "mark8-alive-owned" }
+        elseif not snapshot.memoryOwner then
+            return { action = "adopt", guid = snapshot.skullLiveGUID, reason = "adopt" }
+        else
+            return { action = "none", reason = "mark8-alive" }
+        end
+    end
+
+    -- Duplicate-event guard: after a skull mob dies, COMBAT_LOG and UNIT_DEATH fire
+    -- ~4ms apart. The first call records a new owner in MarkMemory[8]; a non-nil
+    -- memoryOwner here (skull still not server-confirmed) means we are the duplicate
+    -- caller -- bail before a second assignment. (EvictMarkOwner's GUID-aware Release
+    -- keeps memoryOwner nil until a new owner is actually committed.)
+    if snapshot.memoryOwner then
+        return { action = "none", reason = "pending-assignment" }
+    end
+
+    -- [v0.26] Sequential-marking guard: a skull mob that is part of a sequential
+    -- kill list (marks > 1, e.g. Majordomo) is the Batch cursor's job, not the
+    -- auto-succession's. The shell computes isSequential from NameFor(8)/activeDB.
+    if snapshot.isSequential then
+        return { action = "none", reason = "sequential" }
+    end
+
+    local candidateGUID, candidatePrio = board.findEmergencyCandidate()
+    if not candidateGUID then
+        return { action = "none", reason = "no-candidate" }
+    end
+    -- Governor incumbency via the shared predicate (single-sourced with the
+    -- decide-path GovernorBlocks so the >= can't drift): (re)assign skull only
+    -- when the candidate is STRICTLY better than any incumbent blocker.
+    local blockIcon, _, blockPrio = board.getBlockingMarkInfo()
+    if TankMark:IncumbencyBlocks(candidatePrio or 5, blockIcon, blockPrio) then
+        return { action = "none", reason = "incumbency",
+                 blockIcon = blockIcon, blockPrio = blockPrio, candidatePrio = candidatePrio }
+    end
+    return { action = "assign", guid = candidateGUID, reason = "assign",
+             candidatePrio = candidatePrio, blockIcon = blockIcon, blockPrio = blockPrio }
 end
 
 -- [v0.28] Centralized apply edge for the decide/apply split (roadmap #2).

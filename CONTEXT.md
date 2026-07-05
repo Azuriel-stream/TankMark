@@ -18,6 +18,18 @@ _Avoid_: icon (use only for the raw 1–8 id), target.
 Mark 8 — the highest-priority kill mark, governed specially (the "skull governor").
 Among mobs that contest skull, the one with the lowest **prio** number holds it.
 
+**skull succession**:
+When the mob currently wearing **skull** dies, the engine promotes the next-best
+remaining target to skull — the highest-priority (lowest **prio**) eligible mob still
+in combat — unless a standing incumbent mark of equal-or-higher rank should keep
+priority instead. The **death-time** counterpart to the **skull governor** (which
+resolves skull *contests among living mobs* at mark-time); succession resolves *who
+inherits skull on a death*. Both consume **prio** through the same incumbency
+comparison, so the rule can't drift between them. A special case: if a physical skull
+is found already on a living mob the engine has lost track of, succession *adopts* it
+(records ownership) rather than re-placing it. _Avoid_: conflating with the governor —
+governor is contest-time, succession is death-time.
+
 **creatureType**:
 What kind of creature a mob is (Humanoid, Beast, Undead, …), read live and free from
 the client. Drives legal-CC routing.

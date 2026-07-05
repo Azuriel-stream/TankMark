@@ -206,192 +206,106 @@ end
 function TankMark:ReviewSkullState(callerID)
 	local _caller = callerID or "UNKNOWN"
 
-	-- [v0.28] Steady-state skull-confirm short-circuit (roadmap candidate 0:
-	-- mark8-alive poll de-noise). When a skull is alive AND we already own that
-	-- exact GUID, this call is a pure no-op confirm -- every downstream branch
-	-- returns without touching a mark. The scanner CLEANUP phase calls this every
-	-- tick the whole time a skull is up, so without this the entry log + the
-	-- "BLOCKED - mark8 alive" log spammed ~2 lines/tick (125 in a 79s trace),
-	-- evicting the real decision entries from the 500-slot ring. Return before the
-	-- entry log and emit one breadcrumb per DISTINCT holder only. Adoption (owner
-	-- nil) and theft/mismatch (owner ~= live GUID) fall through to the full logic
-	-- below, so the wedge tell ("registered pre-existing skull holder") is intact;
-	-- an adopted holder becomes owner==live next tick and then goes quiet here.
-	-- The mark8 reads run every tick anyway (the real alive check below), so this
-	-- adds no hot-path cost when debug is off -- it short-circuits earlier.
-	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
-		local _, liveSkullGUID = L._UnitExists("mark8")
-		if liveSkullGUID and TankMark.Ledger.MemoryOwner(8) == liveSkullGUID then
-			if TankMark.DebugEnabled and liveSkullGUID ~= lastAliveSkullLogged then
-				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState confirm - mark8 alive (owned)", {
-					caller     = _caller,
-					guid       = liveSkullGUID,
-					mark8_name = L._UnitName("mark8") or "?",
-				})
-				lastAliveSkullLogged = liveSkullGUID
-			end
-			return
-		end
-	end
+	-- [v0.31] Shell for the pure skull-succession seam (architecture candidate A).
+	-- This was ~190 lines of tangled guards + decision; the decision now lives in
+	-- the harness-tested DecideSkullSuccessor (Processor.lua). The shell only: gates
+	-- permission, builds the cheap skull-slot snapshot, decides on the seam, logs,
+	-- and dispatches the tagged intent to the apply edge. See CONTEXT.md
+	-- "skull succession".
 
-	-- DEBUG: Entry Snapshot
-	-- Captures full skull-related state at invocation time. Primary instrument for
-	-- diagnosing multiple-call issues. [v0.28] Computed INSIDE the debug guard: the
-	-- scanner CLEANUP phase calls this every tick (grouped, in OR out of combat), and
-	-- these ~6 WoW API reads feed only the log -- they must not run on the hot path
-	-- when debug is off. The real logic below recomputes mark8/MemoryOwner fresh.
-	if TankMark.DebugEnabled then
-		local mark8Exists = L._UnitExists("mark8") or false
-		local mark8IsDead = mark8Exists and (L._UnitIsDead("mark8") == 1) or false
-		local mark8Name   = mark8Exists and (L._UnitName("mark8") or "?") or "nil"
-		local memGUID     = TankMark.Ledger.MemoryOwner(8)
-		local memMobName  = memGUID and (L._UnitName(memGUID) or "?") or "nil"
-		local activeName8 = TankMark.Ledger.NameFor(8) or "nil"
-
-		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState entry", {
-			caller       = _caller,
-			mark8_exists = mark8Exists,
-			mark8_dead   = mark8IsDead,
-			mark8_name   = mark8Name,
-			memory8_guid = memGUID or "nil",
-			memory8_name = memMobName,
-			active_name8 = activeName8,
-		})
-	end
-
-	-- 1. Basic Checks
-	-- [v0.29] slice 3: gated to the swarm queen (was HasPermissions). This is a
-	-- record-before-apply marking path (RegisterMarkUsage -> Driver_ApplyMark below),
-	-- so a non-queen must not even reach the Ledger write. All callers are already
-	-- ShouldDriveMarks-gated; this is the consistent defense-in-depth backstop.
+	-- Permission gate first (a shell side-condition, not a decision). All callers
+	-- are ShouldDriveMarks-gated already; this is the defense-in-depth backstop that
+	-- keeps a non-queen out of the Ledger-writing dispatch below.
 	if not TankMark:ShouldDriveMarks() then
 		if TankMark.DebugEnabled then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - not active marker", {
-				caller = _caller,
-			})
+			TankMark:DebugLog("SKULL_REVIEW", "BLOCKED - not active marker", { caller = _caller })
 		end
 		return
 	end
 
-	-- [FIX] If SKULL is already on a valid, living target, nothing to review.
-	-- UnitExists("mark8") is server-side and persists regardless of nameplate
-	-- visibility (confirmed via in-game testing).
-	if L._UnitExists("mark8") and L._UnitIsDead("mark8") ~= 1 then
-		-- FIX: Populate MarkMemory if the skull holder is unknown
-		if not TankMark.Ledger.MemoryOwner(8) then
-			local _, existingGUID = L._UnitExists("mark8")
-			if existingGUID then
-				local existingName = L._UnitName("mark8") or "?"
-				TankMark:RegisterMarkUsage(8, existingName, existingGUID, false)
-				if TankMark.DebugEnabled then
-					TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState registered pre-existing skull holder", {
-						caller = _caller,
-						guid   = existingGUID,
-						name   = existingName,
-					})
-				end
-			end
-		end
-		if TankMark.DebugEnabled then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - mark8 alive", {
-				caller     = _caller,
-				mark8_name = L._UnitName("mark8") or "?",
-			})
-		end
-		return
-	end
+	-- Build the cheap skull-slot snapshot (the guard inputs) -- all live reads, done
+	-- once and consistently. Safe here because ReviewSkullState makes <=1 assignment
+	-- per call; cross-call freshness (the COMBAT_LOG/UNIT_DEATH dup race) comes from
+	-- re-entry, not from live-reading mid-call. mark8 tokens are server-side
+	-- (visibility-independent). memoryOwner is RAW MarkMemory (MemoryOwner, not
+	-- OwnerOf) -- the activeGUIDs fallback would over-block the dup-event guard.
+	local skullExists, skullLiveGUID = L._UnitExists("mark8")
+	local skullAlive = (skullExists and L._UnitIsDead("mark8") ~= 1) and true or false
+	if not skullAlive then skullLiveGUID = nil end
 
-	-- [FIX] Duplicate-Event Guard.
-	-- After a skull mob dies, two events fire within ~4ms of each other:
-	-- COMBAT_LOG and UNIT_DEATH. The first ReviewSkullState call commits a
-	-- new assignment by writing candidateGUID into MarkMemory[8] before
-	-- calling Driver_ApplyMark. If MarkMemory[8] is non-nil here, and mark8
-	-- is dead (server has not yet confirmed the new assignment), we are the
-	-- duplicate caller. Block immediately to prevent a second SetRaidTarget.
-	-- EvictMarkOwner's GUID-aware logic ensures MarkMemory[8] is only nil
-	-- when no new assignment has been committed in this tick.
-	if TankMark.Ledger.MemoryOwner(8) then
-		if TankMark.DebugEnabled then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - pending assignment", {
-				caller     = _caller,
-				lockedGUID = TankMark.Ledger.MemoryOwner(8),
-			})
-		end
-		return
-	end
-
-	-- [v0.26] Sequential Marking Guard
-	-- Prevents auto-skull if the mob is part of a sequential kill list (e.g. Majordomo)
+	local isSequential = false
 	local skullName = TankMark.Ledger.NameFor(8)
 	if skullName and TankMark.activeDB and TankMark.activeDB[skullName] then
-		local data = TankMark.activeDB[skullName]
-		if data.marks and L._tgetn(data.marks) > 1 then
-			if TankMark.DebugEnabled then
-				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState BLOCKED - sequential guard", {
-					caller    = _caller,
-					skullName = skullName,
-				})
-			end
-			return
-		end
+		local marks = TankMark.activeDB[skullName].marks
+		isSequential = (marks and L._tgetn(marks) > 1) and true or false
 	end
 
-	-- 2. Governor Check (The Blocker)
-	local blockIcon, _, blockPrio, _ = nil, nil, 99, nil
-	if TankMark.GetBlockingMarkInfo then
-		blockIcon, _, blockPrio, _ = TankMark:GetBlockingMarkInfo()
-	end
+	local snapshot = {
+		skullAlive    = skullAlive,
+		skullLiveGUID = skullLiveGUID,
+		memoryOwner   = TankMark.Ledger.MemoryOwner(8),
+		isSequential  = isSequential,
+	}
 
+	-- Decide on the pure seam (the death-path mirror of DecideMark).
+	local intent = TankMark:DecideSkullSuccessor(snapshot, TankMark.LiveBoard)
+
+	-- Debug breadcrumbs live in the shell (the pure fn stays zero-global). Guarded,
+	-- and the confirm case is throttled to once per distinct holder so the every-tick
+	-- mark8-alive poll cannot flood the 500-slot SKULL_REVIEW ring (PR #53 / #55).
 	if TankMark.DebugEnabled then
-		TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState governor check", {
-			caller    = _caller,
-			blockIcon = blockIcon or "nil",
-			blockPrio = blockPrio or "nil",
-		})
+		TankMark:LogSkullReview(_caller, snapshot, intent)
 	end
 
-	-- 3. Find Best Candidate for Skull
-	if TankMark.FindEmergencyCandidate then
-		local candidateGUID, candidatePrio = TankMark:FindEmergencyCandidate()
-
-		if not candidateGUID then
-			if TankMark.DebugEnabled then
-				TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState NO CANDIDATE found", {
-					caller = _caller,
-				})
-			end
-			return
+	-- Dispatch the tagged intent.
+	if intent.action == "adopt" then
+		-- Ledger-only: the physical skull already exists on the mob, so we record
+		-- ownership but must NOT re-emit SetRaidTarget (behavior-identical adopt).
+		if intent.guid then
+			TankMark:RegisterMarkUsage(8, L._UnitName(intent.guid) or "?", intent.guid, false)
 		end
+	elseif intent.action == "assign" then
+		-- Real succession: reuse the one apply edge (RegisterMarkUsage + Driver).
+		TankMark:ApplyMarkIntent(intent.guid, L._UnitName(intent.guid), { icon = 8, reason = intent.reason }, false)
+	end
+end
 
-		-- [v0.28] STRICT INCUMBENCY RULE via the shared IncumbencyBlocks predicate
-		-- (single-sourced with GovernorBlocks so the >= operator can't drift).
-		-- Only (re)assign skull when the candidate is strictly better (lower prio
-		-- number) than the incumbent blocker; an equal-prio incumbent blocks.
-		local shouldAssign = not TankMark:IncumbencyBlocks(candidatePrio or 5, blockIcon, blockPrio)
-
-		if TankMark.DebugEnabled then
-			TankMark:DebugLog("SKULL_REVIEW", "ReviewSkullState decision", {
-				caller        = _caller,
-				candidateGUID = candidateGUID or "nil",
-				candidateName = candidateGUID and (L._UnitName(candidateGUID) or "?") or "nil",
-				candidatePrio = candidatePrio or "nil",
-				blockIcon     = blockIcon or "nil",
-				blockPrio     = blockPrio or "nil",
-				shouldAssign  = shouldAssign,
+-- [v0.31] Shell-side SKULL_REVIEW breadcrumbs for the succession seam (kept out of
+-- the pure DecideSkullSuccessor, which stays zero-global). Only ever called inside
+-- the DebugEnabled guard. The steady-state confirm is throttled to once per DISTINCT
+-- holder via the module-local lastAliveSkullLogged, so the scanner's every-tick
+-- mark8-alive poll emits one line per holder, not one per tick (PR #53 / #55).
+function TankMark:LogSkullReview(caller, snapshot, intent)
+	if intent.reason == "mark8-alive-owned" then
+		if snapshot.skullLiveGUID ~= lastAliveSkullLogged then
+			TankMark:DebugLog("SKULL_REVIEW", "confirm - mark8 alive (owned)", {
+				caller = caller,
+				guid   = snapshot.skullLiveGUID or "nil",
+				name   = L._UnitName("mark8") or "?",
 			})
+			lastAliveSkullLogged = snapshot.skullLiveGUID
 		end
-
-		if shouldAssign then
-			-- Record ownership BEFORE calling Driver_ApplyMark. This serves
-			-- two purposes: (1) keeps internal state visible to IsMarkBusy and
-			-- GetMarkOwnerPriority, and (2) arms the duplicate-event guard above
-			-- so any second ReviewSkullState call in the same tick is blocked
-			-- before it reaches Driver_ApplyMark.
-			local candidateName = L._UnitName(candidateGUID)
-			TankMark:RegisterMarkUsage(8, candidateName, candidateGUID, false)
-			TankMark:Driver_ApplyMark(candidateGUID, 8)
-		end
+		return
 	end
+	TankMark:DebugLog("SKULL_REVIEW", "entry", {
+		caller       = caller,
+		mark8_alive  = snapshot.skullAlive,
+		mark8_name   = snapshot.skullAlive and (L._UnitName("mark8") or "?") or "nil",
+		memory8_guid = snapshot.memoryOwner or "nil",
+		sequential   = snapshot.isSequential,
+	})
+	-- Adopt keeps its exact legacy wording -- it is the documented wedge tell for the
+	-- skull-retention bug (a respawn wearing a retained skull being re-adopted).
+	local outcomeMsg = (intent.action == "adopt")
+		and "registered pre-existing skull holder" or intent.reason
+	TankMark:DebugLog("SKULL_REVIEW", outcomeMsg, {
+		caller        = caller,
+		action        = intent.action,
+		guid          = intent.guid or "nil",
+		candidatePrio = intent.candidatePrio or "nil",
+		blockIcon     = intent.blockIcon or "nil",
+		blockPrio     = intent.blockPrio or "nil",
+	})
 end
 
 -- ==========================================================
