@@ -118,6 +118,40 @@ nameplate appears — per-mob and incremental, always honoring
 Pre-Marking** (pre-fight, whole-pack). _Avoid_: assuming it reasons over the pack —
 it does not; that is Smart Pre-Marking's job.
 
+### Mark-slot state (runtime)
+
+Three distinct facts about a mark slot during a live session. They are routinely
+conflated because a manual/CC assignment sets two of them at once — but each has
+its own writer and lifetime, and they are **not** a biconditional pair (a profile
+loads assignments with nothing owned; a wild mob is owned with nobody assigned).
+
+**ownership**:
+"A live mob currently wears this mark." Recorded in the **Ledger** (`MarkMemory`,
+and the `usedIcons` occupancy flag) when a mark lands on a mob, cleared when it
+dies or the mark is stolen. The engine's factual record of what is physically
+marked in the world. _Avoid_: conflating with reservation (a slot can be reserved
+with no mob wearing it) or assignment (a mark can be owned with nobody assigned).
+
+**reservation**:
+The act of **claiming a mark slot for a player** ahead of — or independent of —
+any mob wearing it; done when a human manually assigns a mark (`/tmark assign` or
+the HUD). It flags the slot occupied (`usedIcons`) so the auto-marker won't hand
+that icon to another mob, and names the responsible player. Distinct from
+**ownership** (no live mob need exist) and stronger than **assignment** (it also
+occupies the slot). _Avoid_: reading `usedIcons` as "reserved" on its own
+(ownership sets it too); and the transient "reserved icons" set inside `DecidePull`
+(that is just "already unavailable this pull" — it reads occupancy, it does not
+create a reservation).
+
+**assignment** (session):
+The live **player↔mark binding** — which player is responsible for each mark this
+session (`sessionAssignments`). The **Team Profile** roster projected onto the
+current pull; also filled as a side effect when an owned mark matches a profile
+entry. Drives the HUD. Present with no mob marked (a loaded profile binds every
+mark before the pull) and absent on an owned mark nobody is assigned to. _Avoid_:
+conflating with **profile role** (the TANK/CC axis) or with reservation —
+assignment alone does **not** occupy the slot (the `[v0.26]` rule).
+
 ## Flagged ambiguities
 
 - **"role" is two distinct concepts.** **mob `role`** (HEALER/CASTER/MELEE, on the
