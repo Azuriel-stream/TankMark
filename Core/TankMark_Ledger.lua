@@ -6,10 +6,12 @@
 --   usedIcons[icon]      = true   (icon is in use)
 --   activeMobNames[icon] = name   (display label for the HUD)
 --
--- MarkMemory, activeGUIDs and activeMobNames are written ONLY here. usedIcons is
--- also set true by the assignment/reservation paths (CC, /tmark assign, sync, HUD),
--- which pair it with sessionAssignments -- that is the assignment concern, not
--- ownership, and stays in those callers.
+-- MarkMemory, activeGUIDs and activeMobNames are written ONLY here. usedIcons has
+-- exactly two named writers: this Ledger (ownership -- a live mob wears the mark)
+-- and TankMark.Reservation.Reserve (reservation -- a human manually claims a slot
+-- for a player via /tmark assign or the HUD, pairing usedIcons with
+-- sessionAssignments). That reservation concern is deliberately kept out of the
+-- Ledger and lives in its own seam beside it.
 --
 -- The Ledger is the SOLE writer of these tables; existing code still reads them
 -- directly (read-migration is a later pass). It is pure: no WoW API, no UI. The

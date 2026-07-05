@@ -598,8 +598,7 @@ function TankMark:SlashHandler(msg)
             markStr = L._lower(markStr)
             local iconID = L._tonumber(markStr) or iconNames[markStr]
             if iconID and iconID >= 1 and iconID <= 8 then
-                TankMark.sessionAssignments[iconID] = targetPlayer
-                TankMark.usedIcons[iconID] = true
+                TankMark.Reservation.Reserve(iconID, targetPlayer)
                 TankMark:Print("Manually assigned " .. TankMark:GetMarkString(iconID) .. " to " .. targetPlayer)
                 if TankMark.UpdateHUD then TankMark:UpdateHUD() end
             else
