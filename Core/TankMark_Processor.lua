@@ -570,7 +570,11 @@ function TankMark:RecordUnit(guid)
         if not TankMark.activeDB then
             TankMark.activeDB = {}
         end
-        TankMark.activeDB[name] = TankMarkDB.Zones[zone][name]
+        -- [v0.31] Route the live inject through the same validation gate as the
+        -- zone-load merge, so "every activeDB entry passed ValidateEntry" holds for
+        -- this door too. The recorded entry is clean by construction -> same ref.
+        local clean = TankMark.ZoneView.ValidateEntry(name, TankMarkDB.Zones[zone][name])
+        if clean then TankMark.activeDB[name] = clean end
     end
     if TankMark.UpdateMobList then
         TankMark:UpdateMobList()
