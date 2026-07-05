@@ -133,8 +133,7 @@ function TankMark:SetProfileAssignment(iconID, playerName)
 	
 	-- 2. Update Live Session
 	if playerName and playerName ~= "" then
-		TankMark.sessionAssignments[iconID] = playerName
-		TankMark.usedIcons[iconID] = true
+		TankMark.Reservation.Reserve(iconID, playerName)
 		TankMark:Print("Assigned " .. playerName .. " to " .. TankMark:GetMarkString(iconID))
 	else
 		-- If clearing, we remove the name but keep the 'used' status if it's currently on a mob

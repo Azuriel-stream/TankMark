@@ -636,9 +636,3 @@ function TankMark:GetUnitIDForName(name)
     end
     return nil
 end
-
-function TankMark:AssignCC(iconID, playerName, taskType)
-    TankMark.sessionAssignments[iconID] = playerName
-    TankMark.usedIcons[iconID] = true
-    if TankMark.UpdateHUD then TankMark:UpdateHUD() end
-end
