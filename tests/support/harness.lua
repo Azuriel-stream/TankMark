@@ -37,6 +37,7 @@ TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 local SUT = {
     "Core/TankMark_ZoneView.lua",
     "Core/TankMark_Reservation.lua",
+    "Core/TankMark_ProfileStore.lua",
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",
     "Core/TankMark_Pull.lua",
