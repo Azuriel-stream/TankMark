@@ -25,6 +25,7 @@ local SPECS = {
     "tests/mark_normals_spec.lua",
     "tests/decide_skull_successor_spec.lua",
     "tests/reservation_spec.lua",
+    "tests/zone_merge_spec.lua",
 }
 for _, spec in ipairs(SPECS) do
     local fh = io.open(spec, "r")

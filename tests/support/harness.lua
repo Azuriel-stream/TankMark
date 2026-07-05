@@ -18,6 +18,7 @@
 TankMark = TankMark or {}
 TankMark.Locals = TankMark.Locals or {}
 TankMark.Locals._tgetn    = TankMark.Locals._tgetn    or table.getn
+TankMark.Locals._type     = TankMark.Locals._type     or type
 TankMark.Locals._sub      = TankMark.Locals._sub      or string.sub
 TankMark.Locals._strfind  = TankMark.Locals._strfind  or string.find
 TankMark.Locals._tonumber = TankMark.Locals._tonumber or tonumber
@@ -34,6 +35,7 @@ TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 -- under the stub above. Assignment.lua is loaded for the REAL pure IncumbencyBlocks
 -- that GovernorBlocks calls -- so a drift in its >= operator is actually caught.
 local SUT = {
+    "Core/TankMark_ZoneView.lua",
     "Core/TankMark_Reservation.lua",
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",

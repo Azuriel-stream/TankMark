@@ -278,25 +278,14 @@ end
 -- ==========================================================
 function TankMark:LoadZoneData(zoneName)
 	if not zoneName then return end
-	
-	-- Build merged view for current zone
-	TankMark.activeDB = {}
-	
-	-- Priority 1: User data (always wins)
-	if TankMarkDB.Zones[zoneName] then
-		for mobName, data in L._pairs(TankMarkDB.Zones[zoneName]) do
-			TankMark.activeDB[mobName] = data
-		end
-	end
-	
-	-- Priority 2: Default data (fill gaps only)
-	if TankMarkDefaults and TankMarkDefaults[zoneName] then
-		for mobName, data in L._pairs(TankMarkDefaults[zoneName]) do
-			if not TankMark.activeDB[mobName] then
-				TankMark.activeDB[mobName] = data
-			end
-		end
-	end
+
+	-- [v0.31] Build the active zone view through the ZoneView seam: user entries
+	-- win, shipped defaults fill gaps, every entry validated on the way in (pure,
+	-- harness-tested in tests/zone_merge_spec.lua). Either source zone may be nil.
+	TankMark.activeDB = TankMark.ZoneView.Merge(
+		TankMarkDB.Zones[zoneName],
+		TankMarkDefaults and TankMarkDefaults[zoneName]
+	)
 end
 
 -- ==========================================================
