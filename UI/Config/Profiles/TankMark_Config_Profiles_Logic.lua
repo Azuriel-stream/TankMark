@@ -13,7 +13,7 @@ local L = TankMark.Locals
 -- ==========================================================
 
 function TankMark:LoadProfileToCache()
-	if not TankMarkProfileDB then TankMarkProfileDB = {} end
+	TankMark.ProfileStore.EnsureDB()
 	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	TankMark:MigrateProfileRoles(zone)
 	TankMark.profileCache = {}
@@ -54,15 +54,9 @@ end
 
 function TankMark:SaveProfileCache()
 	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
-	TankMarkProfileDB[zone] = {}
-	for i, entry in L._ipairs(TankMark.profileCache) do
-		L._tinsert(TankMarkProfileDB[zone], {
-			mark    = entry.mark,
-			tank    = entry.tank,
-			healers = entry.healers,
-			role    = entry.role or "TANK",
-		})
-	end
+	-- The one writer of the store: normalizes each cache entry (role preserved,
+	-- which for cache entries is always set, so behavior is unchanged).
+	TankMark.ProfileStore.SetZone(zone, TankMark.profileCache)
 
 	-- Update session if saving for the current zone (behavior unchanged -- now via
 	-- the shared ApplyProfileToSession seam).
@@ -112,7 +106,7 @@ function TankMark:RequestResetProfile()
 	local zone = UIDropDownMenu_GetText(TankMark.profileZoneDropdown) or L._GetRealZoneText()
 	if zone and TankMarkProfileDB[zone] then
 		TankMark.pendingWipeAction = function()
-			TankMarkProfileDB[zone] = {}
+			TankMark.ProfileStore.SetZone(zone, {})
 			TankMark:LoadProfileToCache()
 			TankMark:UpdateProfileList()
 			if zone == L._GetRealZoneText() then
@@ -368,7 +362,7 @@ function TankMark:RequestDeleteProfileZone(zoneName)
 	end
 
 	TankMark.pendingWipeAction = function()
-		TankMarkProfileDB[zoneName] = nil
+		TankMark.ProfileStore.DeleteZone(zoneName)
 
 		-- Clear live session state if the deleted zone is the currently active one
 		local currentZone = L._GetRealZoneText()

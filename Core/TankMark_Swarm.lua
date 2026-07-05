@@ -716,15 +716,12 @@ end
 function Swarm.OnProfile(sender, rec)
     if not sender or not rec or not rec.zone then return end
     if sender ~= Swarm.currentQueen then return end
-    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+    TankMark.ProfileStore.EnsureDB()
 
     if L._tgetn(rec.entries) > 0 then
-        local slot = {}
-        for i = 1, L._tgetn(rec.entries) do
-            local e = rec.entries[i]
-            L._tinsert(slot, { mark = e.mark, tank = e.tank, role = e.role, healers = "" })
-        end
-        TankMarkProfileDB[rec.zone] = slot
+        -- Whole-zone replace through the one store writer. NewEntry defaults healers
+        -- to "" (P carries no healers -- HR layers them), matching the old rebuild.
+        TankMark.ProfileStore.SetZone(rec.zone, rec.entries)
         -- Render only the zone we are standing in (the HUD shows the current zone);
         -- other zones are stored but not painted.
         if rec.zone == currentZone() and TankMark.ApplyProfileToSession then

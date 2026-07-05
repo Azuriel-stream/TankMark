@@ -109,27 +109,13 @@ function TankMark:InitRowMenu()
 	UIDropDownMenu_AddButton(info)
 end
 
--- Helper to write directly to DB from HUD
+-- Assign a player to a mark from the HUD: store write via ProfileStore.Upsert,
+-- live session via Reservation.Reserve (or a bare clear when the name is empty).
 function TankMark:SetProfileAssignment(iconID, playerName)
 	local zone = TankMark:GetCachedZone()  -- [PHASE 2] Use cached zone
-	if not TankMarkProfileDB[zone] then TankMarkProfileDB[zone] = {} end
-	local list = TankMarkProfileDB[zone]
-	
-	-- 1. Find existing entry or create new
-	local found = false
-	for _, entry in L._ipairs(list) do
-		if entry.mark == iconID then
-			entry.tank = playerName
-			found = true
-			break
-		end
-	end
-	
-	if not found then
-		L._tinsert(list, { mark = iconID, tank = playerName, healers = "" })
-		-- Sort new list by ID desc (Skull first)
-		L._tsort(list, function(a,b) return a.mark > b.mark end)
-	end
+
+	-- 1. Store write (upsert-by-mark + skull-first resort) -- the one store writer.
+	TankMark.ProfileStore.Upsert(zone, iconID, playerName)
 	
 	-- 2. Update Live Session
 	if playerName and playerName ~= "" then
