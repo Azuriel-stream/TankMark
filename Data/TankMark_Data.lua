@@ -36,7 +36,7 @@ function TankMark:InitializeDB()
     if not TankMarkDB.Trust then TankMarkDB.Trust = {} end
 
     -- 2. Profile Database
-    if not TankMarkProfileDB then TankMarkProfileDB = {} end
+    TankMark.ProfileStore.EnsureDB()
     
     -- 3. [v0.21] Snapshot Database
     if not TankMarkDB_Snapshot then TankMarkDB_Snapshot = {} end
@@ -138,7 +138,7 @@ function TankMark:ShowCorruptionDialog(errors)
 		OnAlt = function()
 			-- Wipe and reinitialize
 			TankMarkDB = {Zones = {}}
-			TankMarkProfileDB = {}
+			TankMark.ProfileStore.Wipe()
 			TankMark:Print("Database wiped. Starting fresh.")
 		end,
 		timeout = 0,
@@ -213,9 +213,10 @@ function TankMark:RestoreFromSnapshot(index)
 	-- Restore data
 	TankMarkDB.Zones = DeepCopy(snapshot.zones)
 	
-	-- Restore profile if present
+	-- Restore profile if present (SetZone normalizes + copies, so no separate
+	-- DeepCopy is needed -- entries are flat, so the field-copy is a full copy).
 	if snapshot.profile then
-		TankMarkProfileDB[snapshot.profile.zone] = DeepCopy(snapshot.profile.data)
+		TankMark.ProfileStore.SetZone(snapshot.profile.zone, snapshot.profile.data)
 	end
 	
 	-- Count restored mobs

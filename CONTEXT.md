@@ -130,6 +130,18 @@ zone view is the *transient, merged, validated* projection of both for the one
 zone in play — what every marking decision reads. _Avoid_: conflating with the
 persistent store.
 
+### Team Profile store (persistent)
+
+**Team Profile store**:
+The persistent, per-zone **roster** that binds each **mark** to a player (its tank),
+plus that mark's healers and the player's **profile role**. Stored in
+`TankMarkProfileDB` (per-character), human-authored in the Profiles tab and synced
+from the marking queen. It is the *source* the decision layer reads to know who holds
+each mark. Distinct from the **active zone view** (mob knowledge, not players) and
+from **assignment (session)** (the transient projection of this store onto the
+current pull). _Avoid_: conflating with `sessionAssignments` — that is the runtime
+projection, not the stored roster.
+
 ### Mark-slot state (runtime)
 
 Three distinct facts about a mark slot during a live session. They are routinely
