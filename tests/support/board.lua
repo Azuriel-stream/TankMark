@@ -16,6 +16,7 @@
 --                                 -- GetCCSlots() snapshot (default {})
 --   tankRoster  = { {mark=8, player="T", alive=true} }  -- GetTankRoster() (default {})
 --   blocker     = {icon=4, prio=2}-- GetBlockingMarkInfo() best blocker
+--   candidate   = {guid="c1", prio=5} -- FindEmergencyCandidate() (default nil = none)
 --   autoCC      = true            -- autoCCEnabled() toggle (Phase 4B; default false)
 --   playerInCombat / guidInCombat = false
 function make_board(o)
@@ -48,6 +49,12 @@ function make_board(o)
                 return o.blocker.icon, o.blocker.guid or "blocker-guid", o.blocker.prio, o.blocker.hp or 100
             end
             return nil, nil, 99, 999999
+        end,
+        -- [skull succession] FindEmergencyCandidate() lazy port -> (guid, prio).
+        -- Default nil = "no candidate found this tick".
+        findEmergencyCandidate = function()
+            if o.candidate then return o.candidate.guid or "cand-guid", o.candidate.prio end
+            return nil, nil
         end,
         logDecision         = function() end,
     }

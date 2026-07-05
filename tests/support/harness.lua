@@ -87,3 +87,12 @@ function eq_intent(intent, icon, reason, label)
     eq(intent.icon, icon, label .. ".icon")
     if reason ~= nil then eq(intent.reason, reason, label .. ".reason") end
 end
+
+-- Convenience: assert a skull-succession intent's action and (optionally) reason.
+-- The death-path DecideSkullSuccessor tags outcomes by `action` (none/adopt/assign),
+-- not `icon` (which is always skull), so it needs its own assertion.
+function eq_skull(intent, action, reason, label)
+    label = label or "skull-intent"
+    eq(intent.action, action, label .. ".action")
+    if reason ~= nil then eq(intent.reason, reason, label .. ".reason") end
+end
