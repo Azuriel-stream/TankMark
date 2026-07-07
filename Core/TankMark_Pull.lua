@@ -10,8 +10,8 @@ local L = TankMark.Locals
 -- PURE + board-injected exactly like DecideMark: it reasons over the WHOLE
 -- moused-over pack at once and returns intents -- it applies NOTHING. The Batch
 -- shell feeds the intents into the existing delayed-apply queue
--- (ApplyMarkIntent -> Ledger.Assign -> Driver_ApplyMark, the sole SetRaidTarget
--- edge). Two passes over the candidate set:
+-- (ApplyMarkIntent -> Ledger.Assign -> Driver_ApplyMark, the gated apply edge ->
+-- Platform.SetMark, the write primitive). Two passes over the candidate set:
 --   CC pass   -- rank CC-able mobs by CCWorthiness, greedily fill the stable CC
 --                slots via SelectCCSlot; authored type=="CC" forced to the top.
 --   Kill pass -- the rest by prio onto the tank ladder (GetTankRoster, profile

@@ -341,7 +341,9 @@ function TankMark:ClearMarksForPullEnd()
 		local token = "mark" .. i
 		-- Hostile-only: never strip a manually placed player mark (MT marks for healers, etc.).
 		if L._UnitExists(token) and not L._UnitIsPlayer(token) then
-			L._SetRaidTarget(token, 0)
+			-- [v0.32] slice A: clears are raid-target writes too -- route through the
+			-- Platform.SetMark primitive (already under this fn's outer ShouldDriveMarks gate).
+			TankMark.Platform.SetMark(token, 0)
 			n = n + 1
 		end
 	end
@@ -379,15 +381,17 @@ function TankMark:ResetSession()
 	-- HasPermissions). So `/tmark reset` on a drone clears its own state without
 	-- stripping the group's (queen's) marks. A solo player is the queen post-bootstrap.
 	if TankMark:ShouldDriveMarks() then
+		-- [v0.32] slice A: clears route through the Platform.SetMark write primitive
+		-- (under this outer ShouldDriveMarks gate).
 		for i = 1, 8 do
 			if L._UnitExists("mark" .. i) then
-				L._SetRaidTarget("mark" .. i, 0)
+				TankMark.Platform.SetMark("mark" .. i, 0)
 			end
 		end
 
 		local function ClearUnit(unit)
 			if L._UnitExists(unit) and L._GetRaidTargetIndex(unit) then
-				L._SetRaidTarget(unit, 0)
+				TankMark.Platform.SetMark(unit, 0)
 			end
 		end
 

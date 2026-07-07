@@ -52,3 +52,37 @@ describe("Platform seam (capabilities + registration)", function()
 
     fresh()  -- leave a clean baseline for later specs
 end)
+
+-- The write primitive (slice A). Platform.SetMark is the raw, mechanical raid-
+-- target write -- the ONE per-platform fork point for placing/clearing a mark.
+-- No gate, no logging (those stay in Core's Driver_ApplyMark wrapper / the clear
+-- sites' outer ShouldDriveMarks gates). The Vanilla default just delegates to
+-- L._SetRaidTarget, so we assert delegation + arg-forwarding via a capturing stub
+-- (the harness deliberately leaves _SetRaidTarget unstubbed -- it is the WoW edge).
+describe("Platform seam (write primitive -- Platform.SetMark)", function()
+    local captured
+    local function stubWrite()
+        captured = nil
+        TankMark.Locals._SetRaidTarget = function(unit, icon)
+            captured = { unit = unit, icon = icon }
+        end
+    end
+
+    it("SetMark exists as a callable default (the Vanilla baseline)", function()
+        eq(TankMark.Locals._type(TankMark.Platform.SetMark), "function", "SetMark default present")
+    end)
+
+    it("the default delegates an apply to L._SetRaidTarget, forwarding both args", function()
+        stubWrite()
+        TankMark.Platform.SetMark("0xF130001234", 7)
+        eq(captured and captured.unit, "0xF130001234", "unit forwarded")
+        eq(captured and captured.icon, 7, "icon forwarded")
+    end)
+
+    it("the default forwards a clear (icon 0) unchanged -- clears are writes too", function()
+        stubWrite()
+        TankMark.Platform.SetMark("mark3", 0)
+        eq(captured and captured.unit, "mark3", "clear token forwarded")
+        eq(captured and captured.icon, 0, "clear icon 0 forwarded")
+    end)
+end)
