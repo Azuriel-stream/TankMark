@@ -36,11 +36,13 @@ function TankMark:AddBatchCandidate(guid)
     if L._UnitIsDead(guid) then return end
     if L._UnitIsPlayer(guid) or L._UnitIsFriend("player", guid) then return end
     
-    -- Skip combat mobs; the scanner handles them automatically.
-    if TankMark:IsGUIDInCombat(guid) then
+    -- [v0.32] Skip combat mobs only when a scanner will handle them (Vanilla).
+    -- Without a scanner (Ascension, Platform.Caps.hasScanner=false) the batch is
+    -- the only in-combat marker, so it must NOT skip them. See ADR 0004.
+    if TankMark.Platform.Caps.hasScanner and TankMark:IsGUIDInCombat(guid) then
         return
     end
-    
+
     local mobName = L._UnitName(guid)
     if not mobName then return end
     
@@ -234,8 +236,9 @@ function TankMark:ProcessBatchMark(candidateData)
         return
     end
     
-    -- Skip combat mobs; the scanner handles them automatically.
-    if TankMark:IsGUIDInCombat(guid) then
+    -- [v0.32] Skip combat mobs only when a scanner will handle them (Vanilla).
+    -- Without a scanner (Ascension) the batch is the only in-combat marker. ADR 0004.
+    if TankMark.Platform.Caps.hasScanner and TankMark:IsGUIDInCombat(guid) then
         TankMark.batchSkipCounters.inCombat = TankMark.batchSkipCounters.inCombat + 1
         TankMark.batchSkipCounters.total = TankMark.batchSkipCounters.total + 1
         return
