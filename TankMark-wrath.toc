@@ -12,6 +12,8 @@ TankMark.lua
 # Core Modules
 Core\TankMark_Session.lua
 Core\TankMark_Platform.lua
+# Ascension (3.3.5) platform overlay -- wrath package only; inert file on Vanilla.
+Platform\Ascension\TankMark_Ascension.lua
 Core\TankMark_Ledger.lua
 Core\TankMark_Reservation.lua
 Core\TankMark_ZoneView.lua

@@ -14,6 +14,12 @@ local lastAliveSkullLogged = nil
 -- ==========================================================
 
 function TankMark:InitCombatLogParser()
+	-- [v0.32] UNITDIESOTHER (the Vanilla localized combat-text format) is nil on
+	-- Ascension/3.3.5, which reports deaths via structured CLEU, not chat text.
+	-- Skip building the pattern there: HandleCombatLog already no-ops when
+	-- DeathPattern is nil, and Ascension drops text-parsed death-cleanup anyway
+	-- (ADR 0004). On Vanilla the global is present, so this builds as before.
+	if not L._UNITDIESOTHER then return end
 	local pattern = L._gsub(L._UNITDIESOTHER, "%%s", "(.*)")
 	TankMark.DeathPattern = "^" .. pattern .. "$"
 end
