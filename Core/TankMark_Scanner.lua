@@ -13,6 +13,13 @@ TankMark.visibleTargets = {}
 TankMark.IsSuperWoW = false
 
 function TankMark:InitDriver()
+    -- [v0.32] On a platform with no passive scanner (Ascension, ADR 0004) the
+    -- SuperWoW-scanner model does not apply: SuperWoW does not exist for that
+    -- client, and the pre-pull planner needs neither it nor a scanner. Skip the
+    -- Vanilla detection and its "requires SuperWoW" warning -- IsSuperWoW stays
+    -- false, so automation remains gated off until the pre-pull path is wired in.
+    if not TankMark.Platform.Caps.hasScanner then return end
+
     if L._type(SUPERWOW_VERSION) ~= "nil" then
         TankMark.IsSuperWoW = true
         TankMark:Print("SuperWoW Detected: |cff00ff00Scanner active.|r")
