@@ -518,11 +518,12 @@ end
 -- [v0.28] Centralized apply edge for the decide/apply split (roadmap #2).
 -- The single place a mark intent becomes action: record ownership in the Ledger
 -- (via RegisterMarkUsage) BEFORE applying, so state is consistent when
--- RAID_TARGET_UPDATE fires, then call the sole SetRaidTarget driver. `intent` is
+-- RAID_TARGET_UPDATE fires, then call the gated apply driver. `intent` is
 -- the decision table { icon = N, reason?, override?, wasBusy? }; a nil/iconless
 -- intent is a no-op skip. `skipProfileLookup` is apply-policy, not a decision
 -- field (false for the scanner/decide path; the Batch sequential path passes
--- true). Driver_ApplyMark stays the lone SetRaidTarget site.
+-- true). Driver_ApplyMark stays the sole gated APPLY edge; [v0.32] the raw write
+-- underneath it is Platform.SetMark, the per-platform write primitive.
 function TankMark:ApplyMarkIntent(guid, name, intent, skipProfileLookup)
     if not intent or not intent.icon then return end
     TankMark:RegisterMarkUsage(intent.icon, name, guid, skipProfileLookup)

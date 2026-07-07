@@ -41,3 +41,20 @@ function TankMark.Platform.Register(impl)
         end
     end
 end
+
+-- SetMark(unitOrGuid, icon): the raw raid-target WRITE primitive -- [v0.32] (slice A).
+-- The ONE per-platform fork point for placing (icon 1-8) or clearing (icon 0) a mark.
+-- Mechanical only: NO permission gate, NO logging. The drone-suppression backstop
+-- (ShouldDriveMarks) + apply logging stay in Core's Driver_ApplyMark wrapper; the
+-- clear sites keep their own outer ShouldDriveMarks gate. The first arg is a raid-
+-- target-addressable reference: a GUID on SuperWoW/Vanilla (which unifies GUIDs and
+-- unit tokens for SetRaidTarget) or a standard unit/mark-slot token (mark1-8, target,
+-- ...). It CANNOT be strictly GUID-in: a clear addresses a slot ("clear mark3"), for
+-- which no GUID exists. The DEFAULT below IS the Vanilla baseline, so the Vanilla
+-- build needs no registration; a reduced platform (Ascension apply takes a live
+-- token, ADR 0004's one exception) overrides it at load. The READ primitive lands in
+-- the Ascension slice that first needs it (slice C) -- every current mark-index read
+-- is on a dropped path (scanner/Ledger/governor) or an optional pre-check.
+TankMark.Platform.SetMark = TankMark.Platform.SetMark or function(unitOrGuid, icon)
+    L._SetRaidTarget(unitOrGuid, icon)
+end

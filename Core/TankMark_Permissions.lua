@@ -92,11 +92,13 @@ function TankMark:Driver_ApplyMark(unitOrGuid, icon)
     end
     
     -- Original function logic
-    -- [v0.29] slice 3: the sole SetRaidTarget edge is the authoritative single-marker
-    -- enforcement point -- gated by ShouldDriveMarks (was CanAutomate), so even a stray
-    -- caller cannot make a non-queen place a mark.
+    -- [v0.29] the gated APPLY edge: the authoritative single-marker enforcement point,
+    -- gated by ShouldDriveMarks (was CanAutomate), so even a stray caller cannot make a
+    -- non-queen place a mark. [v0.32] slice A: the raw write now goes through the
+    -- Platform.SetMark primitive (the per-platform fork point); this wrapper keeps the
+    -- gate + debug logging in shared Core, inherited by every platform build.
     if TankMark:ShouldDriveMarks() then
-        L._SetRaidTarget(unitOrGuid, icon)
+        TankMark.Platform.SetMark(unitOrGuid, icon)
     else
         -- [DEBUG] Log when mark application is blocked
         if TankMark.DebugEnabled then
