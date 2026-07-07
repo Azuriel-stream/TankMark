@@ -1,0 +1,56 @@
+## Interface: 30300
+## Title: TankMark |cff00ccff(v0.31)|r
+## Notes: Automates raid marking with SuperWoW Support, Smart Scanning & Sync.
+## Author: Azuriel
+## Version: 0.31
+## SavedVariables: TankMarkDB
+## SavedVariablesPerCharacter: TankMarkProfileDB, TankMarkDB_Snapshot, TankMarkCharConfig
+
+# Entry Point
+TankMark.lua
+
+# Core Modules
+Core\TankMark_Session.lua
+Core\TankMark_Platform.lua
+Core\TankMark_Ledger.lua
+Core\TankMark_Reservation.lua
+Core\TankMark_ZoneView.lua
+Core\TankMark_ProfileStore.lua
+Core\TankMark_Permissions.lua
+Core\TankMark_Assignment.lua
+Core\TankMark_Processor.lua
+Core\TankMark_Pull.lua
+Core\TankMark_Death.lua
+Core\TankMark_Batch.lua
+Core\TankMark_Scanner.lua
+Core\TankMark_SyncCodec.lua
+Core\TankMark_Trust.lua
+Core\TankMark_Sync.lua
+Core\TankMark_Swarm.lua
+
+# Data Management
+Data\TankMark_Data.lua
+Data\TankMark_Defaults.lua
+
+# UI Components
+UI\TankMark_UI_Widgets.lua
+UI\TankMark_HUD.lua
+UI\TankMark_Options.lua
+
+# Config Panels
+UI\Config\TankMark_Config_Data.lua
+
+UI\Config\Database\TankMark_Config_Mobs.lua
+UI\Config\Database\TankMark_Config_Mobs_UI.lua
+UI\Config\Database\TankMark_Config_Mobs_List.lua
+UI\Config\Database\TankMark_Config_Mobs_Logic.lua
+UI\Config\Database\TankMark_Config_Mobs_Sequential.lua
+UI\Config\Database\TankMark_Config_Mobs_Menus.lua
+
+UI\Config\Profiles\TankMark_Config_Profiles.lua
+UI\Config\Profiles\TankMark_Config_Profiles_Logic.lua
+UI\Config\Profiles\TankMark_Config_Profiles_List.lua
+UI\Config\Profiles\TankMark_Config_Profiles_UI.lua
+
+# Bindings
+Bindings.xml
