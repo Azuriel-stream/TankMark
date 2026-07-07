@@ -382,41 +382,59 @@ function TankMark:ResetSession()
 		end
 	end
 
+	-- [v0.32] slice C: disarm any armed two-sweep pull plan (Ascension) -- this is the
+	-- ratified "redo a mis-swept pack" affordance. Local-state hygiene, so it sits in
+	-- the unconditional section. Gated so Vanilla -- where pullPlan is self-managed
+	-- inside one ExecuteBatchMarking run -- runs no new logic here and stays identical.
+	if not TankMark.Platform.Caps.hasScanner then
+		TankMark.pullPlan = nil
+	end
+
 	-- [v0.29] slice 3: the local-state reset above is unconditional (harmless local
 	-- hygiene); only the PHYSICAL world-mark strip below is queen-gated (was
 	-- HasPermissions). So `/tmark reset` on a drone clears its own state without
 	-- stripping the group's (queen's) marks. A solo player is the queen post-bootstrap.
 	if TankMark:ShouldDriveMarks() then
-		-- [v0.32] slice A: clears route through the Platform.SetMark write primitive
-		-- (under this outer ShouldDriveMarks gate).
-		for i = 1, 8 do
-			if L._UnitExists("mark" .. i) then
-				TankMark.Platform.SetMark("mark" .. i, 0)
+		-- [v0.32] slice C: a bulk physical clear only exists where SuperWoW mark tokens do
+		-- (Vanilla). On a scanner-less platform (Ascension) there are no mark1-8 tokens and
+		-- no "clear all raid targets" API, so reset cannot reliably address the swept pack
+		-- -- it stays a session/plan reset, and the world clear is the per-hover
+		-- Ctrl+mouseover unmark. So gate the whole physical strip on hasScanner: Vanilla is
+		-- byte-identical; Ascension gets a truthful message only.
+		if TankMark.Platform.Caps.hasScanner then
+			-- [v0.32] slice A: clears route through the Platform.SetMark write primitive
+			-- (under this outer ShouldDriveMarks gate).
+			for i = 1, 8 do
+				if L._UnitExists("mark" .. i) then
+					TankMark.Platform.SetMark("mark" .. i, 0)
+				end
 			end
-		end
 
-		local function ClearUnit(unit)
-			if L._UnitExists(unit) and L._GetRaidTargetIndex(unit) then
-				TankMark.Platform.SetMark(unit, 0)
+			local function ClearUnit(unit)
+				if L._UnitExists(unit) and L._GetRaidTargetIndex(unit) then
+					TankMark.Platform.SetMark(unit, 0)
+				end
 			end
-		end
 
-		ClearUnit("target")
-		ClearUnit("mouseover")
+			ClearUnit("target")
+			ClearUnit("mouseover")
 
-		if L._UnitInRaid("player") then
-			for i = 1, 40 do
-				ClearUnit("raid" .. i)
-				ClearUnit("raid" .. i .. "target")
+			if L._UnitInRaid("player") then
+				for i = 1, 40 do
+					ClearUnit("raid" .. i)
+					ClearUnit("raid" .. i .. "target")
+				end
+			else
+				for i = 1, 4 do
+					ClearUnit("party" .. i)
+					ClearUnit("party" .. i .. "target")
+				end
 			end
+
+			TankMark:Print("Session reset and ALL marks cleared.")
 		else
-			for i = 1, 4 do
-				ClearUnit("party" .. i)
-				ClearUnit("party" .. i .. "target")
-			end
+			TankMark:Print("Session reset. Ctrl+mouseover to clear world marks.")
 		end
-
-		TankMark:Print("Session reset and ALL marks cleared.")
 	else
 		TankMark:Print("Session reset (Local HUD only - No permission to clear in-game marks).")
 	end

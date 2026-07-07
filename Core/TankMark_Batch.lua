@@ -22,6 +22,30 @@ TankMark.batchSequence = 0 -- [v0.21] Track mouseover order
 TankMark.batchSkipCounters = {}
 
 -- ==========================================================
+-- [v0.32] slice C: TWO-SWEEP DRAIN KERNEL (Ascension)
+-- ==========================================================
+-- On Ascension the batch arms a durable {guid->icon} plan on sweep 1 (ExecuteBatch-
+-- Marking, force-DecidePull); sweep 2 drains it per-hover onto the LIVE mouseover
+-- token, because a GUID is not a re-readable handle there (ADR 0004). TakePlanIcon is
+-- the PURE seam of that drain -- it owns the plan mutation only: return the planned
+-- icon for `guid` (removing that entry), or nil if guid is not in the plan / no plan
+-- is armed. On FULL drain the plan DISARMS (pullPlan -> nil) so the next Shift+hold
+-- begins a fresh collect sweep. The WoW-edge apply (Driver_ApplyMark on the token)
+-- stays in the thin drain-hover handler; this function never touches the world.
+function TankMark:TakePlanIcon(guid)
+    local plan = TankMark.pullPlan
+    if not plan or not guid then return nil end
+    local icon = plan[guid]
+    if not icon then return nil end
+    plan[guid] = nil
+    -- Disarm on full drain: if no entries remain, retire the plan.
+    local remaining = false
+    for _ in L._pairs(plan) do remaining = true; break end
+    if not remaining then TankMark.pullPlan = nil end
+    return icon
+end
+
+-- ==========================================================
 -- BATCH COLLECTION
 -- ==========================================================
 
@@ -31,11 +55,19 @@ function TankMark:AddBatchCandidate(guid)
     
     -- Ignore duplicates
     if TankMark.batchCandidates[guid] then return end
-    
+
+    -- [v0.32] slice C: on a scanner-less platform (Ascension) a GUID is not a
+    -- re-readable handle, so read the mob's live attributes off the LIVE mouseover
+    -- token -- AddBatchCandidate is only ever called at hover time, with mouseover
+    -- live. On Vanilla the GUID IS addressable (SuperWoW), so readUnit stays the GUID
+    -- and every read below is byte-identical. The GUID is kept as the identity/dedup
+    -- key and the plan key regardless.
+    local readUnit = TankMark.Platform.Caps.hasScanner and guid or "mouseover"
+
     -- Basic validation (skip already-marked, dead, friendly)
-    if L._UnitIsDead(guid) then return end
-    if L._UnitIsPlayer(guid) or L._UnitIsFriend("player", guid) then return end
-    
+    if L._UnitIsDead(readUnit) then return end
+    if L._UnitIsPlayer(readUnit) or L._UnitIsFriend("player", readUnit) then return end
+
     -- [v0.32] Skip combat mobs only when a scanner will handle them (Vanilla).
     -- Without a scanner (Ascension, Platform.Caps.hasScanner=false) the batch is
     -- the only in-combat marker, so it must NOT skip them. See ADR 0004.
@@ -43,7 +75,7 @@ function TankMark:AddBatchCandidate(guid)
         return
     end
 
-    local mobName = L._UnitName(guid)
+    local mobName = L._UnitName(readUnit)
     if not mobName then return end
     
     -- Lookup priority from activeDB
@@ -130,7 +162,11 @@ function TankMark:ExecuteBatchMarking()
     -- icons), so they still run the cursor branch below. Toggle off -> no plan ->
     -- classic per-mob marking, unchanged.
     TankMark.pullPlan = nil
-    if TankMark:SmartMarkEnabled() then
+    -- [v0.32] slice C: on a scanner-less platform (Ascension) the plan path is the ONLY
+    -- viable batch path -- the classic per-mob delayed-by-GUID queue below cannot apply
+    -- to an ephemeral token -- so force DecidePull there regardless of the SmartMark
+    -- toggle (which is a Vanilla-only choice). On Vanilla the toggle governs as before.
+    if TankMark:SmartMarkEnabled() or not TankMark.Platform.Caps.hasScanner then
         local plan = TankMark:DecidePull(sortedCandidates, TankMark.LiveBoard)
         TankMark.pullPlan = {}
         for _, intent in L._ipairs(plan.intents) do
@@ -138,7 +174,27 @@ function TankMark:ExecuteBatchMarking()
         end
         TankMark:ReportPullPlan(plan)
     end
-    
+
+    -- [v0.32] slice C: on Ascension the plan is ARMED for a second Shift+mouseover sweep
+    -- that drains it onto live tokens (see the mouseover dispatch + TakePlanIcon) -- do
+    -- NOT drive the delayed by-GUID queue. Arm only if DecidePull produced >=1 intent; an
+    -- empty plan would trap the next hold in drain mode, so disarm instead. Vanilla
+    -- (hasScanner) falls through to the synchronous queue below, exactly as before.
+    if not TankMark.Platform.Caps.hasScanner then
+        local armed = false
+        if TankMark.pullPlan then
+            for _ in L._pairs(TankMark.pullPlan) do armed = true; break end
+        end
+        if not armed then TankMark.pullPlan = nil end
+        TankMark.batchCandidates = {}
+        if armed then
+            TankMark:Print("|cff00ff00Pull plan armed.|r Shift+mouseover the pack again to place the marks.")
+        else
+            TankMark:Print("|cffffaa00No marks to place for this pack.|r")
+        end
+        return
+    end
+
     -- Limit to top 8
     local maxMarks = L._min(8, L._tgetn(sortedCandidates))
     

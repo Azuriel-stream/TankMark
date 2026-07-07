@@ -24,10 +24,13 @@ reactive engine**: the scanner, the **Ledger** (ownership tracking), CLEU death-
 succession**, the **skull governor**, in-combat marking, and auto-CC *player* assignment.
 
 Application is a **human-driven two-sweep**, forced by ephemeral tokens:
-- **Sweep 1** — Shift+mouseover the pack. Each hover snapshots the live reads (name, creatureType,
-  tier) off the `mouseover` token *at hover time* — they cannot be re-read by GUID later — and
-  collects the mob. On Shift-release, `DecidePull` runs, the `{guid→icon}` plan is stored **armed**,
-  and `ReportPullPlan` announces it.
+- **Sweep 1** — Shift+mouseover the pack. Each hover reads the mob's **name** off the `mouseover`
+  token *at hover time* (the token, not the GUID — which is not a re-readable handle) and collects the
+  mob; role / tier / creatureType / prio come from the authored DB entry keyed on that name. On
+  Shift-release, `DecidePull` runs, the `{guid→icon}` plan is stored **armed**, and `ReportPullPlan`
+  announces it. (A *live* tier/creatureType snapshot is **deferred** — see Amendments: its only
+  consumer is auto-CC, which does not fire under the ladder-≥-pack / verbal-CC model, so the DB entry
+  is sufficient; the recorder is the path to make an unknown mob CC-able.)
 - **Sweep 2** — Shift+mouseover again. On each hover, if `UnitGUID('mouseover')` is in the plan, the
   mark is applied to the live token then and there, draining that entry.
 
@@ -71,13 +74,52 @@ driven by the announcement**, which also sidesteps Ascension's classless CC prob
 - **The Ascension pre-pull mode *is* Smart Pre-Marking** (pre-fight, pack-aware) — no new glossary
   term. The two-sweep / armed-plan mechanics are implementation and are captured here, not in
   `CONTEXT.md`.
-- **The adapter shrinks** to roughly *apply-a-mark (live token)* + *read-a-mark*; the planned
-  `OnUnitDeath` CLEU job is **not needed** for v1.
-- **The Ascension apply edge is the one place a platform fn is not GUID-in** — it takes the live
-  `mouseover` token, the sole documented exception to the GUID-in rule in
-  [ADR 0003](0003-one-repo-per-platform-adapter.md).
+- **The adapter adds exactly one primitive: _identity_** (`Platform.GUID(unit)` — GUID-of-a-unit,
+  needed because SuperWoW's GUID-returning `UnitExists` is absent). *Apply* needs **no override** (the
+  default `SetMark` is a thin `SetRaidTarget` passthrough that accepts a live token); *read-a-mark* is
+  **deferred** (sweep 2 reads occupancy via `GetRaidTargetIndex('mouseover')`, a token read that works
+  natively); and the planned `OnUnitDeath` CLEU job is **not needed** for v1.
+- **The Ascension apply edge is the one place a platform fn is not GUID-in** — it *receives* the live
+  `mouseover` token (the two-sweep calls `Driver_ApplyMark('mouseover', icon)`), the sole documented
+  exception to the GUID-in rule in [ADR 0003](0003-one-repo-per-platform-adapter.md). This is realized
+  by the polymorphic default `SetMark` accepting a token — **not** by a platform override.
+- **On Ascension the two-sweep is the _sole_ batch path.** The classic per-mob batch applies by GUID
+  on a ~50 ms-delayed queue — structurally incompatible with ephemeral tokens — so the collect sweep
+  always builds the plan regardless of the `SmartMark` toggle (Vanilla-only; inert on Ascension). The
+  `CanAutomate` SuperWoW gate is reconciled by a dedicated `requiresSuperWoW` capability (default
+  `true`; Ascension `false`), so the single gated apply edge (`Driver_ApplyMark`) is kept on both
+  platforms — the drain applies through it with **no Ledger write** (a pure pre-pull reuses no icon).
 - **`pullPlan` graduates from ephemeral to durable session state** — it joins `ResetSession`'s clear
   list and the pull-end clear, where on Vanilla it was drained synchronously inside one batch run.
 - **Reversibility hedge:** if a dungeon run shows in-combat re-marking or succession is missed, **CLEU
   death-cleanup is the re-entry point** — add it then, informed by real play rather than speculation.
-</content>
+
+## Amendments
+
+- **2026-07-07 (slice C design grill).** Four implementation specifics were sharpened during the
+  slice-C design walk and are corrected in the text above; the core decision (pre-pull planner,
+  human-driven two-sweep, armed durable plan) is unchanged:
+  - **Sweep 1 snapshots the _name_ only** (not name + creatureType + tier). The DB entry supplies role
+    / tier / creatureType / prio, and a live tier/creatureType snapshot is deferred because auto-CC —
+    its only consumer — does not fire under the ladder-≥-pack / verbal-CC model.
+  - **The adapter's one new primitive is _identity_** (`Platform.GUID`), not "apply + read": apply
+    needs no override (the polymorphic default `SetMark` accepts a token) and read-a-mark is deferred
+    (no consumer — a token `GetRaidTargetIndex` works natively).
+  - **The two-sweep control flow lives in shared Core, gated on `hasScanner`**, not in the Ascension
+    overlay — per ADR 0003, only genuinely platform-specific code (the identity primitive) forks; the
+    two-sweep uses only shared/localized APIs and is capability-gated *behavior*.
+  - **The `CanAutomate` SuperWoW gate is reconciled via a dedicated `requiresSuperWoW` capability**
+    (default `true`; Ascension `false`), preserving the single gated apply edge and keeping Vanilla
+    byte-identical.
+
+- **2026-07-07 (slice C in-game test).** **Clearing marks is token-bound too — the mirror of the
+  marking constraint.** 3.3.5 has no mark-slot token and no "clear all raid targets" API, so no bulk
+  clear is possible for the swept (nameplate) pack. Consequently `/tmark reset` on a scanner-less
+  platform is a **session/plan reset only** — the physical mark strip (SuperWoW `mark1..8` +
+  `ClearUnit`) is gated to platforms with mark tokens, because a partial "clear only what you happen
+  to be targeting" is more misleading than none. The world clear is the existing **Ctrl+mouseover**
+  unmark, which fires per hover — hold Ctrl and sweep the pack to clear it (the clear-sweep
+  counterpart to the Shift mark-sweep). `ResetSession`'s message is made truthful on Ascension.
+  (Whether Ascension auto-clears a mark on the mob's death is **untested** and is not relied on or
+  claimed anywhere — note Turtle/Vanilla is documented to *retain* marks through death and respawn.)
+  (Verified in-game: two-sweep marking works; Ctrl+mouseover is the redo clear; Vanilla unchanged.)

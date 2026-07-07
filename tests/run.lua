@@ -28,6 +28,8 @@ local SPECS = {
     "tests/zone_merge_spec.lua",
     "tests/profile_store_spec.lua",
     "tests/platform_spec.lua",
+    "tests/permissions_spec.lua",
+    "tests/two_sweep_spec.lua",
 }
 for _, spec in ipairs(SPECS) do
     local fh = io.open(spec, "r")
