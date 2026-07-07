@@ -35,6 +35,7 @@ TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 -- under the stub above. Assignment.lua is loaded for the REAL pure IncumbencyBlocks
 -- that GovernorBlocks calls -- so a drift in its >= operator is actually caught.
 local SUT = {
+    "Core/TankMark_Platform.lua",
     "Core/TankMark_ZoneView.lua",
     "Core/TankMark_Reservation.lua",
     "Core/TankMark_ProfileStore.lua",
