@@ -251,7 +251,10 @@ TankMark:SetScript("OnEvent", function()
         if TankMark.InitializeDB then TankMark:InitializeDB() end
         
     elseif (event == "PLAYER_LOGIN") then
-        math.randomseed(L._time())
+        -- [v0.32] math.randomseed is sandboxed-out on Ascension (nil), so route
+        -- through the cached Locals ref and guard it. The seed feeds no consumer
+        -- (nothing calls math.random), so skipping it on Ascension is inert.
+        if L._randomseed then L._randomseed(L._time()) end
         
         -- Initialize zone cache
         TankMark.currentZone = L._GetRealZoneText()
