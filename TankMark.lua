@@ -20,6 +20,9 @@ TankMark.Locals = {
     _UnitIsFriend = UnitIsFriend,
     _UnitName = UnitName,
     _UnitExists = UnitExists,
+    -- [v0.32] slice C: native GUID read. nil on Vanilla 1.12 (no such global) -- used
+    -- only by the Ascension overlay's Platform.GUID override, which is the sole loader.
+    _UnitGUID = UnitGUID,
     _UnitPowerType = UnitPowerType,
     _UnitClass = UnitClass,
     _UnitRace = UnitRace,
@@ -190,18 +193,32 @@ function TankMark:HandleMouseover()
     if L._IsShiftKeyDown() then
         local guid = TankMark:Driver_GetGUID("mouseover")
         if guid then
-            -- [v0.21] Initialize batch on first Shift+mouseover
+            -- [v0.21] On the FIRST Shift+mouseover of a hold, fix the hold's mode and
+            -- start the release poller. [v0.32] slice C: on a scanner-less platform
+            -- (Ascension) an armed plan means this hold is the DRAIN sweep (sweep 2);
+            -- otherwise it's a COLLECT sweep. Deciding once per hold (not per hover)
+            -- keeps a mid-hold full-drain from flipping into collecting a new pack.
             if not TankMark.batchPollingActive then
-                TankMark.batchSequence = 0
-                TankMark.batchCandidates = {}
-            end
-            
-            TankMark:AddBatchCandidate(guid)
-            
-            -- [v0.21] Start polling for Shift release (Vanilla 1.12 workaround)
-            if not TankMark.batchPollingActive then
+                TankMark.batchDrainHold =
+                    (not TankMark.Platform.Caps.hasScanner) and TankMark.pullPlan and true or false
+                if not TankMark.batchDrainHold then
+                    TankMark.batchSequence = 0
+                    TankMark.batchCandidates = {}
+                end
                 TankMark.batchPollingActive = true
                 TankMark:StartBatchShiftPoller()
+            end
+
+            if TankMark.batchDrainHold then
+                -- DRAIN: apply the planned icon to the LIVE mouseover token now (a GUID
+                -- is not re-addressable later). Same gated apply edge; no Ledger write.
+                local icon = TankMark:TakePlanIcon(guid)
+                if icon then
+                    TankMark:Driver_ApplyMark("mouseover", icon)
+                end
+            else
+                -- COLLECT: gather the pack; Shift-release runs ExecuteBatchMarking.
+                TankMark:AddBatchCandidate(guid)
             end
         end
         return
@@ -223,6 +240,7 @@ end
 -- ==========================================================
 
 TankMark.batchPollingActive = false
+TankMark.batchDrainHold = false -- [v0.32] slice C: is the current Shift+hold a drain sweep (Ascension)?
 
 function TankMark:StartBatchShiftPoller()
     if not TankMark.batchPollerFrame then
@@ -408,6 +426,13 @@ TankMark:SetScript("OnEvent", function()
         -- death (same rationale as FlushMemory's deliberately partial wipe). Kills
         -- Turtle's retained-mark ghosts at the source.
         if not L._UnitIsDeadOrGhost("player") then
+            -- [v0.32] slice C: pull-end disarms any armed two-sweep plan (Ascension),
+            -- bounding a half-drained plan to a single pull. Combat START is deliberately
+            -- NOT a disarm (a sweep-2 bleeding into the pull opening still completes).
+            -- Gated so Vanilla runs no new logic here (pullPlan is self-managed there).
+            if not TankMark.Platform.Caps.hasScanner then
+                TankMark.pullPlan = nil
+            end
             TankMark:ClearMarksForPullEnd()
         elseif TankMark.DebugEnabled then
             TankMark:DebugLog("PULL_END", "skipped - player dead/ghost")

@@ -36,12 +36,14 @@ TankMark.Locals._gfind    = TankMark.Locals._gfind    or string.gmatch
 -- that GovernorBlocks calls -- so a drift in its >= operator is actually caught.
 local SUT = {
     "Core/TankMark_Platform.lua",
+    "Core/TankMark_Permissions.lua",
     "Core/TankMark_ZoneView.lua",
     "Core/TankMark_Reservation.lua",
     "Core/TankMark_ProfileStore.lua",
     "Core/TankMark_Assignment.lua",
     "Core/TankMark_Processor.lua",
     "Core/TankMark_Pull.lua",
+    "Core/TankMark_Batch.lua",
     "Core/TankMark_SyncCodec.lua",
     "Core/TankMark_Trust.lua",
     "Core/TankMark_Swarm.lua",

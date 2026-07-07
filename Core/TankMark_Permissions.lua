@@ -19,7 +19,11 @@ function TankMark:HasPermissions()
 end
 
 function TankMark:CanAutomate()
-    if not TankMark.IsSuperWoW then return false end
+    -- [v0.32] slice C: SuperWoW is required UNLESS the platform declares it isn't
+    -- (Ascension marks via the two-sweep live-token path, not SuperWoW). On Vanilla
+    -- requiresSuperWoW defaults true, so this reduces to the original `not IsSuperWoW`
+    -- gate -- byte-identical, including keeping a SuperWoW-less Vanilla client inert.
+    if TankMark.Platform.Caps.requiresSuperWoW and not TankMark.IsSuperWoW then return false end
     if not TankMark.IsActive then return false end
     if not TankMark:HasPermissions() then return false end
     local zone = TankMark:GetCachedZone()
@@ -60,10 +64,12 @@ function TankMark:GetMarkString(iconID)
     return "Mark " .. iconID
 end
 
+-- [v0.32] slice C: delegate the GUID read to the platform identity primitive so the
+-- batch collector AND the flight recorder inherit the right read per client. Vanilla's
+-- default IS this same 2-return UnitExists (byte-identical); Ascension overrides it
+-- with native UnitGUID in the overlay.
 function TankMark:Driver_GetGUID(unit)
-    local exists, guid = L._UnitExists(unit)
-    if exists and guid then return guid end
-    return nil
+    return TankMark.Platform.GUID(unit)
 end
 
 function TankMark:Driver_ApplyMark(unitOrGuid, icon)

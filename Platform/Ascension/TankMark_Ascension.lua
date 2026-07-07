@@ -4,19 +4,35 @@
 -- client folders, but the Vanilla TankMark.toc never references it, so it is inert
 -- on Vanilla -- the package-per-target "gate via toc reference, not file exclusion"
 -- rule (slice B's deferred file-list question, answered here). This is the home for
--- genuinely 3.3.5-specific code: the platform capability declaration + UI-API compat
--- shims now; the apply/read primitives and the two-sweep engine as slice C fills in.
+-- genuinely 3.3.5-specific code: the platform capability declarations, the UI-API
+-- compat shims, and the ONE platform primitive slice C needs -- the identity read
+-- (Platform.GUID -> native UnitGUID). The two-sweep engine itself is capability-gated
+-- BEHAVIOR and lives in shared Core (Batch.lua / the mouseover dispatch), gated on
+-- hasScanner -- per ADR 0003, only genuinely platform-specific code forks here.
 
 if not TankMark then return end
 if not TankMark.Platform then return end
 
 local L = TankMark.Locals
 
--- Declare the platform: no passive nameplate scanner on Ascension (ADR 0004), so
--- the in-combat batch gate stays closed. (No runtime effect yet -- automation is
--- hard-gated behind CanAutomate, which needs SuperWoW that Ascension lacks --
--- declared now for correctness and so Platform.name reads "Ascension".)
-TankMark.Platform.Register({ name = "Ascension", caps = { hasScanner = false } })
+-- Declare the platform capabilities (ADR 0004):
+--   hasScanner=false      -- no passive nameplate scanner, so the batch is the sole
+--                            marker and runs the two-sweep (not the in-combat skip).
+--   requiresSuperWoW=false -- Ascension marks via the two-sweep live-token path, not
+--                            SuperWoW, so CanAutomate's SuperWoW gate is lifted here
+--                            (every OTHER gate -- active/permissions/zone-profile --
+--                            still applies; and Ascension lacks SuperWoW anyway).
+TankMark.Platform.Register({ name = "Ascension", caps = { hasScanner = false, requiresSuperWoW = false } })
+
+-- Identity primitive override [v0.32] (slice C). SuperWoW's 2-return UnitExists (the
+-- Core default) does not exist on stock 3.3.5; Ascension reads a unit's GUID via the
+-- native UnitGUID. Driver_GetGUID delegates here, so the batch collector -- and the
+-- flight recorder -- get a working GUID on Ascension. This is the sole documented
+-- exception to ADR 0003's GUID-in rule expressed as a primitive: it READS a live
+-- token. (Apply needs no override -- the default SetMark already accepts a token.)
+TankMark.Platform.GUID = function(unit)
+    return L._UnitGUID(unit)
+end
 
 -- === UIDropDownMenu compat: 1.12 -> 3.3.5 argument-order shims =================
 -- The shared UI was written for Vanilla 1.12, where several UIDropDownMenu setters

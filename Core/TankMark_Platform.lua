@@ -27,6 +27,15 @@ TankMark.Platform.Caps = TankMark.Platform.Caps or {}
 if TankMark.Platform.Caps.hasScanner == nil then
     TankMark.Platform.Caps.hasScanner = true
 end
+-- [v0.32] slice C: the CanAutomate gate capability. Vanilla automation REQUIRES
+-- SuperWoW (no scanner + no mark-by-GUID without it), so this defaults true and the
+-- gate keeps blocking a SuperWoW-less Vanilla client. Ascension registers false: it
+-- marks via the two-sweep live-token path, not SuperWoW, so it must pass the gate.
+--   true  -> CanAutomate returns false unless IsSuperWoW (Vanilla).
+--   false -> CanAutomate skips the SuperWoW requirement (Ascension).
+if TankMark.Platform.Caps.requiresSuperWoW == nil then
+    TankMark.Platform.Caps.requiresSuperWoW = true
+end
 
 -- Register(impl): a platform impl calls this once at load to declare itself and
 -- downgrade the capabilities it lacks. impl = { name = "...", caps = { ... } }.
@@ -50,11 +59,27 @@ end
 -- target-addressable reference: a GUID on SuperWoW/Vanilla (which unifies GUIDs and
 -- unit tokens for SetRaidTarget) or a standard unit/mark-slot token (mark1-8, target,
 -- ...). It CANNOT be strictly GUID-in: a clear addresses a slot ("clear mark3"), for
--- which no GUID exists. The DEFAULT below IS the Vanilla baseline, so the Vanilla
--- build needs no registration; a reduced platform (Ascension apply takes a live
--- token, ADR 0004's one exception) overrides it at load. The READ primitive lands in
--- the Ascension slice that first needs it (slice C) -- every current mark-index read
--- is on a dropped path (scanner/Ledger/governor) or an optional pre-check.
+-- which no GUID exists. The DEFAULT below IS the Vanilla baseline AND already handles
+-- the Ascension apply edge: SetRaidTarget accepts a live unit/mark token, so the
+-- two-sweep (slice C) calls SetMark('mouseover', icon) through this same default --
+-- Ascension needs NO override. ADR 0004's "not-GUID-in exception" is just the CALLER
+-- passing a token, realized by this polymorphism, not by a platform override. The READ
+-- primitive stays deferred (still no consumer): sweep 2 reads occupancy via
+-- GetRaidTargetIndex('mouseover'), a token read that works natively on both platforms.
 TankMark.Platform.SetMark = TankMark.Platform.SetMark or function(unitOrGuid, icon)
     L._SetRaidTarget(unitOrGuid, icon)
+end
+
+-- GUID(unit): the identity READ primitive -- [v0.32] (slice C). Returns a unit token's
+-- GUID, or nil. The ONE genuinely platform-specific read the two-sweep needs, because
+-- the two ways to read a GUID differ by client: SuperWoW/Vanilla returns it as the 2nd
+-- value of UnitExists (the DEFAULT below); Ascension has no such extension and uses
+-- native UnitGUID (the overlay overrides this at load). Driver_GetGUID delegates here,
+-- so the batch collector AND the flight recorder inherit the right read per platform.
+-- The default yields nil on a SuperWoW-less client (UnitExists returns no 2nd value) --
+-- which is precisely why such a client cannot mark.
+TankMark.Platform.GUID = TankMark.Platform.GUID or function(unit)
+    local exists, guid = L._UnitExists(unit)
+    if exists and guid then return guid end
+    return nil
 end
