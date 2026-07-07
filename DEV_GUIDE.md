@@ -118,7 +118,8 @@ Maintaining these shared anchors ensures no element "jumps" when switching tabs.
 
 ### Other
 - **Bindings.xml**: Key binding definitions.
-- **TankMark.toc**: Addon manifest and load order.
+- **TankMark.toc**: Addon manifest and load order — the **Vanilla** (`## Interface: 11200`) canonical, loaded as-is by the Vanilla dev loop (no build step).
+- **TankMark-wrath.toc**: **[v0.32, slice B]** the **WotLK 3.3.5 / Ascension** manifest (`## Interface: 30300`) — same file list as `TankMark.toc`, only the interface number differs (shared Core is Lua-5.0-clean, so it parses under 5.1). This is the **package-per-target** build (ADR 0003): the deploy step (`.claude/sync-to-network.sh --target vanilla|ascension`, default `vanilla`) ships `TankMark.toc` as-is for Vanilla, or writes `TankMark-wrath.toc`'s content to `<dest>/TankMark.toc` for Ascension. The Ascension `Platform` impl and any file-list divergence (gate-vs-exclude) land with slice C; until then the wrath package is the shared Core running inert on stock 3.3.5.
 
 ## Key Systems (v0.26)
 
