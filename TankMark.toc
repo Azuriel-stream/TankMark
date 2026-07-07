@@ -11,6 +11,7 @@ TankMark.lua
 
 # Core Modules
 Core\TankMark_Session.lua
+Core\TankMark_Platform.lua
 Core\TankMark_Ledger.lua
 Core\TankMark_Reservation.lua
 Core\TankMark_ZoneView.lua
