@@ -154,3 +154,36 @@ driven by the announcement**, which also sidesteps Ascension's classless CC prob
   (Verified in-game on Ascension: re-sweeping a marked pack now retains its marks (no
   toggle-off), and a fresh pack marks cleanly after a prior pull with no wedge. Vanilla
   unchanged.)
+
+- **2026-07-08 (recorder mouseover + slash-print truthfulness).** Ascension-gated
+  (Vanilla byte-identical), grilled against this ADR. The core decision is unchanged; this
+  **closes the deferred-recorder note** in the Sweep-1 bullet above ("the recorder is the
+  path to make an unknown mob CC-able").
+  - **The Flight Recorder now records mobs off the live token on scanner-less platforms.**
+    Its mouseover trigger already fired on Ascension (`HandleMouseover` PRIORITY 3, on plain
+    mouseover, via `Platform.GUID`), but `RecordUnit(guid)` read the mob's attributes **by
+    GUID** — a no-op where a GUID is not a handle. `RecordUnit(guid, unit)` gains the same
+    read seam the collect sweep uses: `readUnit = hasScanner and guid or unit`, with the
+    mouseover dispatch passing the live `"mouseover"` token. The GUID stays the dedup /
+    identity key; the scanner caller passes no token (`readUnit = guid`, byte-identical on
+    Vanilla). **Realized:** an Ascension player mouseover-records an unknown pack, the entries
+    land in the persistent `TankMarkDB.Zones` with real `creatureType` + `tier` read off the
+    live NPC token, and the human then authors `role` / `type` so the next pull's `DecidePull`
+    can reason about CC-worthiness. All three game reads (`UnitCreatureType`,
+    `UnitClassification`, `UnitName`) are **standard NPC token reads** that work natively on
+    3.3.5 — Ascension's classless system is a *player-character* phenomenon, so NPCs are
+    unaffected; `class` stays human-authored (`nil` at record time) as on Vanilla, and the
+    `UnitIsPlayer` guard rejects classless players before any read.
+  - **Known limitation (deliberate, symmetric with Vanilla):** a recorder-recorded mob enters
+    the persistent store but **not** the `activeDB` (active zone view) inline — that refreshes
+    on zone reload. Functionally invisible for a *fresh* record (its prio-5 / skull default
+    already matches the unknown-mob path the collect sweep assumes); the gap appears only once
+    an entry is *edited*, which is a separate shared concern.
+  - **The two inert toggles' slash commands print truthfully**, completing the truthfulness
+    pass #132 did at the checkbox layer: `/tmark smartmark` and `/tmark autocc` on a
+    scanner-less platform print their effective state ("always on" / "unavailable — needs an
+    in-combat scanner") and do **not** flip the config field, mirroring their disabled
+    checkboxes. Same "make the message truthful on Ascension" call as `/tmark reset`.
+  (Verified in-game on Ascension: recorder records a mouseover'd mob with correct
+  creatureType/tier; both slash commands print the inert state. Vanilla unchanged: recorder
+  still records on Turtle, both toggles still flip.)
