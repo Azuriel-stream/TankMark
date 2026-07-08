@@ -218,6 +218,48 @@ describe("DecidePull reserve + safety + determinism", function()
         eq(plan.unccd[1].name, "Undead Healer", "the healer is surfaced")
     end)
 
+    -- [v0.32] slice C re-sweep: reservedIcons seeds usedMarks so an icon a mob
+    -- ALREADY physically wears (read live at collect time on Ascension, where the
+    -- two-sweep is no-Ledger and the board's busy-seed is blind to it) is not
+    -- handed to another mob -- else applying it would STEAL the mark (marks are
+    -- unique). nil/absent -> byte-identical to the 2-arg call (Vanilla).
+    it("reservedIcons keeps skull off a kill mob: it takes the next ladder rung", function()
+        local cands = { cand("g-new", "New Add", { role="MELEE", prio=2, type="KILL", marks={8} }, 1) }
+        local board = make_board{
+            creatureType = { ["g-new"]="Humanoid" },
+            tier         = { ["g-new"]="elite" },
+            ccSlots      = {},
+            -- ladder offers skull then cross; skull is reserved (an existing mob
+            -- physically wears it) -> the new add must take cross, not steal skull.
+            tankRoster   = { {mark=8, player="T", alive=true}, {mark=7, player="T2", alive=true} },
+        }
+        local plan = TankMark:DecidePull(cands, board, { [8] = true })
+        eq(iconFor(plan, "g-new"), 7, "reserved skull skipped -> next rung (cross)")
+    end)
+
+    it("reservedIcons taking the only rung -> overflow, mark not stolen", function()
+        local cands = { cand("g-new", "New Add", { role="MELEE", prio=2, type="KILL", marks={8} }, 1) }
+        local board = make_board{
+            creatureType = { ["g-new"]="Humanoid" },
+            tier         = { ["g-new"]="elite" },
+            ccSlots      = {},
+            tankRoster   = { {mark=8, player="T", alive=true} },  -- only skull, and it's reserved
+        }
+        local plan = TankMark:DecidePull(cands, board, { [8] = true })
+        eq(iconFor(plan, "g-new"), nil, "no free rung -> overflow (existing skull retained)")
+        eq(TankMark.Locals._tgetn(plan.overflow), 1, "new add surfaced as overflow")
+    end)
+
+    it("nil reservedIcons is byte-identical to the 2-arg call", function()
+        local cands = { cand("g-a", "A", { role="MELEE", prio=2, type="KILL", marks={8} }, 1) }
+        local board = make_board{
+            creatureType = { ["g-a"]="Humanoid" }, tier = { ["g-a"]="elite" },
+            ccSlots = {}, tankRoster = { {mark=8, player="T", alive=true} },
+        }
+        eq(iconFor(TankMark:DecidePull(cands, board), "g-a"), 8, "2-arg: skull as before")
+        eq(iconFor(TankMark:DecidePull(cands, board, nil), "g-a"), 8, "explicit nil: identical")
+    end)
+
     it("same pack twice on the SAME board -> identical intents (no fixture mutation)", function()
         local function build()
             return {

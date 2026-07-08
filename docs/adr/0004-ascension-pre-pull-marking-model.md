@@ -123,3 +123,34 @@ driven by the announcement**, which also sidesteps Ascension's classless CC prob
   (Whether Ascension auto-clears a mark on the mob's death is **untested** and is not relied on or
   claimed anywhere — note Turtle/Vanilla is documented to *retain* marks through death and respawn.)
   (Verified in-game: two-sweep marking works; Ctrl+mouseover is the redo clear; Vanilla unchanged.)
+
+- **2026-07-08 (re-sweep follow-ups).** Three follow-ups on the shipped two-sweep, all
+  Ascension-gated (Vanilla byte-identical), grilled against this ADR. The core decision is
+  unchanged; a new client fact was discovered.
+  - **Raid marks are unique (singleton per icon).** Re-applying an icon a mob *already wears*
+    **toggles it off**; applying a live icon to a *different* mob **moves** it (the prior
+    holder loses it). Consequence: a **re-sweep must be mark-preserving.** The collect sweep
+    now reads each hovered mob's live `GetRaidTargetIndex`; an already-marked mob is
+    **skipped and its icon reserved** (fed to `DecidePull` via a new optional `reservedIcons`
+    seed), so the plan fills only the free slots around it. Without this the re-sweep
+    re-planned from scratch — the seed is blind to physical marks because the two-sweep is
+    no-Ledger — and re-applied identical icons, toggling the whole pack off. This mirrors the
+    guard Vanilla already had at *apply* time (`ProcessBatchMark` skips already-marked); the
+    two-sweep drops `ProcessBatchMark`, so the guard moves to *collect* time. To re-mark
+    differently, **Ctrl+mouseover clear first**, then sweep — the clear-sweep is the redo
+    affordance.
+  - **`ClearMarksForPullEnd` is gated off on scanner-less platforms**, completing the parity
+    with `ResetSession` (whose physical strip was already gated in the slice-C in-game
+    amendment above). On Ascension this path only ever *disarmed the plan* (that lives at the
+    `PLAYER_REGEN_ENABLED` call site); its `mark1-8` strip found no tokens and its
+    `Ledger.Clear()` wiped empty tables — an accidental no-op, now an intentional documented
+    one. The death-auto-clear question stays **untested and unclaimed** (per the prior
+    amendment); this gate makes the code not depend on it.
+  - **The two inert config toggles are shown truthfully.** Smart Pre-Marking is forced on (the
+    two-sweep is the only batch path) and Auto-CC needs the absent scanner, so both are shown
+    **disabled at their effective value** with explaining legends rather than live controls
+    that silently do nothing — the same "make the message truthful on Ascension" call as
+    `/tmark reset`. Mark Normals stays a live toggle.
+  (Verified in-game on Ascension: re-sweeping a marked pack now retains its marks (no
+  toggle-off), and a fresh pack marks cleanly after a prior pull with no wedge. Vanilla
+  unchanged.)

@@ -323,11 +323,18 @@ end
 -- same switch as /tmark smartmark|autocc -- and stores a ref so the slash handlers
 -- and the tab OnShow can re-sync the box. (Pixel offsets are reload-tunable.)
 local function CreateMarkingAutomationSection(tab)
+	-- [v0.32] slice C: two of these modes are inert on a scanner-less platform
+	-- (Ascension) -- Smart Pre-Marking is FORCED on (the two-sweep is the only batch
+	-- path there) and Auto-CC needs the in-combat scanner that does not exist. Show
+	-- them disabled at their EFFECTIVE value with a truthful legend, rather than as
+	-- live controls that silently do nothing. Mark Normals (a decide-layer policy)
+	-- stays a normal toggle on every platform.
+	local scannerless = not TankMark.Platform.Caps.hasScanner
+
 	-- Smart Pre-Marking: the PRE-FIGHT batch mode (pack-aware Shift+mouseover).
 	local smartCheck = CreateFrame("CheckButton", "TMSmartMarkCheck", tab, "UICheckButtonTemplate")
 	smartCheck:SetPoint("TOPLEFT", 20, -76)
 	getglobal(smartCheck:GetName().."Text"):SetText("Smart Pre-Marking")
-	smartCheck:SetChecked(TankMark:SmartMarkEnabled())
 	smartCheck:SetScript("OnClick", function()
 		if not TankMarkCharConfig then TankMarkCharConfig = {} end
 		TankMarkCharConfig.smartMark = this:GetChecked() and true or false
@@ -337,13 +344,11 @@ local function CreateMarkingAutomationSection(tab)
 
 	local smartLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	smartLegend:SetPoint("TOPLEFT", 44, -96)
-	smartLegend:SetText("Plans the whole pack on Shift+mouseover, before you engage.")
 
 	-- Auto-CC in Combat: the IN-COMBAT scanner mode (per-mob as nameplates appear).
 	local autoCheck = CreateFrame("CheckButton", "TMAutoCCCheck", tab, "UICheckButtonTemplate")
 	autoCheck:SetPoint("TOPLEFT", 20, -116)
 	getglobal(autoCheck:GetName().."Text"):SetText("Auto-CC in Combat")
-	autoCheck:SetChecked(TankMark:AutoCCEnabled())
 	autoCheck:SetScript("OnClick", function()
 		if not TankMarkCharConfig then TankMarkCharConfig = {} end
 		TankMarkCharConfig.autoCC = this:GetChecked() and true or false
@@ -353,7 +358,19 @@ local function CreateMarkingAutomationSection(tab)
 
 	local autoLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	autoLegend:SetPoint("TOPLEFT", 44, -136)
-	autoLegend:SetText("Auto-sheeps healers / elite casters as they appear. Best for deliberate pulls.")
+
+	if scannerless then
+		-- Locked at the effective state: Smart is always-on, Auto-CC never fires.
+		smartCheck:SetChecked(true);  smartCheck:Disable()
+		autoCheck:SetChecked(false);  autoCheck:Disable()
+		smartLegend:SetText("Always on for this client - the pack plans on Shift+mouseover.")
+		autoLegend:SetText("Needs an in-combat scanner - not available on this client.")
+	else
+		smartCheck:SetChecked(TankMark:SmartMarkEnabled())
+		autoCheck:SetChecked(TankMark:AutoCCEnabled())
+		smartLegend:SetText("Plans the whole pack on Shift+mouseover, before you engage.")
+		autoLegend:SetText("Auto-sheeps healers / elite casters as they appear. Best for deliberate pulls.")
+	end
 end
 
 -- Section builder: the Mob DB sharing trust list (add-by-name + scroll list).
@@ -485,8 +502,13 @@ function TankMark:BuildGeneralOptionsTab(parent)
 	-- Also repaints the trust list on show.
 	tab:SetScript("OnShow", function()
 		if TankMark.normalsCheck   then TankMark.normalsCheck:SetChecked(TankMark:MarkNormalsEnabled()) end
-		if TankMark.smartMarkCheck then TankMark.smartMarkCheck:SetChecked(TankMark:SmartMarkEnabled()) end
-		if TankMark.autoCCCheck    then TankMark.autoCCCheck:SetChecked(TankMark:AutoCCEnabled()) end
+		-- [v0.32] slice C: only re-sync the two scanner-dependent toggles from prefs
+		-- where they're live (Vanilla). On a scanner-less platform they're disabled
+		-- at their effective value -- leave that forced visual alone.
+		if TankMark.Platform.Caps.hasScanner then
+			if TankMark.smartMarkCheck then TankMark.smartMarkCheck:SetChecked(TankMark:SmartMarkEnabled()) end
+			if TankMark.autoCCCheck    then TankMark.autoCCCheck:SetChecked(TankMark:AutoCCEnabled()) end
+		end
 		TankMark:RefreshTrustList()
 	end)
 
