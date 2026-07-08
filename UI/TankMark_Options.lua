@@ -307,7 +307,7 @@ end
 -- TankMarkCharConfig.markNormals, read through the default-true accessor).
 local function CreateMarkNormalsSection(tab)
 	local normalsCheck = CreateFrame("CheckButton", "TMNormalsCheck", tab, "UICheckButtonTemplate")
-	normalsCheck:SetPoint("TOPLEFT", 20, -50)
+	normalsCheck:SetPoint("TOPLEFT", 20, -20)
 	getglobal(normalsCheck:GetName().."Text"):SetText("Mark Normal/Non-Elite Mobs")
 	normalsCheck:SetChecked(TankMark:MarkNormalsEnabled())
 	normalsCheck:SetScript("OnClick", function()
@@ -333,7 +333,7 @@ local function CreateMarkingAutomationSection(tab)
 
 	-- Smart Pre-Marking: the PRE-FIGHT batch mode (pack-aware Shift+mouseover).
 	local smartCheck = CreateFrame("CheckButton", "TMSmartMarkCheck", tab, "UICheckButtonTemplate")
-	smartCheck:SetPoint("TOPLEFT", 20, -76)
+	smartCheck:SetPoint("TOPLEFT", 20, -46)
 	getglobal(smartCheck:GetName().."Text"):SetText("Smart Pre-Marking")
 	smartCheck:SetScript("OnClick", function()
 		if not TankMarkCharConfig then TankMarkCharConfig = {} end
@@ -343,11 +343,11 @@ local function CreateMarkingAutomationSection(tab)
 	TankMark.smartMarkCheck = smartCheck
 
 	local smartLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	smartLegend:SetPoint("TOPLEFT", 44, -96)
+	smartLegend:SetPoint("TOPLEFT", 44, -66)
 
 	-- Auto-CC in Combat: the IN-COMBAT scanner mode (per-mob as nameplates appear).
 	local autoCheck = CreateFrame("CheckButton", "TMAutoCCCheck", tab, "UICheckButtonTemplate")
-	autoCheck:SetPoint("TOPLEFT", 20, -116)
+	autoCheck:SetPoint("TOPLEFT", 20, -86)
 	getglobal(autoCheck:GetName().."Text"):SetText("Auto-CC in Combat")
 	autoCheck:SetScript("OnClick", function()
 		if not TankMarkCharConfig then TankMarkCharConfig = {} end
@@ -357,7 +357,7 @@ local function CreateMarkingAutomationSection(tab)
 	TankMark.autoCCCheck = autoCheck
 
 	local autoLegend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	autoLegend:SetPoint("TOPLEFT", 44, -136)
+	autoLegend:SetPoint("TOPLEFT", 44, -106)
 
 	if scannerless then
 		-- Locked at the effective state: Smart is always-on, Auto-CC never fires.
@@ -377,16 +377,16 @@ end
 local function CreateTrustSection(tab)
 	-- Header + one-line legend (ASCII only -- 1.12 FontStrings drop Unicode).
 	local hdr = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	hdr:SetPoint("TOPLEFT", 20, -162)
+	hdr:SetPoint("TOPLEFT", 20, -132)
 	hdr:SetText("Mob DB Sharing - Trusted / Blocked Players")
 
 	local legend = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	legend:SetPoint("TOPLEFT", 20, -179)
+	legend:SetPoint("TOPLEFT", 20, -149)
 	legend:SetText("Trusted = shares auto-import; Blocked = shares ignored.")
 
 	-- Add-by-name row: EditBox + Trust / Block buttons.
 	local addBox = TankMark:CreateEditBox(tab, "Add player name", 150)
-	addBox:SetPoint("TOPLEFT", 24, -212)
+	addBox:SetPoint("TOPLEFT", 24, -182)
 
 	local function addWith(state)
 		local name = L._gsub(addBox:GetText() or "", "%s", "")  -- names are single words
@@ -411,7 +411,7 @@ local function CreateTrustSection(tab)
 
 	-- Scroll list + tooltip-style backdrop.
 	local sf = CreateFrame("ScrollFrame", "TankMarkTrustScroll", tab, "FauxScrollFrameTemplate")
-	sf:SetPoint("TOPLEFT", 24, -244)
+	sf:SetPoint("TOPLEFT", 24, -214)
 	sf:SetWidth(430)
 	sf:SetHeight(TRUST_MAX_ROWS * TRUST_ROW_H)
 
@@ -486,11 +486,6 @@ function TankMark:BuildGeneralOptionsTab(parent)
 	tab:SetPoint("TOPLEFT", 15, -40)
 	tab:SetPoint("BOTTOMRIGHT", -15, 50)
 	tab:Hide()
-
-	-- Title
-	local title = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -20)
-	title:SetText("General Options")
 
 	CreateMarkNormalsSection(tab)
 	CreateMarkingAutomationSection(tab)
