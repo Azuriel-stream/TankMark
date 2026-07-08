@@ -25,17 +25,12 @@ function TankMark:BuildDataManagementTab(parent)
 	tab:SetPoint("BOTTOMRIGHT", -15, 50)
 	tab:Hide()
 
-	-- Title
-	local title = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -20)
-	title:SetText("Data Management")
-
 	-- ==========================================================
 	-- SECTION 1: SNAPSHOTS
 	-- ==========================================================
 
 	local snapshotHeader = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	snapshotHeader:SetPoint("TOPLEFT", tab, "TOPLEFT", 20, -60)
+	snapshotHeader:SetPoint("TOPLEFT", tab, "TOPLEFT", 20, -20)
 	snapshotHeader:SetText("|cff00ccffSnapshots Available:|r")
 
 	-- Snapshot Dropdown
