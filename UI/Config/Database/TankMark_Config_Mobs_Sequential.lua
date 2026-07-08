@@ -77,10 +77,10 @@ function TankMark:RefreshSequentialRows()
 			-- Update CC button
 			if seqData.class then
 				row.ccBtn:SetText(seqData.class)
-				row.ccBtn:SetTextColor(0, 1, 0)
+				TankMark:SetButtonTextColor(row.ccBtn, 0, 1, 0)
 			else
 				row.ccBtn:SetText("No CC")
-				row.ccBtn:SetTextColor(1, 0.82, 0)
+				TankMark:SetButtonTextColor(row.ccBtn, 1, 0.82, 0)
 			end
 			
 			-- Store dataIndex for delete button
