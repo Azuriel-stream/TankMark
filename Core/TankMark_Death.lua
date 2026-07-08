@@ -342,6 +342,15 @@ function TankMark:ClearMarksForPullEnd()
 	-- queen's marks the instant combat ends. Only the active marker clears.
 	if not TankMark:ShouldDriveMarks() then return end
 
+	-- [v0.32] slice C: no-op on a scanner-less platform (Ascension), mirroring the
+	-- ResetSession slice-C gate. The mark1..8 strip below addresses SuperWoW mark
+	-- tokens that don't exist here, and the two-sweep is no-Ledger so Ledger.Clear()
+	-- would wipe empty tables. The retained-mark wedge this fn prevents is a
+	-- scanner+Ledger phenomenon that can't occur on Ascension; the pull-end plan
+	-- disarm is handled at the call site (PLAYER_REGEN_ENABLED). So return early --
+	-- there are no mark tokens to strip and no "clear all" API for the swept pack.
+	if not TankMark.Platform.Caps.hasScanner then return end
+
 	local n = 0
 	for i = 1, 8 do
 		local token = "mark" .. i
