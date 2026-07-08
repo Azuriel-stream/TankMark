@@ -204,6 +204,9 @@ function TankMark:HandleMouseover()
                 if not TankMark.batchDrainHold then
                     TankMark.batchSequence = 0
                     TankMark.batchCandidates = {}
+                    -- [v0.32] slice C: fresh collect sweep -> clear the reserved-icon
+                    -- set (Ascension re-sweep). No-op on Vanilla (never filled).
+                    TankMark.batchReservedIcons = {}
                 end
                 TankMark.batchPollingActive = true
                 TankMark:StartBatchShiftPoller()

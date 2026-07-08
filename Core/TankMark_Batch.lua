@@ -20,6 +20,11 @@ TankMark.batchQueueTimer = 0
 TankMark.batchCandidates = {} -- Temporary collection during Shift-hold
 TankMark.batchSequence = 0 -- [v0.21] Track mouseover order
 TankMark.batchSkipCounters = {}
+-- [v0.32] slice C: icons a mob already physically wears, collected during the
+-- Ascension collect sweep and handed to DecidePull so a re-sweep reserves them
+-- (never re-applies -> never toggles/steals). Reset per collect hold. Vanilla:
+-- stays empty (the AddBatchCandidate read that fills it is scanner-less-gated).
+TankMark.batchReservedIcons = {}
 
 -- ==========================================================
 -- [v0.32] slice C: TWO-SWEEP DRAIN KERNEL (Ascension)
@@ -64,9 +69,24 @@ function TankMark:AddBatchCandidate(guid)
     -- key and the plan key regardless.
     local readUnit = TankMark.Platform.Caps.hasScanner and guid or "mouseover"
 
-    -- Basic validation (skip already-marked, dead, friendly)
+    -- Basic validation (dead, friendly)
     if L._UnitIsDead(readUnit) then return end
     if L._UnitIsPlayer(readUnit) or L._UnitIsFriend("player", readUnit) then return end
+
+    -- [v0.32] slice C: on a scanner-less platform (Ascension) the two-sweep is
+    -- no-Ledger, so re-sweeping an already-marked pack would re-run DecidePull from
+    -- scratch and re-apply each mob's icon -- and re-applying a mob's own icon
+    -- TOGGLES it off (marks are unique). So a mob that ALREADY wears a mark is
+    -- skipped and its icon RESERVED (fed to DecidePull), so the plan fills only the
+    -- free slots around it: existing marks are retained, never stolen. Vanilla
+    -- skips already-marked at APPLY time (ProcessBatchMark), so this is gated off.
+    if not TankMark.Platform.Caps.hasScanner then
+        local worn = L._GetRaidTargetIndex(readUnit)
+        if worn then
+            TankMark.batchReservedIcons[worn] = true
+            return
+        end
+    end
 
     -- [v0.32] Skip combat mobs only when a scanner will handle them (Vanilla).
     -- Without a scanner (Ascension, Platform.Caps.hasScanner=false) the batch is
@@ -167,7 +187,9 @@ function TankMark:ExecuteBatchMarking()
     -- to an ephemeral token -- so force DecidePull there regardless of the SmartMark
     -- toggle (which is a Vanilla-only choice). On Vanilla the toggle governs as before.
     if TankMark:SmartMarkEnabled() or not TankMark.Platform.Caps.hasScanner then
-        local plan = TankMark:DecidePull(sortedCandidates, TankMark.LiveBoard)
+        -- [v0.32] slice C: reservedIcons is what the collect sweep found already
+        -- worn (Ascension re-sweep); nil-equivalent-empty on Vanilla -> identical.
+        local plan = TankMark:DecidePull(sortedCandidates, TankMark.LiveBoard, TankMark.batchReservedIcons)
         TankMark.pullPlan = {}
         for _, intent in L._ipairs(plan.intents) do
             TankMark.pullPlan[intent.guid] = intent.icon

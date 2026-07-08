@@ -51,17 +51,32 @@ local function copySlots(slots)
 end
 
 -- candidates: array of { guid, name, mobData (or nil), sequence (optional) }
+-- reservedIcons: optional {icon->true} of marks that are ALREADY unavailable and
+--   must not be assigned. [v0.32] slice C: on a scanner-less platform (Ascension)
+--   the two-sweep is no-Ledger, so the board's busy-seed is blind to marks a mob
+--   physically wears; the collect sweep reads them live and passes them here so a
+--   re-sweep does not STEAL an existing mark onto another mob (marks are unique).
+--   nil/absent -> byte-identical to the 2-arg call (Vanilla path).
 -- returns { intents = { {guid,name,icon,reason}, ... }, overflow = {..}, unccd = {..} }
 --   intents  -- the marks to apply (CC + kill).
 --   overflow -- kill mobs past the ladder; handed off to the in-combat scanner.
 --   unccd    -- absolutely-worthy mobs (CCWorthiness >= 70) we could not CC.
-function TankMark:DecidePull(candidates, board)
+function TankMark:DecidePull(candidates, board, reservedIcons)
     local intents, overflow, unccd = {}, {}, {}
-    local usedMarks = {}   -- icon -> true (board busy/disabled seed + in-pass)
+    local usedMarks = {}   -- icon -> true (board busy/disabled + reserved seed + in-pass)
 
     -- Seed reserved icons: anything already busy or HUD-disabled is unavailable.
     for icon = 1, 8 do
         if board.isMarkBusy(icon) or board.isDisabled(icon) then
+            usedMarks[icon] = true
+        end
+    end
+
+    -- [v0.32] slice C: also reserve icons a mob already physically wears (Ascension
+    -- re-sweep). The board can't see these (no-Ledger), so the collect sweep hands
+    -- them in explicitly. nil on Vanilla -> no-op, 2-arg behavior preserved.
+    if reservedIcons then
+        for icon in L._pairs(reservedIcons) do
             usedMarks[icon] = true
         end
     end
