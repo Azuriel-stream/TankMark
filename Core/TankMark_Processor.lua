@@ -541,13 +541,22 @@ function TankMark:RegisterMarkUsage(icon, name, guid, skipProfileLookup)
     if TankMark.UpdateHUD then TankMark:UpdateHUD() end
 end
 
-function TankMark:RecordUnit(guid)
+-- [v0.32] slice C (recorder mouseover): on a scanner-less platform (Ascension) a
+-- GUID is not a re-readable handle, so read the mob's live attributes off the LIVE
+-- unit token the caller passes -- the mouseover dispatch calls RecordUnit(guid,
+-- "mouseover") with mouseover live. On Vanilla the GUID IS addressable (SuperWoW),
+-- so readUnit stays the GUID and every read below is byte-identical (the scanner
+-- caller passes no unit; hasScanner=true -> readUnit=guid). The GUID is always the
+-- identity/dedup key. All reads are standard NPC token reads (creatureType /
+-- classification / name); Ascension's classless system is a player-only phenomenon.
+function TankMark:RecordUnit(guid, unit)
     if TankMark.recordedGUIDs[guid] then return end
-    if L._UnitIsPlayer(guid) then return end
-    if L._UnitIsFriend("player", guid) then return end
-    local cType = L._UnitCreatureType(guid)
+    local readUnit = TankMark.Platform.Caps.hasScanner and guid or unit
+    if L._UnitIsPlayer(readUnit) then return end
+    if L._UnitIsFriend("player", readUnit) then return end
+    local cType = L._UnitCreatureType(readUnit)
     if cType == "Critter" or cType == "Non-combat Pet" then return end
-    local name = L._UnitName(guid)
+    local name = L._UnitName(readUnit)
     if not name then return end
     local zone = TankMark:GetCachedZone()
     if not TankMarkDB.Zones[zone] then
@@ -556,7 +565,7 @@ function TankMark:RecordUnit(guid)
     if TankMarkDB.Zones[zone][name] then return end
     -- [v0.30] Tier-A metadata: stamp creatureType + tier (cType already read above).
     -- Convenience cache only -- the decision layer re-reads these live; never a runtime input.
-    local tier = L._UnitClassification(guid)
+    local tier = L._UnitClassification(readUnit)
     TankMarkDB.Zones[zone][name] = {
         prio  = 5,
         marks = {8},

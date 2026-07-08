@@ -231,7 +231,10 @@ function TankMark:HandleMouseover()
     if TankMark.IsRecorderActive then
         local guid = TankMark:Driver_GetGUID("mouseover")
         if guid then
-            TankMark:RecordUnit(guid)
+            -- [v0.32] slice C: pass the LIVE mouseover token so a scanner-less
+            -- platform (Ascension) can read the mob's attributes off it -- a GUID is
+            -- not addressable there. Vanilla ignores the token (readUnit=guid).
+            TankMark:RecordUnit(guid, "mouseover")
         end
         return
     end
@@ -493,6 +496,14 @@ function TankMark:SlashHandler(msg)
 
     elseif cmd == "smartmark" or cmd == "smart" then
         -- [v0.30] Phase 4 (A): toggle pack-aware Shift+mouseover pre-marking.
+        -- [v0.32] slice C: on a scanner-less platform (Ascension) Smart Pre-Marking
+        -- is FORCED on (the two-sweep is the only batch path there), so the toggle is
+        -- inert -- print the truthful state instead of flipping a dead flag. Mirrors
+        -- the disabled checkbox in CreateMarkingAutomationSection.
+        if not TankMark.Platform.Caps.hasScanner then
+            TankMark:Print("Smart pre-mark: |cff00ff00always on|r for this client - the pack plans on Shift+mouseover.")
+            return
+        end
         local on
         if args == "on" then on = true
         elseif args == "off" then on = false
@@ -507,6 +518,14 @@ function TankMark:SlashHandler(msg)
     elseif cmd == "autocc" then
         -- [v0.30] Phase 4 (B): toggle in-combat auto-CC of absolutely-worthy mobs
         -- (healers / elite casters) as the scanner sees them. Default off.
+        -- [v0.32] slice C: Auto-CC needs the in-combat scanner, absent on a
+        -- scanner-less platform (Ascension), so the toggle is inert -- print the
+        -- truthful state instead of flipping a dead flag. Mirrors the disabled
+        -- checkbox in CreateMarkingAutomationSection.
+        if not TankMark.Platform.Caps.hasScanner then
+            TankMark:Print("Auto-CC: |cffff0000unavailable|r on this client - needs an in-combat scanner.")
+            return
+        end
         local on
         if args == "on" then on = true
         elseif args == "off" then on = false
