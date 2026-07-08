@@ -138,7 +138,7 @@ local L = TankMark.Locals
 -- Single version reference for the addon. Sourced from the .toc (## Version)
 -- via GetAddOnMetadata so it tracks the source of truth and never drifts; the
 -- literal is only a fallback if that API is unavailable on the client.
-TankMark.VERSION = (L._GetAddOnMetadata and L._GetAddOnMetadata("TankMark", "Version")) or "0.30"
+TankMark.VERSION = (L._GetAddOnMetadata and L._GetAddOnMetadata("TankMark", "Version")) or "0.32"
 
 -- ==========================================================
 -- ZONE CACHING
