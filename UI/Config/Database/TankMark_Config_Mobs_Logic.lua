@@ -19,15 +19,15 @@ function TankMark:UpdateClassButton()
 	
 	if TankMark.selectedClass then
 		TankMark.classBtn:SetText(TankMark.selectedClass)
-		TankMark.classBtn:SetTextColor(0, 1, 0)
+		TankMark:SetButtonTextColor(TankMark.classBtn, 0, 1, 0)
 	else
 		TankMark.classBtn:SetText("No CC")
-		TankMark.classBtn:SetTextColor(1, 0.82, 0)
+		TankMark:SetButtonTextColor(TankMark.classBtn, 1, 0.82, 0)
 	end
-	
+
 	if TankMark.selectedIcon == 0 then
 		TankMark.classBtn:SetText("IGNORED")
-		TankMark.classBtn:SetTextColor(0.5, 0.5, 0.5)
+		TankMark:SetButtonTextColor(TankMark.classBtn, 0.5, 0.5, 0.5)
 	end
 end
 
@@ -37,10 +37,10 @@ function TankMark:UpdateRoleButton()
 
 	if TankMark.selectedRole then
 		TankMark.roleBtn:SetText(TankMark.selectedRole)
-		TankMark.roleBtn:SetTextColor(0, 1, 0)
+		TankMark:SetButtonTextColor(TankMark.roleBtn, 0, 1, 0)
 	else
 		TankMark.roleBtn:SetText("No Role")
-		TankMark.roleBtn:SetTextColor(1, 0.82, 0)
+		TankMark:SetButtonTextColor(TankMark.roleBtn, 1, 0.82, 0)
 	end
 end
 

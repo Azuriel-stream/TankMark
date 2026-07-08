@@ -16,6 +16,18 @@ function TankMark:SetIconTexture(texture, iconID)
     end
 end
 
+-- [v0.32] Button:SetTextColor is a 1.12 widget method that is nil on 3.3.5 (Ascension) ->
+-- coloring a templated button's text directly throws there. Route through the button's
+-- font string, which colors identically on both clients (GetFontString exists on 1.12
+-- and 3.3.5). Vanilla-behavior-equivalent.
+function TankMark:SetButtonTextColor(btn, r, g, b)
+    if not btn then return end
+    local fs = btn:GetFontString()
+    if fs then
+        fs:SetTextColor(r, g, b)
+    end
+end
+
 function TankMark:CreateEditBox(parent, title, w)
     local eb = CreateFrame("EditBox", nil, parent)
     eb:SetWidth(w); eb:SetHeight(20)
